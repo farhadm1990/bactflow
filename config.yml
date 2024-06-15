@@ -1,0 +1,52 @@
+name: ont_helper
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies: 
+  - python=3.10
+  - checkm-genome
+  - flye
+  - medaka
+  - mummer
+  - minimap2
+  - pplacer
+  - gtdbtk
+  - hmmer
+  - prodigal
+  - unicycler
+  - spades
+  - megahit
+  - nanofilt
+  - rasusa
+  - pomoxis
+  - miniasm
+  - racon
+  - samtools
+  - bcftools
+  - git
+  - pip
+  - seqkit
+  - fastani
+  - skani
+  - pip:
+    - pyCirclize
+    - circlator
+    - pytmler
+    - bokeh
+    - numpy
+    - pandas
+    - pysam
+    - biopython
+    - flask
+  - prokka
+  - r-base
+  - r-ggplot2
+  - r-dplyr
+  - r-tidyverse
+  - r-ape
+  - r-BiocManager
+  - r-biocmanager
+  - quast
+
+      
