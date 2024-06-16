@@ -282,7 +282,7 @@ process deduper {
     for i in ${pooled_out}
     do 
         name=\$(basename \$i | cut -f 1 -d'.')
-        seqkit rmdup -s ${pooled_out} -j ${cpus} > dedup/\$"{name}"_dedup.fastq
+        seqkit rmdup -s ${pooled_out} -j ${cpus} > dedup/"\${name}"_dedup.fastq
     done
     """
 }
