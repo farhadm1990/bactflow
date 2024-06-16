@@ -1,1 +1,0 @@
-2024-06-16 02:29:25	-	admiring_mcclintock	-	4163551c278f45aeef7ecd6a14c169f5c84d72eb	cfc434b6-a9ad-48d3-a50d-e02dfee8a21c	nextflow run 'https://github.com/farhadm1990/genebrosh' --fastq_dir /path/to/fastq --extension .fastq.gz --cpus 30 --tensor_batch 200 --genome_size 6 --coverage 80 --tax_class true --checkm_lineage_check true --prok_annot true -r main
