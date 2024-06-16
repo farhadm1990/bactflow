@@ -14,29 +14,27 @@ Genebrosh is a workflow for bacterial genome assembly of single isolate and meta
 1. **Clone the Repository**
    ```sh
    git clone https://github.com/yourusername/genebrosh.git
-   cd genebrosh
+   
 Set Up Conda Environment
-sh
-Copy code
-conda create -n ont_helper -f environment.yml
-conda activate ont_helper
-````
+conda create -n ont_helper -f config.yml
+
+
 
 
 # Usage
 ## Run the Nextflow workflow directly from GitHub with the following command:
 
-```sh
-nextflow run yourusername/genebrosh \
-  --fastq_dir /path/to/fastq \
-  --extension '.fastq.gz' \
-  --cpus 30 \
-  --tensor_batch 200 \
-  --genome_size 6 \
-  --coverage 80 \
-  --tax_class true \
-  --checkm_lineage_check true \
-  --prok_annot true
+   ```sh
+   nextflow run https://github.com/farhadm1990/genebrosh \
+   --fastq_dir /path/to/fastq \
+   --extension '.fastq.gz' \
+   --cpus 30 \
+   --tensor_batch 200 \
+   --genome_size 6 \
+   --coverage 80 \
+   --tax_class true \
+   --checkm_lineage_check true \
+   --prok_annot true
 
-  ```
+
 
