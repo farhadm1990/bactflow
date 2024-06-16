@@ -282,7 +282,7 @@ process deduper {
     for i in ${pooled_out}
     do 
         name=\$(basename \$i | cut -f 1 -d'.')
-        seqkit rmdup  ${pooled_out} -s -j ${cpus} > dedup/"\${name}"_dedup.fastq
+        seqkit rmdup  \$i -s -j ${cpus} > dedup/"\${name}"_dedup.fastq
     done
     """
 }
@@ -354,7 +354,7 @@ process assembly_flye1 {
     echo true
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir "final_output/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
 
     input:
     path cov_fastqs
@@ -448,7 +448,7 @@ process assembly_flye2 {
     echo true
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir "final_output/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
 
     input:
     path filt_fastqs
@@ -538,7 +538,7 @@ process assembly_flye2 {
 
 process prokAnnot {
     cpus params.cpus
-    publishDir "final_output/prokk_out", mode: 'copy', overwrite: false
+    publishDir "${out_dir}/prokk_out", mode: 'copy', overwrite: false
     
     input:
     path fastas_fold
@@ -583,7 +583,7 @@ process taxonomyGTDBTK {
 process checkm_lineage {
     cpus params.cpus
 
-    publishDir "final_output", mode: copy, overwrite: false
+    publishDir "${out_dir}", mode: copy, overwrite: false
 
     input:
     path fastas_fold
