@@ -1,6 +1,6 @@
 
-<div style="text-align: center;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/logo/logo.png" alt="BactFlow Logo" />
+<div style="text-align: center; margin-top: 0;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/logo/logo.png" alt="BactFlow Logo" width="400" height="400"/>
     <p><strong>BactFlow</strong> logo was desinged by DALLE :) </p>
 </div>
 
