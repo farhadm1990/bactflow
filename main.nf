@@ -623,5 +623,5 @@ process checkm_lineage {
 
 
 
-// nextflow.bak run genebrosh --fastq_dir /home/projects/cu_10168/people/farpan/data/nadjia2/fastq_pass --extension '.fastq.gz' --cpus 40 -profile conda --tensor_batch 200 --genome_size 5 --coverage 80 --tax_class  true --checkm_lineage_check true --prok_annot true  --coverage_filter false --nanofilter false -w nadjia2 -process.echo -resume 
+
 
