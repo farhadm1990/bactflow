@@ -1,4 +1,4 @@
-name: ont_helper
+name: bactflow
 channels:
   - conda-forge
   - bioconda

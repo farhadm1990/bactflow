@@ -7,8 +7,9 @@ workflow {
 
         
 
-        envSetUP()
-       
+        def env_check =  envSetUP()
+        testify(env_check)
+        
         def pooled_out
         def dedup_fastq
         def filt_fastqs
@@ -141,19 +142,26 @@ workflow {
 
 process envSetUP {
     output:
-    file('environment_created')//, optional: true //to prevent stoping if it failed
+    path('environment_created'), emit: env_check//, optional: true //to prevent stoping if it failed
 
     script:
+
     """
+    
     source \$(conda info --base)/etc/profile.d/conda.sh
-    # source '/home/hackion/miniforge-pypy3/etc/profile.d/conda.sh'
-    conda_con=\$(conda env list | grep "ont_helper" | awk '{print \$1}' | grep -o '[a-zA-Z]' | wc -l)
+    
+    conda_con=\$(conda env list | grep "bactflow" | awk '{print \$1}' | grep -o '[a-zA-Z]' | wc -l)
     if [ \$conda_con -eq 0 ]
     then
-        mamba env create -f ${projectDir}/config.yml
-        
-        conda activate ont_helper
-        bash ${projectDir}/r_installer_pkg.sh
+        if command -v mamba
+        then
+            mamba env create -f ${baseDir}/config.yml
+        else
+            conda env create -f ${baseDir}/config.yml
+        fi
+
+        conda activate bactflow
+        bash ${baseDir}/r_installer_pkg.sh
         touch environment_created
         
       
@@ -161,8 +169,29 @@ process envSetUP {
 
     else
         touch environment_created
-        conda activate ont_helper
+        conda activate bactflow
     fi
+    """
+}
+
+process testify {
+    
+    input:
+    path env_check
+    
+    // conda 'bactflow'
+
+    output:
+   
+    path("checked.txt")
+
+
+    script:
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+    conda env list | grep bactflow > checked.txt
+    
     """
 }
 
@@ -180,7 +209,9 @@ process fastqConcater {
     script:
     """
     
-    
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     num_file=\$(ls "${fastq_dir}"| wc -l)
 
     if [ -d "${fastq_dir}"/pooled ] 
@@ -285,6 +316,9 @@ process deduper {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     if [ ! -d dedup ]
     then 
         mkdir -p dedup 
@@ -313,6 +347,9 @@ process nano_read_filt {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     if [ ! -d asm_out_dir ]
     then 
         mkdir -p asm_out_dir 
@@ -346,6 +383,9 @@ process coverage_filt {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     for i in ${filt_fastqs}
     do 
         if [ ! -d ./asm_out_dir/cov_filt ]
@@ -389,6 +429,9 @@ process assembly_flye1 {
     script:
     
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     medaka tools download_models --quiet
     if [ ! -d asm_out_dir ]
     then
@@ -488,6 +531,9 @@ process assembly_flye2 {
     script:
     
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     medaka tools download_models --quiet
     if [ ! -d asm_out_dir ]
     then
@@ -571,6 +617,9 @@ process prokAnnot {
     script:
     
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     echo "This is the ${cpus} number." > cpus_prok.txt
 
     source \$(conda info --base)/etc/profile.d/conda.sh
@@ -596,6 +645,9 @@ process taxonomyGTDBTK {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     echo "This is the ${cpus} number." 
     bash ${projectDir}/gtdbtk.sh -g '${fastas_fold}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
     """
@@ -617,6 +669,9 @@ process checkm_lineage {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     echo "This is the ${cpus} number." 
     checkm data setRoot '${dcheckm_db}'
     checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${fastas_fold}' checkm_lineage && \
@@ -643,6 +698,9 @@ process quast_check {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+    
     if [ ! -d quast_stat ]
     then 
         mkdir -p quast_stat
