@@ -1,8 +1,16 @@
-# Genebrosh
+
+<div style="text-align: center;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/logo/logo.png" alt="BactFlow Logo" />
+    <p><strong>BactFlow</strong> logo was desinged by DALLE :) </p>
+</div>
+
+
+
+# BactFlow
 
 ## Introduction
 
-Genebrosh is a workflow for bacterial genome assembly of single isolate and metagenomics sequencing reads extracted from Oxford Nanopore Technology (ONT) and Illumina platforms. It is designed using Nextflow DSL 2 technology and reads the generic outputs of Guppy and Dorado basecallers.
+BactFlow is a workflow for bacterial genome assembly of single isolate and metagenomics sequencing reads extracted from Oxford Nanopore Technology (ONT) and Illumina platforms. It is designed using Nextflow DSL 2 technology and reads the generic outputs of Guppy and Dorado basecallers.
 
 ## Requirements
 
@@ -13,7 +21,7 @@ Genebrosh is a workflow for bacterial genome assembly of single isolate and meta
 
 1. **Clone the Repository**
    ```sh
-   git clone https://github.com/yourusername/genebrosh.git
+   git clone https://github.com/yourusername/bactflow.git
    
 Set Up Conda Environment
 conda create -n ont_helper -f config.yml
@@ -25,7 +33,7 @@ conda create -n ont_helper -f config.yml
 ## Run the Nextflow workflow directly from GitHub with the following command:
 
    ```sh
-   nextflow run https://github.com/farhadm1990/genebrosh \
+   nextflow run farhadm1990/bactflow \
    --fastq_dir /path/to/fastq \
    --extension '.fastq.gz' \
    --cpus 30 \
@@ -34,7 +42,9 @@ conda create -n ont_helper -f config.yml
    --coverage 80 \
    --tax_class true \
    --checkm_lineage_check true \
-   --prok_annot true
+   --prok_annot true \
+   --run_quast true \
+   --medaka_polish true
 
 
 
