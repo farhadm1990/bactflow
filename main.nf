@@ -354,7 +354,7 @@ process coverage_filt {
 process assembly_flye1 {
     cpus params.cpus
     debug true
-    errorStrategy 'ignore'
+  //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
     publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
@@ -453,7 +453,7 @@ process assembly_flye1 {
 process assembly_flye2 {
     cpus params.cpus
     debug true
-    errorStrategy 'ignore'
+   // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
     publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
@@ -468,7 +468,7 @@ process assembly_flye2 {
     val basecaller_model
     val tensor_batch
     val medaka_polish
-    
+
     when:
     ! params.coverage_filter
 
