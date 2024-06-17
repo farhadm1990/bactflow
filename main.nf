@@ -14,6 +14,7 @@ workflow {
         def filt_fastqs
         def cov_fastqs
         def fastas_fold
+        def quast_out
          // Get the concatenated fastq files
         if (params.run_flye) {
             pooled_out = fastqConcater(
@@ -122,6 +123,14 @@ workflow {
             params.genome_extension
 
         )
+        }
+
+        // quast stats
+        if (params.run_quast) {
+            quast_out = quast_check(
+            fastas_fold,
+            params.cpus
+            )
         }
         
     
@@ -575,6 +584,7 @@ process prokAnnot {
 process taxonomyGTDBTK {
     cpus params.cpus
     publishDir "final_output/gtdbtk_out", mode: 'copy', overwrite: false
+
     input:
     path fastas_fold
     val cpus
@@ -615,6 +625,32 @@ process checkm_lineage {
     checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${fastas_fold}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
     """
 
+}
+
+
+// quast assembly stats
+process quast_check {
+    cpus params.cpus
+    publishDir "${out_dir}/quast_report", mode: copy, overwrite: false
+    errorStrategy 'ignor'
+
+    input:
+    path fastas_fold
+    val cpus
+
+    output:
+    path("quast_report"), emit: quast_out, optional: true
+
+    script:
+    """
+    if [ ! -d quast_stat ]
+    then 
+        mkdir -p quast_stat
+
+    fi 
+
+    quast '${fastas_fold}'/*.fasta -o quast_stat -t ${cpus}
+    """
 }
 
 
