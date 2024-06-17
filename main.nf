@@ -54,7 +54,8 @@ workflow {
                 params.min_length,
                 params.min_quality,
                 params.basecaller_model,
-                params.tensor_batch
+                params.tensor_batch,
+                params.medaka_polish
             )
                 
             } else {
@@ -66,7 +67,8 @@ workflow {
                 params.min_length,
                 params.min_quality,
                 params.basecaller_model,
-                params.tensor_batch
+                params.tensor_batch,
+                params.medaka_polish
             )
             }
 
@@ -351,7 +353,8 @@ process coverage_filt {
 // assembling: with coverage filter
 process assembly_flye1 {
     cpus params.cpus
-    echo true
+    debug true
+    errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
     publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
@@ -365,6 +368,7 @@ process assembly_flye1 {
     val min_quality
     val basecaller_model
     val tensor_batch
+    val medaka_polish
 
     when:
     params.coverage_filter
@@ -392,13 +396,16 @@ process assembly_flye1 {
         flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye  #--asm-coverage ${coverage} -g ${genome_size}m
 
         
-        echo "polishing fasta reads..."
-        mini_align -i \$i -r asm_out_dir/"\${out_name}"_flye/assembly.fasta -P -m -p asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name -t ${cpus} 
+        if [ '${medaka_polish}' == "true" ]
+        then 
+            echo "polishing fasta reads..."
+            mini_align -i \$i -r asm_out_dir/"\${out_name}"_flye/assembly.fasta -P -m -p asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name -t ${cpus} 
 
-        medaka consensus asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name.bam asm_out_dir/"\${out_name}"_flye/\$out_name.hdf --batch ${tensor_batch} --threads ${cpus} --model '${basecaller_model}'
+            medaka consensus asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name.bam asm_out_dir/"\${out_name}"_flye/\$out_name.hdf --batch ${tensor_batch} --threads ${cpus} --model '${basecaller_model}'
 
-        medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
-        rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
+            medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
+            rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
+        fi
 
         
     done
@@ -414,7 +421,7 @@ process assembly_flye1 {
 
     echo "your polished fasta files are ready in asm_out_dir/polished_fasta."
 
-    ######## Running cirlator #########
+    ######## Running circlator #########
 
     for i in asm_out_dir/polished_fasta/*.fasta
     do  
@@ -445,7 +452,8 @@ process assembly_flye1 {
 // assembling: with no coverage filter
 process assembly_flye2 {
     cpus params.cpus
-    echo true
+    debug true
+    errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
     publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
@@ -485,14 +493,16 @@ process assembly_flye2 {
         
         flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye  #--asm-coverage ${coverage} -g ${genome_size}m
 
-        
-        echo "polishing fasta reads..."
-        mini_align -i \$i -r asm_out_dir/"\${out_name}"_flye/assembly.fasta -P -m -p asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name -t ${cpus} 
+        if [ '${medaka_polish}' == "true" ]
+        then 
+            echo "polishing fasta reads..."
+            mini_align -i \$i -r asm_out_dir/"\${out_name}"_flye/assembly.fasta -P -m -p asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name -t ${cpus} 
 
-        medaka consensus asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name.bam asm_out_dir/"\${out_name}"_flye/\$out_name.hdf --batch ${tensor_batch} --threads ${cpus} --model '${basecaller_model}'
+            medaka consensus asm_out_dir/"\${out_name}"_flye/read_to_draft_\$out_name.bam asm_out_dir/"\${out_name}"_flye/\$out_name.hdf --batch ${tensor_batch} --threads ${cpus} --model '${basecaller_model}'
 
-        medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
-        rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
+            medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
+            rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
+        fi
 
         
     done
@@ -508,7 +518,7 @@ process assembly_flye2 {
 
     echo "your polished fasta files are ready in asm_out_dir/polished_fasta."
 
-    ######## Running cirlator #########
+    ######## Running circlator #########
 
     for i in asm_out_dir/polished_fasta/*.fasta
     do  
@@ -612,4 +622,5 @@ process checkm_lineage {
 
 
 
-// nextflow.bak run main.nf --fastq_dir /home/projects/cu_10168/people/farpan/data/nadjia2/fastq_pass --extension '.fastq.gz' --cpus 40 -profile conda --tensor_batch 200 --genome_size 5 --coverage 80 --tax_class  true --checkm_lineage_check true --prok_annot true  --coverage_filter false --nanofilter false -w nadjia2 -process.echo -resume 
+// nextflow.bak run genebrosh --fastq_dir /home/projects/cu_10168/people/farpan/data/nadjia2/fastq_pass --extension '.fastq.gz' --cpus 40 -profile conda --tensor_batch 200 --genome_size 5 --coverage 80 --tax_class  true --checkm_lineage_check true --prok_annot true  --coverage_filter false --nanofilter false -w nadjia2 -process.echo -resume 
+
