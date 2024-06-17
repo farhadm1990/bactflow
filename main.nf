@@ -467,7 +467,8 @@ process assembly_flye2 {
     val min_quality
     val basecaller_model
     val tensor_batch
-
+    val medaka_polish
+    
     when:
     ! params.coverage_filter
 
