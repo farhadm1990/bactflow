@@ -20,11 +20,19 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 ## Installation
 
 1. **Clone the Repository**
-   ```sh
+ ```sh
    git clone https://github.com/yourusername/bactflow.git
-   
-Set Up Conda Environment
-conda create -n ont_helper -f config.yml
+
+   cd bactflow
+   mamba env create -f config.yml
+
+   cd ..
+   cp bactflow ~/.nextflow
+
+   nextflow run bactflow
+```
+  
+
 
 
 
