@@ -471,7 +471,7 @@ process assembly_flye1 {
   //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
     path cov_fastqs
@@ -489,7 +489,7 @@ process assembly_flye1 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
+    path('circulated_fasta'), emit: fastas_fold
 
     script:
     
@@ -575,7 +575,7 @@ process assembly_flye2 {
    // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
     path filt_fastqs
@@ -593,7 +593,7 @@ process assembly_flye2 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
+    path('circulated_fasta'), emit: fastas_fold
 
     script:
     
@@ -673,7 +673,7 @@ process assembly_flye2 {
 
 process prokAnnot {
     cpus params.cpus
-    publishDir "${params.out_dir}/prokk_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
     
     input:
     path fastas_fold
