@@ -383,7 +383,7 @@ process deduper {
         mkdir -p dedup 
     fi
 
-    for i in ${pooled_out}/*.fasta
+    for i in ${pooled_out}/*.fastq
     do 
         name=\$(basename \$i | cut -f 1 -d'.')
         seqkit rmdup  \$i -s -j ${cpus} > dedup/"\${name}"_dedup.fastq
