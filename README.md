@@ -41,12 +41,12 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 ## Run the Nextflow workflow directly from GitHub with the following command:
 
    ```sh
-   nextflow run farhadm1990/bactflow \
-   --fastq_dir /path/to/fastq \
-   --extension '.fastq.gz' \
-   --cpus 30 \
-   --tensor_batch 200 \
-   --genome_size 6 \
+   nextflow run farhadm1990/bactflow \ 
+   --fastq_dir /path/to/fastq \         # Full path to the fastq_pass dir
+   --extension '.fastq.gz' \            # extension of fastq reads 
+   --cpus 30 \                          # threads
+   --tensor_batch 200 \                 # number of tensorflow batch for medaka polishing. Consider reducing it in low-coverage samples.
+   --genome_size 6 \                    
    --coverage 80 \
    --tax_class true \
    --checkm_lineage_check true \
