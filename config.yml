@@ -34,8 +34,8 @@ dependencies:
     - circlator
     - pytmler
     - bokeh
-    - numpy=1.21.2
-    - h5py=3.3.0
+    - numpy
+    - h5py
     - pandas
     - pysam
     - biopython
@@ -51,3 +51,4 @@ dependencies:
   - quast
 
       
+#conda env update --name bactflow --file config.yml --prune
