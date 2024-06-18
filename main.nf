@@ -489,7 +489,7 @@ process assembly_flye1 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     
@@ -593,7 +593,7 @@ process assembly_flye2 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     

@@ -34,7 +34,8 @@ dependencies:
     - circlator
     - pytmler
     - bokeh
-    - numpy
+    - numpy=1.21.2
+    - h5py=3.3.0
     - pandas
     - pysam
     - biopython
