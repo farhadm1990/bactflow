@@ -136,8 +136,8 @@ else
     fi
 fi
 
-
-
+# Upgrading
+python -m pip install gtdbtk --upgrade
 
 # Gene calling
 echo "Executing gene calling..."
