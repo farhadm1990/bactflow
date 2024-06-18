@@ -693,7 +693,7 @@ process prokAnnot {
 
   
 
-    bash ${projectDir}/prokka_annot.sh -g "${fastas_fold}"/*.fasta -c ${cpus}
+    bash ${projectDir}/prokka_annot.sh -g "${fastas_fold}" -c ${cpus}
     
     """
 }
