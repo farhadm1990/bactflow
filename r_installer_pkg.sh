@@ -2,11 +2,12 @@
 
 source $(conda info --base)/etc/profile.d/conda.sh
 
-conda activate ont_helper
+conda activate bactflow
 
 
 R -e "BiocManager::install('phyloseq')"
-#R -e "BiocManager::install('ggtree')"
+R -e "BiocManager::install('ggtree')"
+R -e "BiocManager::install('tidyverse')"
 R -e "install.packages('patchwork')"
 R -e "install.packages('readr')"
 R -e "install.packages('ggpubr')"

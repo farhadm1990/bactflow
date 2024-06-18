@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 NXF_CONDA_ENABLED=true
-
+nextflow.preview.output=true
 params.help = false
 
 def helpMessage = """
@@ -189,7 +189,9 @@ workflow {
     
 }
 
-
+output {
+    directory params.out_dir
+}
 
 
 process envSetUP {
@@ -231,12 +233,14 @@ process testify {
     input:
     path env_check
     
-    // conda 'bactflow'
+    // conda 'cofig.yml'
 
     output:
    
-    path("checked.txt")
+    path("checked.txt"), emit: env_testify
 
+    publish:
+    env_testify >> 'env_testify'
 
     script:
     """
@@ -258,7 +262,7 @@ process fastqConcater {
 
     output:
    // file('concatenated_fq_are_ready') 
-    path("${fastq_dir}/pooled/*.fastq"), emit: pooled_out
+    path("pooled/*.fastq"), emit: pooled_out
 
 
     script:
@@ -467,7 +471,7 @@ process assembly_flye1 {
   //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false
 
     input:
     path cov_fastqs
@@ -485,7 +489,7 @@ process assembly_flye1 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path("asm_out_dir/circulated_fasta"), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
 
     script:
     
@@ -569,7 +573,7 @@ process assembly_flye2 {
    // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir "${out_dir}/circulated_fasta", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false
 
     input:
     path filt_fastqs
@@ -587,7 +591,7 @@ process assembly_flye2 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path("asm_out_dir/circulated_fasta"), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
 
     script:
     
@@ -665,7 +669,7 @@ process assembly_flye2 {
 
 process prokAnnot {
     cpus params.cpus
-    publishDir "${out_dir}/prokk_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/prokk_out", mode: 'copy', overwrite: false
     
     input:
     path fastas_fold
@@ -675,7 +679,7 @@ process prokAnnot {
     params.prok_annot
 
     output:
-    path("prokk_out"), optional: true //so that it deons't stop upon failing
+    path('prokk_out'), optional: true //so that it deons't stop upon failing
 
     script:
     
@@ -695,7 +699,7 @@ process prokAnnot {
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
-    publishDir "final_output/gtdbtk_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/gtdbtk_out", mode: 'copy', overwrite: false
 
     input:
     path fastas_fold
@@ -704,7 +708,7 @@ process taxonomyGTDBTK {
     val gtdbtk_data_path
     
     output:
-    path("gtdbtk_out"),  optional: true //so that it deons't stop upon failing
+    path('gtdbtk_out'),  optional: true //so that it deons't stop upon failing
 
     script:
     """
@@ -718,7 +722,7 @@ process taxonomyGTDBTK {
 process checkm_lineage {
     cpus params.cpus
 
-    publishDir "${out_dir}", mode: copy, overwrite: false
+    publishDir "${params.out_dir}/checkm_out", mode: copy, overwrite: false
 
     input:
     path fastas_fold
@@ -751,7 +755,7 @@ process checkm_lineage {
 // quast assembly stats
 process quast_check {
     cpus params.cpus
-    publishDir "${out_dir}/quast_report", mode: copy, overwrite: false
+    publishDir "${params.out_dir}/quast_report", mode: copy, overwrite: false
     errorStrategy 'ignor'
 
     input:
@@ -762,7 +766,7 @@ process quast_check {
     params.run_quast
 
     output:
-    path("quast_report"), emit: quast_out, optional: true
+    path('quast_report'), emit: quast_out, optional: true
 
     script:
     """
