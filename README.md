@@ -27,9 +27,9 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
    mamba env create -f config.yml
 
    cd ..
-   cp bactflow ~/.nextflow
+   cp bactflow ~/.nextflow/assets/farhadm1990/
 
-   nextflow run bactflow
+   nextflow run bactflow --help
 ```
   
 
