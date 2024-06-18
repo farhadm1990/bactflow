@@ -756,7 +756,7 @@ process checkm_lineage {
 process quast_check {
     cpus params.cpus
     publishDir "${params.out_dir}/quast_report", mode: 'copy', overwrite: false
-    errorStrategy 'ignor'
+    errorStrategy 'ignore'
 
     input:
     path fastas_fold
