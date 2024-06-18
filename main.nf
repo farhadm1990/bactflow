@@ -444,7 +444,7 @@ process coverage_filt {
     params.coverage_filter
 
     output:
-    path('cov_filt/*_filt.fastq'), emit: cov_fastqs
+    path('cov_filt/*.fastq'), emit: cov_fastqs
 
     script:
     """
