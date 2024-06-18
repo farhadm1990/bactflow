@@ -113,7 +113,7 @@ EOF
 chmod +x "${out_dir}"/download-db.sh
 
 
-conda activate ont_helper
+conda activate bactflow
 export GTDBTK_DATA_PATH="${db_dir}"
 # Setting up the database
 path_f=$(which gtdbtk)

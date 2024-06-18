@@ -689,8 +689,6 @@ process prokAnnot {
 
   
 
-    source \$(conda info --base)/etc/profile.d/conda.sh
-    conda activate ont_helper
     bash ${projectDir}/prokka_annot.sh -g "${fastas_fold}"/*.fasta -c ${cpus}
     
     """
