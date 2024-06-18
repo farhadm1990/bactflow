@@ -722,7 +722,7 @@ process taxonomyGTDBTK {
 process checkm_lineage {
     cpus params.cpus
 
-    publishDir "${params.out_dir}/checkm_out", mode: copy, overwrite: false
+    publishDir "${params.out_dir}/checkm_out", mode: 'copy', overwrite: false
 
     input:
     path fastas_fold
@@ -755,7 +755,7 @@ process checkm_lineage {
 // quast assembly stats
 process quast_check {
     cpus params.cpus
-    publishDir "${params.out_dir}/quast_report", mode: copy, overwrite: false
+    publishDir "${params.out_dir}/quast_report", mode: 'copy', overwrite: false
     errorStrategy 'ignor'
 
     input:
