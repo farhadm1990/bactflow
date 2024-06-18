@@ -150,7 +150,7 @@ workflow {
                 params.output_dir
             )
         } else {
-            fastas_fold = channel.fromPath(params.genome_dir)
+            fastas_fold = channel.fromPath(params.genome_dir + "/*.fasta")
         }
          
         // Annotate the genomes
@@ -444,7 +444,7 @@ process coverage_filt {
     params.coverage_filter
 
     output:
-    path('asm_out_dir/cov_filt/*_filt.fastq'), emit: cov_fastqs
+    path('cov_filt/*_filt.fastq'), emit: cov_fastqs
 
     script:
     """
@@ -453,13 +453,13 @@ process coverage_filt {
 
     for i in ${filt_fastqs}
     do 
-        if [ ! -d ./asm_out_dir/cov_filt ]
+        if [ ! -d asm_out_dir/cov_filt ]
         then 
-            mkdir -p ./asm_out_dir/cov_filt
+            mkdir -p asm_out_dir/cov_filt
         fi 
 
         name=\$(basename \$i | cut -f1 -d".")
-        rasusa reads -c ${coverage} -g ${genome_size}mb  \$i > ./asm_out_dir/cov_filt/\$name.fastq
+        rasusa reads -c ${coverage} -g ${genome_size}mb  \$i > asm_out_dir/cov_filt/\$name.fastq
     done
     """
 }
@@ -494,8 +494,10 @@ process assembly_flye1 {
     script:
     
     """
+    
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+
 
     medaka tools download_models --quiet
     if [ ! -d asm_out_dir ]
@@ -598,6 +600,8 @@ process assembly_flye2 {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+
+    echo \$(conda env list | grep "*") > conda.txt
 
     medaka tools download_models --quiet
     if [ ! -d asm_out_dir ]
