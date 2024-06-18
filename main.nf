@@ -69,7 +69,7 @@ workflow {
                 params.extension
             )
             } else {
-                pooled_out = channel.fromPath(params.fastq_dir)
+                pooled_out = channel.fromPath(params.fastq_dir + "/*.fastq")
             }
            
 
@@ -383,7 +383,7 @@ process deduper {
         mkdir -p dedup 
     fi
 
-    for i in ${pooled_out}/*.fastq
+    for i in ${pooled_out}
     do 
         name=\$(basename \$i | cut -f 1 -d'.')
         seqkit rmdup  \$i -s -j ${cpus} > dedup/"\${name}"_dedup.fastq
