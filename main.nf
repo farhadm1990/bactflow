@@ -740,6 +740,7 @@ process checkm_lineage {
 
     script:
     """
+    #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
 
@@ -753,7 +754,7 @@ process checkm_lineage {
     concat_fasta="checkm_tree/storage/tree/concatenated.fasta"
     # Building the genome-based tree
 
-    Rscript -e "
+    #!/usr/bin/env Rscript
     library(Biostrings)
     library(msa)
     library(ape)
@@ -768,7 +769,7 @@ process checkm_lineage {
     dis <- dist.alignment(als_seqinr, 'identity')
     tr <- nj(dis)
 
-    write.tree(phy = tr, file = 'genome_tree.tree')"
+    write.tree(phy = tr, file = 'genome_tree.tree')
 
 
 
