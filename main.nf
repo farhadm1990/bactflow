@@ -489,7 +489,7 @@ process assembly_flye1 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta'), emit: fastas_fold
+    path('circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     
@@ -593,7 +593,7 @@ process assembly_flye2 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta'), emit: fastas_fold
+    path('circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     
@@ -701,7 +701,7 @@ process prokAnnot {
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
-    publishDir "${params.out_dir}/gtdbtk_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
     path fastas_fold
@@ -736,7 +736,7 @@ process checkm_lineage {
     params.run_checkm
 
     output:
-    tupl path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'),  optional: true //so that it deons't stop upon failing
+    tupl path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'), path('genome_tree.tree')  optional: true //so that it deons't stop upon failing
 
     script:
     """
@@ -749,6 +749,31 @@ process checkm_lineage {
     checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
 
     checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${fastas_fold}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+
+    concat_fasta="checkm_tree/storage/tree/concatenated.fasta"
+    # Building the genome-based tree
+
+    Rscript -e "
+    library(Biostrings)
+    library(msa)
+    library(ape)
+    library(tidyverse)
+    library(readr)
+
+    seqs <- Biostrings::readDNAStringSet('${concat_fasta}', format = 'fasta')
+    als <- msa(seqs)
+
+    als_seqinr <- msaConvert(als, type = 'seqinr::alignment')
+    als_bios2mds <- msaConvert(als, type = 'bios2mds::align')
+    dis <- dist.alignment(als_seqinr, 'identity')
+    tr <- nj(dis)
+
+    write.tree(phy = tr, file = 'genome_tree.tree')
+"
+
+
+
+
     """
 
 }
