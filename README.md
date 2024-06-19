@@ -20,7 +20,7 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 ## Installation
 
 1. **Clone the Repository**
- ```sh
+```sh
    git clone https://github.com/yourusername/bactflow.git
 
    cd bactflow
@@ -31,6 +31,15 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 
    nextflow run bactflow --help
 ```
+
+2. **Clone the Repository via `nextflw pull` command**
+```sh
+
+nextflow pull farhadm1990/bactflow
+
+nextflow  run bactflow
+```
+
   
 
 
@@ -40,19 +49,40 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 # Usage
 ## Run the Nextflow workflow directly from GitHub with the following command:
 
-   ```sh
-   nextflow run farhadm1990/bactflow \ 
-   --fastq_dir /path/to/fastq \         # Full path to the fastq_pass dir
-   --extension '.fastq.gz' \            # extension of fastq reads 
-   --cpus 30 \                          # threads
-   --tensor_batch 200 \                 # number of tensorflow batch for medaka polishing. Consider reducing it in low-coverage samples.
-   --genome_size 6 \                    
-   --coverage 80 \
-   --tax_class true \
-   --checkm_lineage_check true \
-   --prok_annot true \
-   --run_quast true \
-   --medaka_polish true
+```sh
+nextflow run bactflow --help -r main
+
+Usage: nextflow run bactflow [options]
+
+Options:
+   
+    --fastq_dir             Absolute path to the fastq_pass directory (required). 
+    --concat_reads          Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
+    --extension             String; extention of basecalled fastq files; default '.fastq.gz'
+    --cpus                  Number of available cpus; default 1.
+    --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
+    --coverage              Only if '--coverage_filter true'; default is 50.
+    --genome_size           Genome size for coverage normalizaiton. Only if '--coverage_filter true'; default is 6.
+    --out_dir               Output directory of your final results. Default "genebrosh_output"
+    --tensor_batch          Medaka tensorflow batch size. Lower it in low coverage genomes. Default 200.
+    --nanofilter            Filtering reads for length and quality; default true.
+    --min_length            If '--nanofilter' true, filter reads below a certain read length (default 1000). 
+    --min_quality           If '--nanofilter' true, filter reads below a certain read quality (default 16 for R10.4.1 flowcells). 
+    --medaka_polish         If true, it will polish assembled genomes by medaka (dfault false).
+    --basecaller_model      Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
+    --checkm_lineag_check   If true, the genomes will be checked for their lineage completeness in one bin (default false).
+    --genome_extension      Required if '--checkm_lineag_check true'; default fasta.
+    --run_flye              If true, it runs Flye assembler; default true.
+    --run_unicycler         If true, it runs Unicycler hybrid assemlber, default false.
+    --run_megahit           If true, it runs Megahit assembler, default false.
+    --run_spades            If true, it runs Spades assembler, default false.
+    --tax_class             If true, it runs GTBtk taxonomic classification, default true.
+    --prok_annot            If true, it runs gene annotaiton by Prokka, default false. 
+    --run_checkm            If true, it runs checmk lineage and phylogenetic tree workflow.
+    --checkm_db             An absolute path to the Checkm database.  
+    --gtdbtk_data_path      Absolute path to the GDBtk database. 
+    --run_quast             Post-assembly stats by Quaset, default true.
+    --genome_dir            Path to already assembled genomes, only to run post-assembly tasks, e.g. taxonomy classification, gene annotations and quast or checkm
 
 
 
