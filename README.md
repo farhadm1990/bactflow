@@ -32,7 +32,7 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
    nextflow run bactflow --help
 ```
 
-2. **Clone the Repository via `nextflw pull` command**
+2. **Clone the Repository via `nextflow pull` command**
 ```sh
 
 nextflow pull farhadm1990/bactflow
@@ -56,7 +56,7 @@ Usage: nextflow run bactflow [options]
 
 Options:
    
-    --fastq_dir             # Absolute path to the fastq_pass directory (required). 
+    --fastq_dir             #Absolute path to the fastq_pass directory (required). 
     --concat_reads          #Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
     --extension             #String; extention of basecalled fastq files; default '.fastq.gz'
     --cpus                  #Number of available cpus; default 1.
@@ -92,12 +92,12 @@ Options:
 ## Report maker
 
 <div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/pan_genome.png" alt="Pangenome" width="900" height="900"/>
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/pan_genome.png" alt="Pangenome" width="900" height="800"/>
     <p><strong>Fig 1. </strong> Pangenome of assembled genomes extracted from bactflow. </p>
 </div><br>
 
 <div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/tree_genome.png" alt="Phylogenetic tree" width="900" height="900"/>
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/tree_genome.png" alt="Phylogenetic tree" width="900" height="800"/>
     <p><strong>Fig 2. </strong> Phylogenetic tree of assembled genomes based on their ANI. </p>
 </div>
 
