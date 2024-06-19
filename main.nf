@@ -754,6 +754,14 @@ process checkm_lineage {
     concat_fasta="checkm_tree/storage/tree/concatenated.fasta"
     # Building the genome-based tree
 
+    
+
+
+
+
+    """
+
+    """
     #!/usr/bin/env Rscript
     library(Biostrings)
     library(msa)
@@ -770,10 +778,6 @@ process checkm_lineage {
     tr <- nj(dis)
 
     write.tree(phy = tr, file = 'genome_tree.tree')
-
-
-
-
     """
 
 }
