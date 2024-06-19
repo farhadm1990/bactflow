@@ -51,7 +51,7 @@ fi
 
 
 cpus=$(($cpus))
-for file in "$genomes"/*.fasta
+for file in "$genomes"
 do 
     striped="$(basename $file | cut -d'.' -f1)"
     

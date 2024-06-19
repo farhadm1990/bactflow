@@ -489,7 +489,7 @@ process assembly_flye1 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta/*.fastq'), emit: fastas_fold
 
     script:
     
@@ -593,7 +593,7 @@ process assembly_flye2 {
 
     output:
     // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     
@@ -601,7 +601,7 @@ process assembly_flye2 {
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
 
-    echo \$(conda env list | grep "*") > conda.txt
+   
 
     medaka tools download_models --quiet
     if [ ! -d asm_out_dir ]
@@ -724,7 +724,7 @@ process taxonomyGTDBTK {
 process checkm_lineage {
     cpus params.cpus
 
-    publishDir "${params.out_dir}/checkm_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
     path fastas_fold
@@ -736,7 +736,7 @@ process checkm_lineage {
     params.run_checkm
 
     output:
-    tupl path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'), path('genome_tree.tree'),  optional: true //so that it deons't stop upon failing
+    tuple path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'), path('genome_tree.tree'), emit: checkm_out,  optional: true //so that it deons't stop upon failing
 
     script:
     """
