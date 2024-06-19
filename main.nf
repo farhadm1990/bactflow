@@ -736,7 +736,7 @@ process checkm_lineage {
     params.run_checkm
 
     output:
-    tupl path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'), path('genome_tree.tree')  optional: true //so that it deons't stop upon failing
+    tupl path('checkm_lineage.txt'), path('taxon_tree.newick'), path('genome_tree.newick'), path('genome_tree.tree'),  optional: true //so that it deons't stop upon failing
 
     script:
     """
