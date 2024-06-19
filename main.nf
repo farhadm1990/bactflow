@@ -69,7 +69,8 @@ workflow {
                 params.extension
             )
             } else {
-                pooled_out = channel.fromPath(params.fastq_dir + "/*.fastq")
+                pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq")
+                                .collect() // creates a value channel as such that it puts all the fastq files in one list channel.
             }
            
 
@@ -150,7 +151,8 @@ workflow {
                 params.output_dir
             )
         } else {
-            fastas_fold = channel.fromPath(params.genome_dir + "/*.fasta")
+            fastas_fold = Channel.fromPath(params.genome_dir + "/*.fasta")
+                                    .collect() // 
         }
          
         // Annotate the genomes
@@ -489,7 +491,7 @@ process assembly_flye1 {
 
     output:
   
-    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
 
     script:
     
@@ -593,7 +595,7 @@ process assembly_flye2 {
 
     output:
    
-    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
+    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
 
     script:
     
