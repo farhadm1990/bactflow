@@ -168,7 +168,7 @@ workflow {
                 params.gtdbtk_data_path
         )
         }
-        if (params.checkm_lineag_check) {
+        if (params.run_checkm) {
             checkm_lineage(
             fastas_fold,
             params.checkm_db,
