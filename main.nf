@@ -488,8 +488,8 @@ process assembly_flye1 {
     params.coverage_filter
 
     output:
-    // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
-    path('asm_out_dir/circulated_fasta/*.fastq'), emit: fastas_fold
+  
+    path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
     
@@ -592,7 +592,7 @@ process assembly_flye2 {
     ! params.coverage_filter
 
     output:
-    // tupl path("asm_out_dir/circulated_fasta/*.fasta"), emit: fastas
+   
     path('asm_out_dir/circulated_fasta/*.fasta'), emit: fastas_fold
 
     script:
