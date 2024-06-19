@@ -8,6 +8,7 @@ conda activate bactflow
 R -e "BiocManager::install('phyloseq')"
 R -e "BiocManager::install('Biostrings')"
 R -e "BiocManager::install('ggtree')"
+R -e "install.packages('seqinr')"
 R -e "BiocManager::install('msa')"
 R -e "install.packages('ape')"
 R -e "BiocManager::install('tidyverse')"

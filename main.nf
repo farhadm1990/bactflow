@@ -757,22 +757,24 @@ process checkm_lineage {
 
 
     # Building the genome-based tree
-    #!/usr/bin/env Rscript
+    Rscript -e "
     library(Biostrings)
     library(msa)
     library(ape)
     library(tidyverse)
     library(readr)
+    library(seqinr)
 
     seqs <- Biostrings::readDNAStringSet('checkm_tree/storage/tree/concatenated.fasta', format = 'fasta')
     als <- msa(seqs)
 
     als_seqinr <- msaConvert(als, type = 'seqinr::alignment')
-    als_bios2mds <- msaConvert(als, type = 'bios2mds::align')
+    
     dis <- dist.alignment(als_seqinr, 'identity')
     tr <- nj(dis)
 
     write.tree(phy = tr, file = 'genome_tree.tree')
+    "
 
     
 
