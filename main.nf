@@ -768,8 +768,7 @@ process checkm_lineage {
     dis <- dist.alignment(als_seqinr, 'identity')
     tr <- nj(dis)
 
-    write.tree(phy = tr, file = 'genome_tree.tree')
-"
+    write.tree(phy = tr, file = 'genome_tree.tree')"
 
 
 
