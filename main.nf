@@ -751,17 +751,10 @@ process checkm_lineage {
 
     checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${fastas_fold}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
 
-    concat_fasta="checkm_tree/storage/tree/concatenated.fasta"
-    # Building the genome-based tree
-
     
 
 
-
-
-    """
-
-    """
+    # Building the genome-based tree
     #!/usr/bin/env Rscript
     library(Biostrings)
     library(msa)
@@ -769,7 +762,7 @@ process checkm_lineage {
     library(tidyverse)
     library(readr)
 
-    seqs <- Biostrings::readDNAStringSet('${concat_fasta}', format = 'fasta')
+    seqs <- Biostrings::readDNAStringSet('checkm_tree/storage/tree/concatenated.fasta', format = 'fasta')
     als <- msa(seqs)
 
     als_seqinr <- msaConvert(als, type = 'seqinr::alignment')
@@ -778,7 +771,14 @@ process checkm_lineage {
     tr <- nj(dis)
 
     write.tree(phy = tr, file = 'genome_tree.tree')
+
+    
+
+
+
+
     """
+
 
 }
 
