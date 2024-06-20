@@ -51,4 +51,4 @@ dependencies:
   - quast
 
       
-#conda env update --name bactflow --file config.yml --prune
+
