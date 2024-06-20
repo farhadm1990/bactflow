@@ -115,6 +115,24 @@ tar xvzf gtdbtk_data.tar.gz
 </div>
 
 
+## Potential issues
+
+In the first lunch of the program, process `envSetUP` will be invoked and it creates a conda environment called `bactflow`. In some conda environment, the following error could be raised:
+```sh
+miniconda3/envs/bactflow/etc/conda/deactivate.d/libxml2_deactivate.sh: line 3: xml_catalog_files_libxml2: unbound variable
+```
+### Solution 
+You can open the file and add edit it as follows and rerun `bactflow`:
+```sh
+#!/bin/sh
+
+if [ -n "${xml_catalog_files_libxml2:-}" ]; then
+    export XML_CATALOG_FILES="${xml_catalog_files_libxml2}"
+else
+    unset XML_CATALOG_FILES
+fi
+unset xml_catalog_files_libxml2
 
 
+```
 
