@@ -76,12 +76,14 @@ workflow {
 
             //deduplication
             dedup_fastq = deduper(
+            env_check,
             pooled_out,
             params.cpus
             )
             
             if(params.nanofilter) {
               filt_fastqs = nano_read_filt(
+                    env_check,
                     dedup_fastq,
                     params.min_quality,
                     params.min_length)
@@ -94,12 +96,14 @@ workflow {
             
             if(params.coverage_filter) {
                 cov_fastqs = coverage_filt(
+                    env_check,
                     filt_fastqs,
                     params.coverage,
                     params.genome_size
                 )
 
                 fastas_fold = assembly_flye1(
+                env_check,
                 cov_fastqs,
                 params.cpus,
                 params.coverage,
@@ -113,6 +117,7 @@ workflow {
                 
             } else {
                 fastas_fold = assembly_flye2(
+                env_check,
                 filt_fastqs,
                 params.cpus,
                 params.coverage,
@@ -132,21 +137,25 @@ workflow {
             
         } else if (params.run_unicycler) {
             pooled_out = fastqConcater(
+            env_check,
             params.fastq_dir, 
             params.extension
             )
            fastas_fold = assembly_unicycler(
+                env_check,
                 pooled_out,
                 params.cpus,
                 params.output_dir
             )
         } else if (params.run_spades) {
           fastas_fold =   assembly_spades(
+                env_check,
                 params.cpus,
                 params.output_dir
             )
         } else if (params.run_megahit) {
            fastas_fold =  assembly_megahit(
+                env_check,
                 params.cpus,
                 params.output_dir
             )
@@ -158,12 +167,14 @@ workflow {
         // Annotate the genomes
         if (params.prok_annot) {
             prokAnnot(
+            env_check,
             fastas_fold,
             params.cpus
         )
         }
         if (params.tax_class) {
             taxonomyGTDBTK(
+                env_check,
                 fastas_fold,    
                 params.cpus,
                 params.genome_extension,
@@ -172,6 +183,7 @@ workflow {
         }
         if (params.run_checkm) {
             checkm_lineage(
+            env_check,
             fastas_fold,
             params.checkm_db,
             params.cpus,
@@ -183,6 +195,7 @@ workflow {
         // quast stats
         if (params.run_quast) {
             quast_out = quast_check(
+            env_check,
             fastas_fold,
             params.cpus
             )
@@ -259,7 +272,9 @@ process testify {
 
 process fastqConcater {
     cpus params.cpus
+
     input:
+    
     path fastq_dir
     val extension
 
@@ -373,6 +388,7 @@ process deduper {
     cpus params.cpus
 
     input:
+    path env_check
     path pooled_out
     val cpus
 
@@ -402,6 +418,7 @@ process nano_read_filt {
     cpus 1
 
     input:
+    path env_check
     path dedup_fastq
     val min_quality
     val min_length
@@ -442,6 +459,7 @@ process coverage_filt {
     cpus 3
 
     input:
+    path env_check
     path filt_fastqs
     val coverage
     val genome_size
@@ -480,6 +498,7 @@ process assembly_flye1 {
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
+    path env_check
     path cov_fastqs
     val cpus
     val coverage
@@ -584,6 +603,7 @@ process assembly_flye2 {
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
+    path env_check
     path filt_fastqs
     val cpus
     val coverage
@@ -682,6 +702,7 @@ process prokAnnot {
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
     
     input:
+    path env_check
     path fastas_fold
     val cpus 
     
@@ -710,6 +731,7 @@ process taxonomyGTDBTK {
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
+    path env_check
     path fastas_fold
     val cpus
     val genome_extension
@@ -735,6 +757,7 @@ process checkm_lineage {
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
     input:
+    path env_check
     path fastas_fold
     val checkm_db
     val cpus
@@ -800,6 +823,7 @@ process quast_check {
     errorStrategy 'ignore'
 
     input:
+    path env_check
     path fastas_fold
     val cpus
 
