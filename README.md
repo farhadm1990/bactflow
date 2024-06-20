@@ -92,12 +92,12 @@ Options:
 ## Report maker
 
 <div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/pan_genome.png" alt="Pangenome" width="900" height="800"/>
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/pan_genome.png" alt="Pangenome" style="max-width: 100%; height: auto;/>
     <p><strong>Fig 1. </strong> Pangenome of assembled genomes extracted from bactflow. </p>
 </div><br>
 
 <div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/tree_genome.png" alt="Phylogenetic tree" width="900" height="800"/>
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/tree_genome.png" alt="Phylogenetic tree" style="max-width: 100%; height: auto;/>
     <p><strong>Fig 2. </strong> Phylogenetic tree of assembled genomes based on their ANI. </p>
 </div>
 

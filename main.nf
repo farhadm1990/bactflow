@@ -218,15 +218,19 @@ process envSetUP {
 
         conda activate bactflow
         bash ${baseDir}/r_installer_pkg.sh
-        touch environment_created
+        
         
       
 
 
     else
-        touch environment_created
+        
         conda activate bactflow
     fi
+    
+    
+    
+    touch environment_created
     """
 }
 
@@ -718,6 +722,8 @@ process taxonomyGTDBTK {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    # Upgrade for gtdbtk
+    python -m pip install gtdbtk --upgrade
 
     bash ${projectDir}/gtdbtk.sh -g '${fastas_fold}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
     """
@@ -745,7 +751,7 @@ process checkm_lineage {
     #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-
+    
     
     checkm data setRoot '${checkm_db}'
     checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${fastas_fold}' checkm_lineage && \
