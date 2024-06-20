@@ -89,7 +89,16 @@ Options:
 ## Dependencies
 
 <h3> <a href="https://github.com/Ecogenomics/GTDBTk/tree/master" target="_blank">GTDBtk</a></h3> 
-You can run taxonomic classification workflow by setting `--tax_class true`. Alternatively, you can perform taxonomy classfiication on already-assembled genomes by adding `--run_flye false`. In this case you must provide the workflow with `--genome_dir`; a directory to the assembled genome and a genome `--extension fasta` or `fa`.  
+<p>You can run taxonomic classification workflow by setting <code>--tax_class true</code>. Alternatively, you can perform taxonomy classfiication on already-assembled genomes by adding <cod>--run_flye false</code>. In this case you must provide the workflow with <code>--genome_dir</code>; a directory to the assembled genome and a genome <code>--extension fasta</code> or <code>fa</code>. GTDBtk depends on an external <a href="https://ecogenomics.github.io/GTDBTk/installing/index.html">datasbase</a> which can be downloaded and extracted as follows:  </p>
+
+```sh
+wget https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/auxillary_files/gtdbtk_package/full_package/gtdbtk_data.tar.gz
+
+tar xvzf gtdbtk_data.tar.gz
+```
+
+<p>The full path of the extracted must be proveded to the pipline <code>nextflow.config</code> file or when running the pipeline via <code>--gtdbtk_data_path /home/databases/gtdbtk_db/release220</code> for example. 
+</p>
 
 # Generic ouputs 
 
