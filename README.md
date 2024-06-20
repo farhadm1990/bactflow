@@ -88,8 +88,8 @@ Options:
 
 ## Dependencies
 
-<h3>GTDBtk</h3> 
-<>
+<h3> <a href="https://github.com/Ecogenomics/GTDBTk/tree/master" target="_blank">GTDBtk</a></h3> 
+<p>You can run taxonomic classification workflow by setting '--tax_class true'. Alternatively, you can perform taxonomy classfiication on already-assembled genomes by adding '--run_flye false'. In this case you must provide the workflow with '--genome_dir'; a directory to the assembled genome and a genome '--extension fasta' or 'fa'.  </p>
 
 # Generic ouputs 
 
