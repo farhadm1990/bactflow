@@ -160,7 +160,7 @@ workflow {
                 params.output_dir
             )
         } else {
-            fastas_fold = Channel.fromPath(params.genome_dir + "/*.fasta")
+            fastas_fold = Channel.fromPath(params.genome_dir)
                                     .collect() // 
         }
          
@@ -239,6 +239,7 @@ process envSetUP {
     else
         
         conda activate bactflow
+        bash ${baseDir}/r_installer_pkg.sh
     fi
     
     
