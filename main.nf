@@ -230,7 +230,7 @@ process envSetUP {
         fi
 
         conda activate bactflow
-        bash ${baseDir}/r_installer_pkg.sh
+        
         
         
       
@@ -239,10 +239,10 @@ process envSetUP {
     else
         
         conda activate bactflow
-        bash ${baseDir}/r_installer_pkg.sh
+        
     fi
     
-    
+    bash ${baseDir}/r_installer_pkg.sh
     
     touch environment_created
     """
