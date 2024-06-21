@@ -40,10 +40,13 @@ nextflow pull farhadm1990/bactflow
 nextflow  run bactflow
 ```
 
+3. **Setting up the conda environment by `bactflow` internal funciton `envSetUp()`:**
+On the first lunch you can run the following code to create conda environment called bactflow and install the required packages within it.
+```sh
+nextflow run bactflow -r main --setup_only true
+```
+NOTE: the option `--setup_only` is by default `false` which means, the `envSetUp()` function will be invoced automatically before running the downstream processes. 
   
-
-
-
 
 
 # Usage
@@ -55,7 +58,7 @@ nextflow run bactflow --help -r main
 Usage: nextflow run bactflow [options]
 
 Options:
-   
+    --setup_only            #Only runs envSetUp(), default false.
     --fastq_dir             #Absolute path to the fastq_pass directory (required). 
     --concat_reads          #Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
     --extension             #String; extention of basecalled fastq files; default '.fastq.gz'
@@ -70,13 +73,13 @@ Options:
     --min_quality           #If '--nanofilter' true, filter reads below a certain read quality (default 16 for R10.4.1 flowcells). 
     --medaka_polish         #If true, it will polish assembled genomes by medaka (dfault false).
     --basecaller_model      #Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
-    --checkm_lineag_check   #If true, the genomes will be checked for their lineage completeness in one bin (default false).
+    --checkm_lineag_check   #If false, the genomes will be checked for their lineage completeness in one bin (default false).
     --genome_extension      #Required if '--checkm_lineag_check true'; default fasta.
     --run_flye              #If true, it runs Flye assembler; default true.
     --run_unicycler         #If true, it runs Unicycler hybrid assemlber, default false.
     --run_megahit           #If true, it runs Megahit assembler, default false.
     --run_spades            #If true, it runs Spades assembler, default false.
-    --tax_class             #If true, it runs GTBtk taxonomic classification, default true.
+    --tax_class             #If true, it runs GTBtk taxonomic classification, default false.
     --prok_annot            #If true, it runs gene annotaiton by Prokka, default false. 
     --run_checkm            #If true, it runs checmk lineage and phylogenetic tree workflow.
     --checkm_db             #An absolute path to the Checkm database.  
