@@ -4,14 +4,15 @@ source $(conda info --base)/etc/profile.d/conda.sh
 
 conda activate bactflow
 
+R -e "options(repos = c(CRAN = "https://cloud.r-project.org"))"
+R -e "if(!require('phyloseq')) {BiocManager::install('phyloseq')}"
+R -e "if(!require('Biostrings')) {BiocManager::install('Biostrings')}"
+#R -e "if(!require('ggtree')) {BiocManager::install('ggtree')}"
+R -e "if(!require('seqinr')) {install.packages('seqinr')}"
+R -e "if(!require('msa')) {BiocManager::install('msa')}"
+R -e "if(!require('ape')) {install.packages('ape')}"
+R -e "if(!require('tidyverse')) {install.packages('tidyverse')}"
+R -e "if(!require('patchwork')) {install.packages('patchwork')}"
+R -e "if(!require('readr')) {install.packages('readr')}"
 
-R -e "BiocManager::install('phyloseq')"
-R -e "BiocManager::install('Biostrings')"
-R -e "BiocManager::install('ggtree')"
-R -e "install.packages('seqinr')"
-R -e "BiocManager::install('msa')"
-R -e "install.packages('ape')"
-R -e "install.packages('tidyverse')"
-R -e "install.packages('patchwork')"
-R -e "install.packages('readr')"
-R -e "install.packages('ggpubr')"
+

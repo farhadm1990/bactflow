@@ -51,11 +51,14 @@ workflow {
     main:
 
         
+        if(params.setup_only){
+            def env_check =  envSetUP()
+            testify(env_check)
+        } else {
+            def env_check =  envSetUP()
+            testify(env_check)
 
-        def env_check =  envSetUP()
-        testify(env_check)
-        
-        def pooled_out
+            def pooled_out
         def dedup_fastq
         def filt_fastqs
         def cov_fastqs
@@ -200,6 +203,10 @@ workflow {
             params.cpus
             )
         }
+        }
+        
+        
+        
         
     
 }
