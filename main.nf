@@ -784,7 +784,7 @@ process checkm_lineage {
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
     
-    
+    pip install --upgrade checkm-genome
     checkm data setRoot '${checkm_db}'
     checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${fastas_fold}' checkm_lineage && \
     checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
@@ -846,6 +846,10 @@ process quast_check {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+
+    #Update numpy 
+    pip install --upgrade numpy
+
     
     if [ ! -d quast_stat ]
     then 
