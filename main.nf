@@ -292,7 +292,7 @@ process fastqConcater {
 
     output:
    // file('concatenated_fq_are_ready') 
-    path("pooled/*.fastq"), emit: pooled_out
+    path("${fastq_dir}/pooled/*.fastq"), emit: pooled_out
 
 
     script:
