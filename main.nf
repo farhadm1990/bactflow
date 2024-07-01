@@ -9,6 +9,7 @@ Usage: nextflow run bactflow [options]
 
 Options:
    
+    --setup_only            If true, only runs envSetUp(), default false
     --fastq_dir             Absolute path to the fastq_pass directory (required). 
     --concat_reads          Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
     --extension             String; extention of basecalled fastq files; default '.fastq.gz'
@@ -291,7 +292,7 @@ process fastqConcater {
 
     output:
    // file('concatenated_fq_are_ready') 
-    path("${fastq_dir}/pooled/*.fastq"), emit: pooled_out
+    path("${projectDir}/pooled/*.fastq"), emit: pooled_out
 
 
     script:
