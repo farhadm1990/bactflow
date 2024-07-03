@@ -59,12 +59,13 @@ workflow {
             def env_check =  envSetUP()
             testify(env_check)
 
-            def pooled_out
+        def pooled_out
         def dedup_fastq
         def filt_fastqs
         def cov_fastqs
         def fastas_fold
         def quast_out
+        def circ_fasta
          // Get the concatenated fastq files
         if (params.run_flye) {
             if (params.concat_reads){
@@ -168,6 +169,14 @@ workflow {
                                     .collect() // 
         }
          
+        // circulator
+        
+        if (params.circle_genome){
+            circ_fasta = circulator(
+                env_check,
+                fastas_fold
+            )
+        }
         // Annotate the genomes
         if (params.prok_annot) {
             prokAnnot(
@@ -704,6 +713,46 @@ process assembly_flye2 {
     // important: don't pass numeric values between quotes. 
 }
 
+// circulating the genomes
+process circulator {
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+
+    input:
+    path env_check
+    path fastas_fold
+    
+    when:
+    params.circle_genome
+
+    output:
+    path("circulated_fasta"), emit: circ_fasta 
+
+    script:
+    """
+    echo "Running circlator"
+
+    for i in "${fastas_fold}"/*.fasta
+    do  
+        prefix=\$(basename \$i | cut -f1 -d'.')
+
+        if [ ! -d circulatd_"\${prefix}" ]
+        then 
+            mkdir -p circulatd_"\${prefix}" 
+        fi 
+
+        if [ ! -d circulated_fasta ]
+        then 
+            mkdir -p circulated_fasta
+        fi 
+
+        circlator fixstart \$i circulatd_"\${prefix}" 
+
+        cp circulatd_"\${prefix}".fasta circulated_fasta && rm -rf circulatd_*
+    done
+
+    """
+}
+
 // gene annotations
 
 process prokAnnot {
@@ -712,7 +761,7 @@ process prokAnnot {
     
     input:
     path env_check
-    path fastas_fold
+    path circ_fasta
     val cpus 
     
     when:
@@ -729,7 +778,7 @@ process prokAnnot {
 
   
 
-    bash ${projectDir}/prokka_annot.sh -g "${fastas_fold}" -c ${cpus}
+    bash ${projectDir}/prokka_annot.sh -g "${circ_fasta}" -c ${cpus}
     
     """
 }
@@ -756,7 +805,7 @@ process taxonomyGTDBTK {
     # Upgrade for gtdbtk
     python -m pip install gtdbtk --upgrade
 
-    bash ${projectDir}/gtdbtk.sh -g '${fastas_fold}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
+    bash ${projectDir}/gtdbtk.sh -g '${circ_fasta}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
     """
 }
 
@@ -786,10 +835,10 @@ process checkm_lineage {
     
     pip install --upgrade checkm-genome
     checkm data setRoot '${checkm_db}'
-    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${fastas_fold}' checkm_lineage && \
+    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${circ_fasta}' checkm_lineage && \
     checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
 
-    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${fastas_fold}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${circ_fasta}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
 
     
 
@@ -857,7 +906,7 @@ process quast_check {
 
     fi 
 
-    quast '${fastas_fold}'/*.fasta -o quast_stat -t ${cpus}
+    quast '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
     """
 }
 
