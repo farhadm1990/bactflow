@@ -532,7 +532,7 @@ process assembly_flye1 {
 
     output:
   
-    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
+    path('asm_out_dir/polished_fasta'), emit: fastas_fold
 
     script:
     
@@ -583,26 +583,7 @@ process assembly_flye1 {
 
     echo "your polished fasta files are ready in asm_out_dir/polished_fasta."
 
-    ######## Running circlator #########
-
-    for i in asm_out_dir/polished_fasta/*.fasta
-    do  
-        prefix=\$(basename \$i | cut -f1 -d'.')
-
-        if [ ! -d asm_out_dir/polished_fasta/circulatd_"\${prefix}" ]
-        then 
-            mkdir -p asm_out_dir/polished_fasta/circulatd_"\${prefix}" 
-        fi 
-
-        if [ ! -d asm_out_dir/circulated_fasta ]
-        then 
-            mkdir -p asm_out_dir/circulated_fasta
-        fi 
-
-        circlator fixstart \$i asm_out_dir/polished_fasta/circulatd_"\${prefix}" 
-
-        cp asm_out_dir/polished_fasta/circulatd_"\${prefix}".fasta asm_out_dir/circulated_fasta && rm -rf asm_out_dir/polished_fasta/circulatd_*
-    done
+   
 
 
      
@@ -637,7 +618,7 @@ process assembly_flye2 {
 
     output:
    
-    path('asm_out_dir/circulated_fasta'), emit: fastas_fold
+    path('asm_out_dir/polished_fasta'), emit: fastas_fold
 
     script:
     
@@ -710,6 +691,9 @@ process circulator {
 
     script:
     """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
     echo "Running circlator"
 
     for i in "${fastas_fold}"/*.fasta
