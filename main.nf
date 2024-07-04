@@ -176,19 +176,21 @@ workflow {
                 env_check,
                 fastas_fold
             )
+        } else {
+            circ_fasta = fastas_fold
         }
         // Annotate the genomes
         if (params.prok_annot) {
             prokAnnot(
             env_check,
-            fastas_fold,
+            circ_fasta,
             params.cpus
         )
         }
         if (params.tax_class) {
             taxonomyGTDBTK(
                 env_check,
-                fastas_fold,    
+                circ_fasta,    
                 params.cpus,
                 params.genome_extension,
                 params.gtdbtk_data_path
@@ -197,7 +199,7 @@ workflow {
         if (params.run_checkm) {
             checkm_lineage(
             env_check,
-            fastas_fold,
+            circ_fasta,
             params.checkm_db,
             params.cpus,
             params.genome_extension
@@ -209,7 +211,7 @@ workflow {
         if (params.run_quast) {
             quast_out = quast_check(
             env_check,
-            fastas_fold,
+            circ_fasta,
             params.cpus
             )
         }
@@ -755,7 +757,7 @@ process taxonomyGTDBTK {
 
     input:
     path env_check
-    path fastas_fold
+    path circ_fasta
     val cpus
     val genome_extension
     val gtdbtk_data_path
@@ -781,7 +783,7 @@ process checkm_lineage {
 
     input:
     path env_check
-    path fastas_fold
+    path circ_fasta
     val checkm_db
     val cpus
     val genome_extension
@@ -847,7 +849,7 @@ process quast_check {
 
     input:
     path env_check
-    path fastas_fold
+    path circ_fasta
     val cpus
 
     when:
