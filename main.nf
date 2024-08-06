@@ -777,7 +777,9 @@ process taxonomyGTDBTK {
 }
 
 process checkm_lineage {
-    cpus params.cpus
+    if (params.cpus > 1) {
+        cpus params.cpus -1 
+    }
 
     publishDir "${params.out_dir}", mode: 'copy', overwrite: false
 
