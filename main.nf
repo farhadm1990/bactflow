@@ -553,7 +553,7 @@ process assembly_flye1 {
     for i in ${cov_fastqs}
     do
     
-        out_name=\$(basename \$i | cut -f 1 -d'_')
+        out_name=\$(basename \$i | cut -f 1 -d'.')
 
         echo "running flye..."
         
@@ -569,41 +569,32 @@ process assembly_flye1 {
 
             medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
             rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
-        fi
 
+            if [ ! -d asm_out_dir/fastas  ]
+            then
+                mkdir -p asm_out_dir/fastas 
+            fi
+
+            cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+            echo "your polished fasta files are ready in asm_out_dir/fastas."
+        fi
         
-    done
-
-     if [ '${medaka_polish}' == "true" ]
-    then
         if [ ! -d asm_out_dir/fastas  ]
         then
             mkdir -p asm_out_dir/fastas 
         fi
 
-        cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
-        echo "your polished fasta files are ready in asm_out_dir/fastas."
-
-    elif [ '${medaka_polish}' == "false" ]
-    then
-        if [ ! -d asm_out_dir/fastas  ]
-        then
-            mkdir -p asm_out_dir/fastas 
-        fi
-
-        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas 
+        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
         # Final message 
 
         echo "your polished fasta files are ready in asm_out_dir/fastas."
 
-    else
 
-        echo 'You must provide an argument for polishing flag'
-        exit 1
+        
+    done
 
-    fi 
-
+     
    
 
 
@@ -674,41 +665,29 @@ process assembly_flye2 {
             medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
             rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
 
-            
-        fi
+            if [ ! -d asm_out_dir/fastas  ]
+            then
+                mkdir -p asm_out_dir/fastas 
+            fi
 
+            cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+            echo "your polished fasta files are ready in asm_out_dir/fastas."
+        fi
         
-    done
-
-    if [ '${medaka_polish}' == "true" ]
-    then
         if [ ! -d asm_out_dir/fastas  ]
         then
             mkdir -p asm_out_dir/fastas 
         fi
 
-        cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
-        echo "your polished fasta files are ready in asm_out_dir/fastas."
-
-    elif [ '${medaka_polish}' == "false" ]
-    then
-        if [ ! -d asm_out_dir/fastas  ]
-        then
-            mkdir -p asm_out_dir/fastas 
-        fi
-
-        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas 
+        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
         # Final message 
 
         echo "your polished fasta files are ready in asm_out_dir/fastas."
+            
+        fi
 
-    else
-
-        echo 'You must provide an argument for polishing flag'
-        exit 1
-
-    fi 
+    done
 
 
     
