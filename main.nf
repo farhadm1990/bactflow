@@ -534,7 +534,7 @@ process assembly_flye1 {
 
     output:
   
-    path('asm_out_dir/polished_fasta'), emit: fastas_fold
+    path('asm_out_dir/fastas'), emit: fastas_fold
 
     script:
     
@@ -574,16 +574,35 @@ process assembly_flye1 {
         
     done
 
-    if [ ! -d asm_out_dir/polished_fasta  ]
+     if [ '${medaka_polish}' == "true" ]
     then
-        mkdir -p asm_out_dir/polished_fasta 
-    fi
+        if [ ! -d asm_out_dir/fastas  ]
+        then
+            mkdir -p asm_out_dir/fastas 
+        fi
 
-    cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/polished_fasta 
+        cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+        echo "your polished fasta files are ready in asm_out_dir/fastas."
 
-    # Final message 
+    elif [ '${medaka_polish}' == "false" ]
+    then
+        if [ ! -d asm_out_dir/fastas  ]
+        then
+            mkdir -p asm_out_dir/fastas 
+        fi
 
-    echo "your polished fasta files are ready in asm_out_dir/polished_fasta."
+        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas 
+
+        # Final message 
+
+        echo "your polished fasta files are ready in asm_out_dir/fastas."
+
+    else
+
+        echo 'You must provide an argument for polishing flag'
+        exit 1
+
+    fi 
 
    
 
@@ -620,7 +639,7 @@ process assembly_flye2 {
 
     output:
    
-    path('asm_out_dir/polished_fasta'), emit: fastas_fold
+    path('asm_out_dir/fastas'), emit: fastas_fold
 
     script:
     
@@ -654,21 +673,45 @@ process assembly_flye2 {
 
             medaka stitch asm_out_dir/"\${out_name}"_flye/\$out_name.hdf  asm_out_dir/"\${out_name}"_flye/assembly.fasta asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta
             rm -rf asm_out_dir/"\${out_name}"_flye/*bam* asm_out_dir/"\${out_name}"_flye/*.hdf asm_out_dir/"\${out_name}"_flye/*.fai asm_out_dir/"\${out_name}"_flye/*.mmi asm_out_dir/"\${out_name}"_flye/*.bed
+
+            
         fi
 
         
     done
 
-    if [ ! -d asm_out_dir/polished_fasta  ]
+    if [ '${medaka_polish}' == "true" ]
     then
-        mkdir -p asm_out_dir/polished_fasta 
-    fi
+        if [ ! -d asm_out_dir/fastas  ]
+        then
+            mkdir -p asm_out_dir/fastas 
+        fi
 
-    cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/polished_fasta 
+        cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+        echo "your polished fasta files are ready in asm_out_dir/fastas."
 
-    # Final message 
+    elif [ '${medaka_polish}' == "false" ]
+    then
+        if [ ! -d asm_out_dir/fastas  ]
+        then
+            mkdir -p asm_out_dir/fastas 
+        fi
 
-    echo "your polished fasta files are ready in asm_out_dir/polished_fasta."
+        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas 
+
+        # Final message 
+
+        echo "your polished fasta files are ready in asm_out_dir/fastas."
+
+    else
+
+        echo 'You must provide an argument for polishing flag'
+        exit 1
+
+    fi 
+
+
+    
 
     
 
@@ -800,7 +843,7 @@ process checkm_lineage {
     """
     #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
-    conda activate bactflow
+    conda activate bactflow 
     
     pip install --upgrade checkm-genome
     checkm data setRoot '${checkm_db}'
