@@ -649,7 +649,7 @@ process assembly_flye2 {
     for i in ${filt_fastqs}
     do
     
-        out_name=\$(basename \$i | cut -f 1 -d'_')
+        out_name=\$(basename \$i | cut -f 1 -d'.')
 
         echo "running flye..."
         
