@@ -73,7 +73,6 @@ Options:
     --min_quality           #If '--nanofilter' true, filter reads below a certain read quality (default 16 for R10.4.1 flowcells). 
     --medaka_polish         #If true, it will polish assembled genomes by medaka (dfault false).
     --basecaller_model      #Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
-    --checkm_lineag_check   #If false, the genomes will be checked for their lineage completeness in one bin (default false).
     --genome_extension      #Required if '--checkm_lineag_check true'; default fasta.
     --run_flye              #If true, it runs Flye assembler; default true.
     --circle_genome         #If true, it will fix the start of the genome to an arbitrary gene, e.g. dnaA. Default true.
