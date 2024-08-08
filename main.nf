@@ -559,7 +559,6 @@ process assembly_flye1 {
         
         flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye  #--asm-coverage ${coverage} -g ${genome_size}m
 
-        
         if [ '${medaka_polish}' == "true" ]
         then 
             echo "polishing fasta reads..."
@@ -575,7 +574,7 @@ process assembly_flye1 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
             echo "your polished fasta files are ready in asm_out_dir/fastas."
         fi
         
@@ -584,12 +583,13 @@ process assembly_flye1 {
             mkdir -p asm_out_dir/fastas 
         fi
 
-        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+        cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
         # Final message 
 
         echo "your polished fasta files are ready in asm_out_dir/fastas."
-
+            
+        fi
 
         
     done
@@ -670,7 +670,7 @@ process assembly_flye2 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/*_flye/*_polished.fasta  asm_out_dir/fastas
+            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
             echo "your polished fasta files are ready in asm_out_dir/fastas."
         fi
         
@@ -679,7 +679,7 @@ process assembly_flye2 {
             mkdir -p asm_out_dir/fastas 
         fi
 
-        cp asm_out_dir/*_flye/*.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+        cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
         # Final message 
 
