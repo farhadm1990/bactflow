@@ -585,15 +585,16 @@ process assembly_flye1 {
 
         cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
-        # Final message 
+       
+         # Final message 
 
-        echo "your polished fasta files are ready in asm_out_dir/fastas."
+         echo "your polished fasta files are ready in asm_out_dir/fastas."
             
-        fi
 
         
     done
 
+    
      
    
 
@@ -685,7 +686,7 @@ process assembly_flye2 {
 
         echo "your polished fasta files are ready in asm_out_dir/fastas."
             
-        fi
+        
 
     done
 
