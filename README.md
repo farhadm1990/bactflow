@@ -75,7 +75,7 @@ Options:
     --basecaller_model      #Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
     --genome_extension      #Required if '--checkm_lineag_check true'; default fasta.
     --run_flye              #If true, it runs Flye assembler; default true.
-    --circle_genome         #If true, it will fix the start of the genome to an arbitrary gene, e.g. dnaA. Default true.
+    --circle_genome         #If true, it will fix the start of the genome to an arbitrary gene, e.g. dnaA. Default false.
     --run_unicycler         #If true, it runs Unicycler hybrid assemlber, default false.
     --run_megahit           #If true, it runs Megahit assembler, default false.
     --run_spades            #If true, it runs Spades assembler, default false.
