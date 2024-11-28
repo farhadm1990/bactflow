@@ -224,9 +224,9 @@ workflow {
     
 }
 
-output {
-    directory params.out_dir
-}
+// output {
+//     directory params.out_dir
+// }
 
 
 process envSetUP {
@@ -279,8 +279,8 @@ process testify {
    
     path("checked.txt"), emit: env_testify
 
-    publish:
-    env_testify >> 'env_testify'
+    // publish:
+    // env_testify >> 'env_testify'
 
     script:
     """
@@ -325,33 +325,53 @@ process fastqConcater {
         else 
             if [ "${extension}" = ".fastq.gz" ]
             then
+                export "${fastq_dir}"
+                parallel --will-cite -j   ${cpus} '
+                   if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
+                   then
 
-                for i in "${fastq_dir}"/*
-                do 
-                    if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-                    then
-
-                        name=\$(basename \$i)
-                        zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                        name=\$(basename {})
+                        zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                        mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
                     fi
+                ' ::: "${fastq_dir}"/*
+
+                // for i in "${fastq_dir}"/*
+                // do 
+                //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+                //     then
+
+                //         name=\$(basename \$i)
+                //         zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
+                //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                //     fi
                     
                     
-                done
+                // done
                 touch concatenated_fq_are_ready
 
             elif [ "${extension}" = ".fastq" ] 
             then	
-                for i in "${fastq_dir}"/*    
-                do 
-                    if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-                    then
+                export "${fastq_dir}"
+                parallel --will-cite -j   ${cpus} '
+                   if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
+                   then
 
-                        name=\$(basename \$i)
-                        cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                        name=\$(basename {})
+                        cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                        mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
                     fi
-                done
+                ' ::: "${fastq_dir}"/*
+                // for i in "${fastq_dir}"/*    
+                // do 
+                //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+                //     then
+
+                //         name=\$(basename \$i)
+                //         cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
+                //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                //     fi
+                // done
                 touch concatenated_fq_are_ready
             else
                 echo "Your extention is not recognized!"
@@ -368,32 +388,54 @@ process fastqConcater {
         if [ "${extension}" = ".fastq.gz" ]
         then
 
-            for i in "${fastq_dir}"/*
-            do 
-                if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+            export "${fastq_dir}"
+            parallel --will-cite -j   ${cpus} '
+                if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
 
-                    name=\$(basename \$i)
-                    zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                    name=\$(basename {})
+                    zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                    mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
                 fi
+            ' ::: "${fastq_dir}"/*
+
+            // for i in "${fastq_dir}"/*
+            // do 
+            //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+            //     then
+
+            //         name=\$(basename \$i)
+            //         zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
+            //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+            //     fi
                 
                 
-            done
+            // done
             touch concatenated_fq_are_ready
 
         elif [ "${extension}" = ".fastq" ] 
-        then	
-            for i in "${fastq_dir}"/*    
-            do 
-                if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+        then
+
+            export "${fastq_dir}"
+            parallel --will-cite -j   ${cpus} '
+                if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
 
-                    name=\$(basename \$i)
-                    cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+                    name=\$(basename {})
+                    cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                    mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
                 fi
-            done
+            ' ::: "${fastq_dir}"/*	
+            // for i in "${fastq_dir}"/*    
+            // do 
+            //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
+            //     then
+
+            //         name=\$(basename \$i)
+            //         cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
+            //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
+            //     fi
+            // done
             touch concatenated_fq_are_ready
         else
             echo "Your extention is not recognized!"
@@ -907,7 +949,11 @@ process quast_check {
 
 
 
+// process trycile {
+    
 
+
+// }
 
 
 

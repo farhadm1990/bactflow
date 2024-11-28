@@ -57,7 +57,7 @@ do
     
 
     dest="${out_dir}"/"$striped"_prokka
-    #mkdir -p "$dest" 
+  
     prokka --outdir "$dest" --prefix "$striped" "$file" --cpus "${cpus}"
 done
 
