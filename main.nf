@@ -325,7 +325,7 @@ process fastqConcater {
         then
             touch concatenated_fq_are_ready
         else 
-            if [ "${extension}" = ".fastq.gz" ]
+            if [ "${extension}" == ".fastq.gz" ]
             then
                 export "${fastq_dir}"
                 parallel --will-cite -j   ${cpus} '
@@ -352,7 +352,7 @@ process fastqConcater {
                 // done
                 touch concatenated_fq_are_ready
 
-            elif [ "${extension}" = ".fastq" ] 
+            elif [ "${extension}" == ".fastq" ] 
             then	
                 export "${fastq_dir}"
                 parallel --will-cite -j   ${cpus} '
@@ -387,7 +387,7 @@ process fastqConcater {
         
         mkdir -p "${fastq_dir}"/pooled
 
-        if [ "${extension}" = ".fastq.gz" ]
+        if [ "${extension}" == ".fastq.gz" ]
         then
 
             export "${fastq_dir}"
@@ -415,7 +415,7 @@ process fastqConcater {
             // done
             touch concatenated_fq_are_ready
 
-        elif [ "${extension}" = ".fastq" ] 
+        elif [ "${extension}" == ".fastq" ] 
         then
 
             export "${fastq_dir}"
