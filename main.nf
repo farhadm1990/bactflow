@@ -333,7 +333,7 @@ process fastqConcater {
                    then
 
                         name=\$(basename {})
-                        zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                        zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                     fi
                 ' ::: "${fastq_dir}"/*
@@ -360,7 +360,7 @@ process fastqConcater {
                    then
 
                         name=\$(basename {})
-                        cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                        cat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                     fi
                 ' ::: "${fastq_dir}"/*
@@ -396,7 +396,7 @@ process fastqConcater {
                 then
 
                     name=\$(basename {})
-                    zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                    zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                     mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                 fi
             ' ::: "${fastq_dir}"/*
@@ -424,7 +424,7 @@ process fastqConcater {
                 then
 
                     name=\$(basename {})
-                    cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
+                    cat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                     mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                 fi
             ' ::: "${fastq_dir}"/*	
