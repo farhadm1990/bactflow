@@ -71,6 +71,7 @@ workflow {
         if (params.run_flye) {
             if (params.concat_reads){
                 pooled_out = fastqConcater(
+                params.cpus,
                 params.fastq_dir, 
                 params.extension
             )
@@ -144,6 +145,7 @@ workflow {
         } else if (params.run_unicycler) {
             pooled_out = fastqConcater(
             env_check,
+            params.cpus,
             params.fastq_dir, 
             params.extension
             )
@@ -295,7 +297,7 @@ process fastqConcater {
     cpus params.cpus
 
     input:
-    
+    val cpus 
     path fastq_dir
     val extension
 
@@ -451,6 +453,7 @@ process deduper {
     cpus params.cpus
 
     input:
+
     path env_check
     path pooled_out
     val cpus
