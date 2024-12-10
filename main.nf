@@ -334,7 +334,7 @@ process fastqConcater {
 
                         name=\$(basename {})
                         zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
-                        mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
+                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                     fi
                 ' ::: "${fastq_dir}"/*
 
@@ -361,7 +361,7 @@ process fastqConcater {
 
                         name=\$(basename {})
                         cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
-                        mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
+                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                     fi
                 ' ::: "${fastq_dir}"/*
                 // for i in "${fastq_dir}"/*    
@@ -397,7 +397,7 @@ process fastqConcater {
 
                     name=\$(basename {})
                     zcat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
-                    mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
+                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                 fi
             ' ::: "${fastq_dir}"/*
 
@@ -425,7 +425,7 @@ process fastqConcater {
 
                     name=\$(basename {})
                     cat {}/*.fastq.gz >> "${fastq_dir}/${name}_pooled.fastq"
-                    mv "${fastq_dir}/${name}_pooled.fastq" "${fastq_dir}/pooled"
+                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                 fi
             ' ::: "${fastq_dir}"/*	
             // for i in "${fastq_dir}"/*    
@@ -622,19 +622,20 @@ process assembly_flye1 {
 
             cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
             echo "your polished fasta files are ready in asm_out_dir/fastas."
-        fi
+        else
         
-        if [ ! -d asm_out_dir/fastas  ]
-        then
-            mkdir -p asm_out_dir/fastas 
+            if [ ! -d asm_out_dir/fastas  ]
+            then
+                mkdir -p asm_out_dir/fastas 
+            fi
+
+            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+
+        
+            # Final message 
+
+            echo "your fasta files are ready in asm_out_dir/fastas."
         fi
-
-        cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
-
-       
-         # Final message 
-
-         echo "your polished fasta files are ready in asm_out_dir/fastas."
             
 
         
@@ -719,19 +720,19 @@ process assembly_flye2 {
 
             cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
             echo "your polished fasta files are ready in asm_out_dir/fastas."
-        fi
+        else 
         
-        if [ ! -d asm_out_dir/fastas  ]
-        then
-            mkdir -p asm_out_dir/fastas 
-        fi
+            if [ ! -d asm_out_dir/fastas  ]
+            then
+                mkdir -p asm_out_dir/fastas 
+            fi
 
-        cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
 
-        # Final message 
+            # Final message 
 
-        echo "your polished fasta files are ready in asm_out_dir/fastas."
-            
+            echo "your  fasta files are ready in asm_out_dir/fastas."
+        fi    
         
 
     done
