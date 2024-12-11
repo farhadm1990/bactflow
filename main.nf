@@ -322,7 +322,7 @@ process fastqConcater {
     if [ -d "${fastq_dir}"/pooled ] 
     then 
         num_pooled=\$(ls "${fastq_dir}"/pooled | wc -l)
-        num_dif=\$(expr "\${num_file}" - "\${num_pooled}" )
+        num_dif=\$(("\${num_file}" - "\${num_pooled}"))
         if [ \$num_dif -eq 1 ]
         then
             touch concatenated_fq_are_ready
@@ -330,7 +330,7 @@ process fastqConcater {
             if [ "${extension}" == ".fastq.gz" ]
             then
                 export "${fastq_dir}"
-                parallel --will-cite -j   ${cpus} '
+                parallel --will-cite -j   "${cpus}" '
                     if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                     then
 
@@ -345,7 +345,7 @@ process fastqConcater {
             elif [ "${extension}" == ".fastq" ] 
             then	
                 export "${fastq_dir}"
-                parallel --will-cite -j   ${cpus} '
+                parallel --will-cite -j   "${cpus}" '
                     if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                     then
 
@@ -358,6 +358,7 @@ process fastqConcater {
                 touch concatenated_fq_are_ready
             else
                 echo "Your extention is not recognized!"
+                exit 1
 
             fi
         fi
@@ -372,7 +373,7 @@ process fastqConcater {
         then
 
             export "${fastq_dir}"
-            parallel --will-cite -j   ${cpus} '
+            parallel --will-cite -j   "${cpus}" '
                 if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
 
@@ -388,7 +389,7 @@ process fastqConcater {
         then
 
             export "${fastq_dir}"
-            parallel --will-cite -j   ${cpus} '
+            parallel --will-cite -j   "${cpus}" '
                 if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
 
@@ -401,6 +402,7 @@ process fastqConcater {
             touch concatenated_fq_are_ready
         else
             echo "Your extention is not recognized!"
+            exit 1
 
         fi
 
