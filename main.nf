@@ -315,6 +315,8 @@ process fastqConcater {
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
 
+    
+
     num_file=\$(ls "${fastq_dir}"| wc -l)
 
     if [ -d "${fastq_dir}"/pooled ] 
@@ -329,8 +331,8 @@ process fastqConcater {
             then
                 export "${fastq_dir}"
                 parallel --will-cite -j   ${cpus} '
-                   if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                   then
+                    if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
+                    then
 
                         name=\$(basename {})
                         zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
@@ -338,42 +340,21 @@ process fastqConcater {
                     fi
                 ' ::: "${fastq_dir}"/*
 
-                // for i in "${fastq_dir}"/*
-                // do 
-                //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-                //     then
-
-                //         name=\$(basename \$i)
-                //         zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
-                //     fi
-                    
-                    
-                // done
                 touch concatenated_fq_are_ready
 
             elif [ "${extension}" == ".fastq" ] 
             then	
                 export "${fastq_dir}"
                 parallel --will-cite -j   ${cpus} '
-                   if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                   then
+                    if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
+                    then
 
                         name=\$(basename {})
-                        cat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
+                        cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
                         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                     fi
                 ' ::: "${fastq_dir}"/*
-                // for i in "${fastq_dir}"/*    
-                // do 
-                //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-                //     then
-
-                //         name=\$(basename \$i)
-                //         cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-                //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
-                //     fi
-                // done
+                
                 touch concatenated_fq_are_ready
             else
                 echo "Your extention is not recognized!"
@@ -401,18 +382,6 @@ process fastqConcater {
                 fi
             ' ::: "${fastq_dir}"/*
 
-            // for i in "${fastq_dir}"/*
-            // do 
-            //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-            //     then
-
-            //         name=\$(basename \$i)
-            //         zcat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-            //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
-            //     fi
-                
-                
-            // done
             touch concatenated_fq_are_ready
 
         elif [ "${extension}" == ".fastq" ] 
@@ -424,20 +393,11 @@ process fastqConcater {
                 then
 
                     name=\$(basename {})
-                    cat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
+                    cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
                     mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
                 fi
             ' ::: "${fastq_dir}"/*	
-            // for i in "${fastq_dir}"/*    
-            // do 
-            //     if [ -d \$i ] && [ "\$(basename \$i)" != "pooled" ]
-            //     then
-
-            //         name=\$(basename \$i)
-            //         cat \$i/*fastq.gz >> "${fastq_dir}"/"\${name}"_pooled.fastq
-            //         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}"/pooled
-            //     fi
-            // done
+            
             touch concatenated_fq_are_ready
         else
             echo "Your extention is not recognized!"
