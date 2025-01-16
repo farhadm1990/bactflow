@@ -21,7 +21,7 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 
 1. **Clone the Repository**
 ```sh
-   git clone https://github.com/yourusername/bactflow.git
+   git clone https://github.com/farhadm1990/bactflow.git
 
    cd bactflow
    mamba env create -f config.yml
