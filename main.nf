@@ -76,7 +76,7 @@ workflow {
                 params.extension
             )
             } else {
-                pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq")
+                pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq*")
                                 .collect() // creates a value channel as such that it puts all the fastq files in one list channel.
             }
            
@@ -251,24 +251,27 @@ process envSetUP {
             conda env create -f ${baseDir}/config.yml
         fi
 
+        echo "bactflow was successfully installed!"
         conda activate bactflow
         
-        
+        bash ${baseDir}/r_installer_pkg.sh
         
       
 
 
     else
-        
+        echo "bactflow is already installed!"
         conda activate bactflow
         
     fi
     
-    bash ${baseDir}/r_installer_pkg.sh
+    
     
     touch environment_created
     """
 }
+
+
 
 process testify {
     
