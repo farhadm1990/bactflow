@@ -71,13 +71,14 @@ workflow {
         if (params.run_flye) {
             if (params.concat_reads){
                 pooled_out = fastqConcater(
+                env_check,
                 params.cpus,
                 params.fastq_dir, 
                 params.extension
             )
             } else {
                 pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq*")
-                                .collect() // creates a value channel as such that it puts all the fastq files in one list channel.
+                                .collect() 
             }
            
 
@@ -180,6 +181,7 @@ workflow {
                 fastas_fold
             )
         } else {
+            
             circ_fasta = fastas_fold
         }
         // Annotate the genomes
@@ -212,7 +214,7 @@ workflow {
 
         // quast stats
         if (params.run_quast) {
-            quast_out = quast_check(
+            quast_stat = quast_check(
             env_check,
             circ_fasta,
             params.cpus
@@ -232,6 +234,7 @@ workflow {
 
 
 process envSetUP {
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false  
     output:
     path('environment_created'), emit: env_check//, optional: true //to prevent stoping if it failed
 
@@ -273,17 +276,6 @@ process envSetUP {
                 conda activate bactflow
             fi
         fi
-
-       
-        
-        
-        
-        
-      
-
-    
-        
-    
     
     
     
@@ -320,9 +312,11 @@ process fastqConcater {
     cpus params.cpus
 
     input:
+    path env_check
     val cpus 
     path fastq_dir
     val extension
+    
 
     when:
     params.concat_reads
@@ -352,11 +346,11 @@ process fastqConcater {
         else 
             if [ "${extension}" == ".fastq.gz" ]
             then
-                export "${fastq_dir}"
+                // export "${fastq_dir}"
                 parallel --will-cite -j   "${cpus}" '
                     if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                     then
-
+                        fastq_dir=\$(dirname {})
                         name=\$(basename {})
                         zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
@@ -371,7 +365,7 @@ process fastqConcater {
                 parallel --will-cite -j   "${cpus}" '
                     if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                     then
-
+                        fastq_dir=\$(dirname {})
                         name=\$(basename {})
                         cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
                         mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
@@ -399,7 +393,7 @@ process fastqConcater {
             parallel --will-cite -j   "${cpus}" '
                 if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
-
+                    fastq_dir=\$(dirname {})
                     name=\$(basename {})
                     zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
                     mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
@@ -415,7 +409,7 @@ process fastqConcater {
             parallel --will-cite -j   "${cpus}" '
                 if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
                 then
-
+                    fastq_dir=\$(dirname {})
                     name=\$(basename {})
                     cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
                     mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
@@ -779,7 +773,7 @@ process circulator {
 
 process prokAnnot {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
     
     input:
     path env_check
@@ -804,6 +798,25 @@ process prokAnnot {
     
     """
 }
+
+// process baktaAnnot {
+
+
+//     script:
+
+//     """
+//     source \$(conda info --base)/etc/profile.d/conda.sh
+//     conda activate bactflow
+
+//     if [ ! -d bakta_annot ]
+//     then 
+//         mkdir -p bakta_annot
+//     fi
+
+//     bash ${projectDir}/bakta_annot.sh
+
+//     """
+// }
 
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
@@ -836,7 +849,7 @@ process checkm_lineage {
         cpus params.cpus -1 
     }
 
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/checkm_out", mode: 'copy', overwrite: false
 
     input:
     path env_check
@@ -913,7 +926,7 @@ process quast_check {
     params.run_quast
 
     output:
-    path('quast_report'), emit: quast_out, optional: true
+    path('quast_stat'), emit: quast_stat, optional: true
 
     script:
     """
@@ -930,7 +943,7 @@ process quast_check {
 
     fi 
 
-    quast '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
+    quast.py '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
     """
 }
 

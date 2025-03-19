@@ -5,11 +5,14 @@ channels:
   - defaults
 dependencies: 
   - curl
+  - libcurl
   - pkg-config
-  - python=3.10
+  - python=3.11.0
+  - bcftools
   - minimap2=2.28
   - checkm-genome
   - flye
+  - bwa
   - mummer
   - medaka
   - pplacer
@@ -24,7 +27,6 @@ dependencies:
   - miniasm
   - racon
   - samtools
-  - bcftools
   - git
   - pip
   - seqkit
@@ -32,8 +34,10 @@ dependencies:
   - skani
   - parallel
   - pomoxis
+  # - plassembler=1.6.2
   - pip:
     - pyCirclize
+    - ont-parasail
     - circlator
     - pytmler
     - bokeh
@@ -46,8 +50,10 @@ dependencies:
     - quast
   - prokka
   - r-base=4.4
+  # - r-essentials
   - r-ggplot2
   - r-dplyr
+  - r-igraph
   - r-biocmanager
 
 

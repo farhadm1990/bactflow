@@ -16,7 +16,7 @@ required_packages = {
     'flask': 'Flask',
     'plotly': 'plotly',
     # 'pycirclize': 'pycirclize',
-    'Bio': 'biopython',
+    'biopython': 'Bio',
     'flask_sqlalchemy': 'Flask-SQLAlchemy',
     'flask_migrate': 'Flask-Migrate',
     'pandas': 'pandas',
@@ -66,7 +66,7 @@ import threading
 import base64
 from io import BytesIO
 import glob
-from PIL import Image
+
 
 base_dir = os.path.abspath(os.path.dirname(__file__))# we can have access to all files from everywhere
 app = Flask(__name__, 
