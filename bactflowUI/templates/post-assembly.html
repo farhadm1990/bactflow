@@ -1,0 +1,686 @@
+
+  {% extends 'base.html' %}
+  
+<!-- title bloc -->
+ {% block title %} Post-assembly {% endblock %}
+ 
+
+{% block extra_head %}
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}">
+<link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
+<!-- DataTables CSS -->
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
+
+{% endblock %}
+
+  {% block content %}
+
+  <body>
+
+    <header style="color: rgb(255, 255, 255); background-color: rgb(66, 117, 107); padding: 5px; height: 100px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="margin-left: 5px;">
+  
+        <h1><a class="navbar-brand" href="https://github.com/farhadm1990/bactflow" target="_blank">BactFlow: Post-assembly</a>  </h1>
+  
+      </div>
+  
+      <div style="display: flex; justify-content: space-between;">
+  
+        <!-- <form class="d-flex" role="search" style=" display: flex; justify-content: center; align-items: center;">
+          <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
+          <button class="btn btn-outline-success" type="submit">Search</button>
+        </form> -->
+        
+        <a href="/"><img src="{{ url_for('static', filename = 'images/logo.png') }}" alt="BactFlow" style="width: 100px; height: 100px;"></a>
+      </div>
+     
+    </header>
+
+
+    
+  </body>
+  
+
+<form id="postForm">
+
+
+<div class="container-fluid mt-3">
+  <div class="row">
+
+
+    <!-- Input Options Div -->
+    <div class="col-md-4" id="input-side" style="width: 30%;">
+        <div class="col-md-4" style="height: 100vh; position: relative; border-right: 1px solid #ddd; width: 100%;">
+        
+      
+
+        <div style="height: calc(100% - 70px); overflow-y: auto; padding-right: 10px; margin-bottom: 10px; padding-bottom: 80px;">
+        
+          
+
+          <!-- Genome Parameters -->
+          <div class="card mb-7">
+            <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(121, 124, 123); height: 100px;">
+              <h4 class="mb-0">Genome Parameters</h4>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label for="setup_only" class="form-label">Only install BactFlow and exit! <strong>(First-time run)</strong></label>
+                <select class="form-select" id="setup_only" name="setup_only" >
+                  <option value="true" selected>True</option>
+                  <option value="false" >False</option>
+                </select>
+              </div>
+              
+              <label for="genome_dir" class="form-label">Directory to genomes <strong>(FASTA)</strong></label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="filePicker"
+                  name="genome_dir"
+                  placeholder="genome_dir"
+                  webkitdirectory
+                  directory/>
+              
+                </div>
+                <br>
+              <div class="mb-3">
+                <label for="extension" class="form-label">Genome extension</label>
+                <input type="text" class="form-control" id="genome-extension" name="genome-extension" placeholder="fasta" value="fasta" />
+              </div>
+              <div class="mb-3">
+                <label for="circle_genome" class="form-label">Fix start point of your genome? <strong>(Circulate)</strong></label>
+                <select class="form-select" id="circle_genome" name="circle_genome">
+                  <option value="true" selected>True</option>
+                  <option value="false">False</option>
+                </select>
+              </div>
+            
+              <div class="mb-3">
+                <label for="run_quast" class="form-label">Run Quast</label>
+                <select class="form-select" id="run_quast" name="run_quast">
+                  <option value="true" >True</option>
+                  <option value="false" selected>False</option>
+                </select>
+              </div>
+              <hr>
+              
+              <div class="mb-3">
+                <label for="prok_annot" class="form-label">Genome annotation? <strong>(Prokka)</strong></label>
+                <select class="form-select" id="prok_annot" name="prok_annot">
+                  <option value="true" >True</option>
+                  <option value="false" selected>False</option>
+                </select>
+              </div>
+              
+              
+              <div class="mb-3">
+                <label for="bakta_annot" class="form-label">Genome annotation? <strong>(Bakta)</strong></label>
+                <select class="form-select" id="bakta_annot" name="bakta_annot">
+                  <option value="true">True</option>
+                  <option value="false" selected>False</option>
+                </select>
+              </div>
+
+              
+              <div class="mb-3" id="bakta_dbDiv">
+                <label for="bakta_data_path" class="form-label">Database directory for BAKTA</label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="filePicker"
+                  name="bakta_data_path"
+                  placeholder="bakta_db"
+                  webkitdirectory
+                  directory
+                  />
+               
+                </div>
+              </div>
+              <br>
+              <div id="genetype" style="flex-direction: column;">
+                <label for="geneTypeSelect">Select <strong>Gene Types</strong> for the count table</label>
+                <br>
+                <select class="form-select" multiple size="3" aria-label="Default select example" name="gene_type" style="background-color: rgb(216, 241, 255);" id="geneType">
+                  
+                  <option selected value="CDS">CDS</option>
+                  <option value="tRNA">tRNA</option>
+                  <option value="rRNA">rRNA</option>
+                  <option value="tmRNA">tmRNA</option>
+                  <option value="repeat_region">repeat_region</option>
+                </select>
+              </div>
+
+              <br>
+              <hr>
+             
+              <div id="circular-div" style="background-color: rgb(231, 243, 252); padding: 6px; border-radius: 2px;">
+                <h6>Tunning parameters for the cirular gemome plot</h6>
+                <br>
+                <label for="add_gc">Add GC content to the circular genome?</label>
+                <select class="form-select" aria-label="Default select example" name="add_gc" style="background-color: rgb(247, 247, 247);" id="add-gc">
+                  <option selected value="True">True</option>
+                  <option  value="False">False</option>
+                </select>
+
+                <label for="add_skew">Add GC-skew to the circular genome?</label>
+                <select class="form-select" aria-label="Default select example" name="add_skew" style="background-color: rgb(247, 247, 247);" id="add-skew">
+                  <option selected value="True">True</option>
+                  <option  value="False">False</option>
+                </select>
+
+                <label for="dpi" class="form-label">Resolution (dpi)</label>
+                <input type="number" class="form-control" id="dpi" name="dpi" placeholder="200"  value="200"/>
+                <label for="figsize" class="form-label">Plog size (inches)</label>
+                <input type="number" class="form-control" id="figsize" name="figsize" placeholder="10"  value="10"/>
+                <label for="interval" class="form-label">Segment width (thickness of each segment)</label>
+                <input type="number" class="form-control" id="interval" name="interval" placeholder="1"  value="1"/>
+                <br>
+                <label for="f_colorInput" class="form-label">Choose the for the CDS on forward and reverse strands</label>
+                <div style="display: flex; gap: 10px;">
+                  <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c" title="Choose forward color">
+                  <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3" title="Choose reverse color">
+                </div>
+                
+
+              </div>
+              
+              <hr>
+              <div class="mb-3">
+                <label for="tax_class" class="form-label">Taxonomy classification? <strong>(GTDBtk)</strong></label>
+                <select class="form-select" id="tax_class" name="tax_class">
+                  <option value="true" >True</option>
+                  <option value="false" selected>False</option>
+                </select>
+              </div>
+              
+              <div class="mb-3" id="gtdbtk_dbDiv">
+                <label for="gtdbtk_data_path" class="form-label">GTDBtk database directory</label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="filePicker"
+                  name="gtdbtk_data_path"
+                  placeholder="release220"
+                  webkitdirectory
+                  directory
+                  />
+              
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label for="run_checkm" class="form-label">Genome completeness and phylogeney? <strong>(CheckM)</strong></label>
+                <select class="form-select" id="run_checkm" name="run_checkm">
+                  <option value="true" >True</option>
+                  <option value="false" selected>False</option>
+                </select>
+              </div>
+            
+              <div class="mb-3" id="checkm_dbDiv">
+                <label for="gtdbtk_data_path" class="form-label">CheckM database directory</label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="filePicker"
+                  name="checkm_db"
+                  placeholder="checkm_db"
+                  webkitdirectory
+                  directory/>
+              
+                </div>
+              </div>
+
+              <hr>
+              <div class="mb-3" style=" padding: 5px; background-color: rgb(0, 107, 139); color: rgb(255, 255, 255);">
+                <label for="resume_run" class="form-label"><strong>Resume the run from interupted point?</strong> </label>
+                <select class="form-select" id="resume_run" name="resume_run">
+                  <option value="true" selected>True</option>
+                  <option value="false" >False</option>
+                </select>
+              </div>
+
+              <hr>
+              <div class="mb-3">
+                <label for="cpus" class="form-label">CPUs</label>
+                <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+              </div>
+              <div class="mb-3">
+                <label for="gpus" class="form-label">GPUs: only if applicatble</label>
+                <input type="number" class="form-control" id="gpus" name="gpus" placeholder="0" />
+              </div>
+              <div class="mb-3">
+                <label for="out_dir" class="form-label">Output Directory</label>
+                <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out"/>
+              </div>
+            </div>
+          </div>
+
+
+          <hr>
+
+          <br>
+
+
+        
+        </div>
+
+        <!-- Fixed Buttons Section -->
+        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
+          <div class="btn-group" style="justify-content: center; display: flex;">
+            
+              <button type="submit" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
+              <button type="submit" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
+             
+                <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
+          
+              <button type="submit" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
+              
+            
+          </div>
+          
+          
+        </div> 
+        
+      </div>
+      <hr>
+      <br>
+
+      <!-- Variant calling Parameters -->
+      <div class="card mb-3" style="width: 100%; height: 35vh;">
+        <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(156, 187, 177); height: 100px;">
+          <h4 class="mb-0">SNPS and Variant Calling <strong>(VCF)</strong></h4>
+        </div>
+        <div class="card-body">
+          
+          <div class="mb-3" id="ref-file">
+            <label for="ref-file" class="form-label">Select the reference file <strong>(Wild type)</strong></label>
+            <div class="input-group">
+              <input
+              type="text"
+              class="form-control"
+              id="filePicker"
+              name="ref_genome"
+              placeholder="wild_type_genome.fasta"
+              webkitdirectory
+              directory
+              />
+          
+            </div>
+          </div>
+
+
+
+          <br>
+        </div>
+
+        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
+          <div class="btn-group" style="justify-content: center; display: flex;">
+            
+              <button type="button" class="btn btn text-white" style="background-color: rgb(175, 121, 226); font-weight: bold;" id="run-bt" onclick="runSNP()">Run SNP finder</button>
+              <button type="button" onclick="runVCF()" style="border: solid 0.5px blue; color: red;" class="btn" id="vcf-bt">Run variant calling</button>
+          </div>
+          <br>
+          
+          
+        </div> 
+        
+        
+      </div>
+      <hr>
+      <br>
+      <!-- Strain finder Parameters -->
+      <div class="card mb-3" style="width: 100%; height: 50vh; top: 20px; bottom: 20px; padding: 10px; overflow-y: auto;">
+        <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(249, 138, 59); height: 100px;">
+          <h4 class="mb-0">Strain finder <strong>(Genome clustering)</strong></h4>
+        </div>
+        <div class="card-body">
+          
+          <div class="mb-3" id="enz-file">
+            <label for="ref-file" class="form-label">Only if you have a file with enzymes <strong>(tab-delimited)</strong></label>
+            <div class="input-group">
+              <input
+              type="text"
+              class="form-control"
+              id="filePicker"
+              name="enzyme_loc"
+              placeholder="enzymes.tsv"
+              webkitdirectory
+              directory
+              />
+          
+            </div>
+          </div>
+          <div class="mb-3" id="gene-files">
+            <label for="ref-file" class="form-label">Directory to tab-delimited gene annotation files <strong>(tab-delimited for BAKTA)</strong></label>
+            <div class="input-group">
+              <input
+              type="text"
+              class="form-control"
+              id="filePicker"
+              name="gene_files"
+              placeholder="genes"
+              webkitdirectory
+              directory
+              />
+          
+            </div>
+          </div>
+
+
+
+          <br>
+        </div>
+
+        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
+          <div class="btn-group" style="justify-content: center; display: flex;">
+            
+              <button type="button" class="btn btn text-white" style="background-color: rgb(38, 59, 49); font-weight: bold;" id="run-bt" onclick="abundRun()" name="action-assem" value="run">Abundance-based</button>
+              <button type="button" onclick="prevRun()" style="border: solid 0.5px blue; color: rgb(255, 106, 0);" class="btn"  id="prev-bt">Prevalance-based</button>
+             
+              
+            
+          </div>
+          <br>
+          
+          
+        </div> 
+        
+        
+      </div>
+
+    </div>
+    
+
+
+       <!-- Bactflow Output Section -->
+       <div class="col-md-9" style="display: block; width: 70%; height: 200vh; overflow-y: auto;">
+
+        <div id="output-div" class="col-md-7" style="height: 50%; overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 10px; width: 100%;">
+
+        <h4 class="text-left mb-3"> Bactflow progress</h4>
+        <div id="output-bactflow" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height:80%;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+       
+        </div>
+
+        <div class="progress" style="width: 95%; margin-left: 5px; display: none;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-label="75" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 75%;"></div>
+        </div>
+        <br>
+        <hr style="width: 97%;">
+
+
+      
+      </div> 
+
+      <!-- Quast Output Section -->
+      <div id="quastDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Assembly stats: Quast</h4>
+        <div id="output-quast" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              /* display: block; */
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+           
+      
+        </div>
+        <br>
+        <h4 class="text-left mb-3">Contig viewer: Quast</h4>
+        <div id="contig-quast" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              /* display: none; */
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+           
+       
+        </div>
+      </div>
+      <br>
+       <!-- Annotation Output Section -->
+       <div id="prokkaDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Abundance count table of annotated genomes across samples: <strong>(Prokka)</strong></h4>
+        <div id="output-prokk" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+           
+      
+        </div>
+        <br>
+      </div>
+
+      <div id="circDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Circulated plot of all genomes: <strong>(CDS)</strong></h4>
+         <div id="output-circ" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 800px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          <div id="spin-circ" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <br>
+          <h3 style="color: blueviolet;">Report is being created...</h3>
+           </div>
+
+          <img id="circularImg" src="" alt="Circular Genome Plot" style="max-width: 100%; height: auto;">
+      
+        </div>
+        <br>
+      </div>
+      
+      <br>
+      <div id="taxa_class" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Taxonomic classification <strong>(GTDBtk)</strong></h4>
+         <div id="output-taxa" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          
+
+          
+      
+        </div>
+        <br>
+      </div>
+      <br>
+      <hr>
+      <br>
+
+      <div id="snpsDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Table of variants <strong>(SNPs)</strong></h4>
+         <div id="output-snp" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+   
+      
+        </div>
+        <br>
+      </div>
+
+      <div id="svs" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Table of structural variants <strong>(SVS)</strong></h4>
+         <div id="output-svs" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 600px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          
+
+          
+      
+        </div>
+        <br>
+      </div>
+
+      <div id="abundDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Abundance-based classification of genomes based ond requested genes</h4>
+         <div id="output-abund" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 800px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          <div id="spin-abund" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <br>
+          <h3 style="color: blueviolet;">Report is being created...</h3>
+           </div>
+           <br>
+          <div>
+            
+          
+      
+        </div>
+        <br>
+      </div>
+      <br>
+      <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Plot of bundance-based classification of genomes based ond requested genes</h4>
+         <div id="output-abund-img" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 800px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          <div id="spin-abund" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <br>
+          <h3 style="color: blueviolet;">Report is being created...</h3>
+           </div>
+           <br>
+          
+            <img id="abundImg" src="" alt="Abundance classification Plot" style="max-width: 100%; height: auto;">
+          
+          
+      
+        </div>
+        <br>
+      </div>
+
+      
+
+    </div>  <!-- End of div-->
+    <div id="prevDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+      <h4 class="text-left mb-3">Prevalance-based classification of genomes based ond requested genes</h4>
+       <div id="output-prev" style="border: 1px solid rgb(105, 105, 105);
+            padding: 10px;
+            margin: 10px;
+            border-radius: 5px;
+            height: 800px;
+            width: 95%;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            background-color: #ffffff;
+            color: darkslategrey;">
+        <div id="spin-prev" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <br>
+        <br>
+        <h3 style="color: blueviolet;">Report is being created...</h3>
+         </div>
+
+        <img id="prevImg" src="" alt="Prevalance classification Plot" style="max-width: 100%; height: auto;">
+    
+      </div>
+      <br>
+    </div>
+      
+    </div>
+</div>
+ 
+</form>    
+
+
+
+{% block extra_script %}
+<!-- DataTables JS -->
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}"></script>
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+ <!-- jQuery -->
+ <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+
+ <!-- DataTables JS -->
+ <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}
+      
+  
+{% endblock %}

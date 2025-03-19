@@ -1,0 +1,61 @@
+/home/farhad/miniconda3/envs/bactflow/bin/quast.py circulated_fasta/circulatd_N.fasta -o quast_stat -t 12
+
+Version: 5.2.0
+
+System information:
+  OS: Linux-6.8.0-52-generic-x86_64-with-glibc2.35 (linux_64)
+  Python version: 3.11.9
+  CPUs number: 12
+
+Started: 2025-03-15 17:39:35
+
+Logging to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/quast.log
+
+CWD: /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2
+Main parameters: 
+  MODE: default, threads: 12, min contig length: 500, min alignment length: 65, min alignment IDY: 95.0, \
+  ambiguity: one, min local misassembly length: 200, min extensive misassembly length: 1000
+
+Contigs:
+  Pre-processing...
+  circulated_fasta/circulatd_N.fasta ==> circulatd_N
+
+2025-03-15 17:39:36
+Running Basic statistics processor...
+  Contig files: 
+    circulatd_N
+  Calculating N50 and L50...
+    circulatd_N, N50 = 2565176, L50 = 1, auN = 2565176.0, Total length = 2565176, GC % = 67.33, # N's per 100 kbp =  0.00
+  Drawing Nx plot...
+    saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/basic_stats/Nx_plot.pdf
+  Drawing cumulative plot...
+    saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/basic_stats/cumulative_plot.pdf
+  Drawing GC content plot...
+    saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/basic_stats/GC_content_plot.pdf
+  Drawing circulatd_N GC content plot...
+    saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/basic_stats/circulatd_N_GC_content_plot.pdf
+Done.
+
+NOTICE: Genes are not predicted by default. Use --gene-finding or --glimmer option to enable it.
+
+2025-03-15 17:39:36
+Creating large visual summaries...
+This may take a while: press Ctrl-C to skip this step..
+  1 of 2: Creating PDF with all tables and plots...
+  2 of 2: Creating Icarus viewers...
+Done
+
+2025-03-15 17:39:37
+RESULTS:
+  Text versions of total report are saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/report.txt, report.tsv, and report.tex
+  Text versions of transposed total report are saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/transposed_report.txt, transposed_report.tsv, and transposed_report.tex
+  HTML version (interactive tables and plots) is saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/report.html
+  PDF version (tables and plots) is saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/report.pdf
+  Icarus (contig browser) is saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/icarus.html
+  Log is saved to /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/work/17/ef9e7e8f6230e45677b3c2fedfb6a2/quast_stat/quast.log
+
+Finished: 2025-03-15 17:39:37
+Elapsed time: 0:00:01.388361
+NOTICEs: 1; WARNINGs: 0; non-fatal ERRORs: 0
+
+Thank you for using QUAST!

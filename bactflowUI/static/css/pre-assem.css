@@ -1,0 +1,120 @@
+table th:nth-child(30), td:nth-child(30){
+    display: none;
+    flex: auto;
+    margin-left: 100px;
+    width: 100% !important;
+}
+
+.tabdiv {
+    overflow-x: auto; 
+    width: 100% !important;
+    border: solid 1px rgb(150, 150, 150); 
+    border-radius: 2px;
+    margin: 5px 5px 5px 5px;
+    flex: auto;
+    background-color: rgb(241, 246, 247);
+    padding: 5px;
+}
+
+.table-title {
+    display: block;
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 20px;
+    border-bottom: solid 0.5px rgb(150, 150, 150);
+    padding: 20px 0 20px 10px;
+}
+
+.dataTables_wrapper {
+    width: 100% !important;
+    overflow-x: auto;
+}
+
+.dataTables_scrollHeadInner {
+    width: 100% !important;
+}
+
+table.dataTable {
+    width: 100% !important;
+    margin: 0 auto;
+}
+
+table.dataTable thead th {
+    text-align: center;
+    vertical-align: middle;
+    padding: 10px;
+}
+
+/* low sequences */
+
+
+#stats-table tbody tr.low-seqs td {
+    background-color: #ff4949 !important;
+    color: white !important; /* Ensures text remains readable */
+   
+}
+
+/* ✅ Alternative: Force on all rows */
+#stats-table tbody tr.low-seqs {
+    background-color: #ff4949 !important;
+    color: rgb(14, 255, 235) !important;
+   
+}
+
+/* ✅ Force background color on each cell instead */
+#stats-table tbody td.low-seqs {
+    background-color: #ff4949 !important;
+
+}
+
+/* style for fastq list */
+
+
+#read-fastq tbody tr.low-seqs td {
+    background-color: #ff4949 !important;
+    color: white !important; /* Ensures text remains readable */
+   
+}
+
+/* ✅ Alternative: Force on all rows */
+#read-fastq tbody tr.low-seqs {
+    background-color: #ff4949 !important;
+    color: rgb(14, 255, 235) !important;
+   
+}
+
+/* ✅ Force background color on each cell instead */
+#read-fastq tbody td.low-seqs {
+    background-color: #ff4949 !important;
+
+}
+
+
+#read-fastq {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+#read-fastq th {
+    background-color: #404340;
+    color: white;
+    padding: 10px;
+    text-align: center;
+}
+
+#read-fastq td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+#read-fastq tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+#read-fastq tr:hover {
+    background-color: #ddd;
+}

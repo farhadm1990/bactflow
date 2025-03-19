@@ -1,0 +1,385 @@
+
+{% extends 'base.html' %}
+
+<!-- title bloc -->
+{% block title %} Pre-assembly  {% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}">
+<link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
+<!-- DataTables CSS -->
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
+
+{% endblock %}
+
+
+
+{% block content %}
+  
+<body>
+
+  <header style="color: rgb(255, 255, 255); background-color: rgb(82, 100, 103); padding: 5px; height: 100px; display: flex; justify-content: space-between; align-items: center;">
+    <div style="margin-left: 5px;">
+
+      <h1><a class="navbar-brand" href="https://github.com/farhadm1990/bactflow" target="_blank">BactFlow: Pre-assembly</a>  </h1>
+
+    </div>
+
+    <div style="display: flex; justify-content: space-between;">
+
+      <!-- <form class="d-flex" role="search" style=" display: flex; justify-content: center; align-items: center;">
+        <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
+        <button class="btn btn-outline-success" type="submit">Search</button>
+      </form> -->
+      
+      <a href="/"><img src="{{ url_for('static', filename = 'images/logo.png') }}" alt="BactFlow" style="width: 100px; height: 100px"></a>
+    </div>
+   
+  </header>
+
+</body>
+
+
+
+
+    
+    
+<form id="preForm">
+
+
+  <div class="container-fluid mt-3">
+    <div class="row">
+  
+  
+      <!-- Input Options Div -->
+  
+      <div class="col-md-4" style="height: 90vh; position: relative; border-right: 1px solid #ddd; width: 30%;">
+   
+       
+  
+        <div style="height: calc(100% - 10px); overflow-y: auto; padding-right: 10px; margin-bottom: 5px; padding-bottom: 5px;">
+        
+          <div class="card-header text-black" id="notInstalled" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; background-color: rgb(233, 233, 233); align-items: center;">
+            <label for="setup_only" class="form-label">BactFlow is not installed, please install <strong>BactFlow</strong> environemnt first </label>
+            <button type="button" class="btn btn-warning" style="background-color: rgb(253, 94, 128); width:200px; color: rgb(255, 255, 255);" id="install-bt" name="setup_only" value="install"><strong>Install BactFlow</strong></button>
+            <!-- spinner -->
+             <div id="installing" style="display: none;">
+              <p>Installing bactflow...</p>
+            <div class="spinner-grow text-info" role="status">
+            <span class="sr-only"></span>
+            
+          </div>
+             </div>
+            
+          </div>
+          
+
+          <div class="card-header text-black" id="Installed" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; background-color: rgb(216, 215, 215); align-items: center;">
+            
+            
+          </div>
+          
+         <br>
+          <!-- Raw Read Parameters -->
+          <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+              <h6 class="mb-0">Raw Read Parameters</h6>
+            </div>
+            <div class="card-body">
+              
+              <div class="mb-3">
+                <label for="fastq_dir" class="form-label">FASTQ Directory</label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="filePicker"
+                  name="fastq_dir"
+                  placeholder="./"
+                  webkitdirectory
+                  directory
+                  />
+               
+                </div>
+              </div>
+              <div class="mb-3">
+                <label for="concat_reads" class="form-label">Concat Reads</label>
+                <select class="form-select" id="concat_reads" name="concat_reads">
+                  <option value="true" selected>True</option>
+                  <option value="false">False</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label for="extension" class="form-label">Extension</label>
+                <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
+              </div>
+              <hr>
+              <div class="mb-3">
+                <label for="cpus" class="form-label">CPUs</label>
+                <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+              </div>
+             
+              <div class="mb-3">
+                <label for="out_dir" class="form-label">Output Directory</label>
+                <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out" value="./bactflow_out"/>
+              </div>
+            </div>
+          </div>
+  
+        
+          <hr>
+         
+        </div>
+  
+        <!-- Fixed Buttons Section -->
+        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
+          <div class="btn-group" style="justify-content: center; display: flex;">
+            <button type="button" class="btn btn-info" onclick="catFastq()" id="read-cat" name="action-assem" value="stats"><strong>Initiate read cat</strong></button>
+              <button type="button" class="btn btn-secondary" onclick="read_stat()" id="read-stat" name="action-assem" value="stats"><strong>Display read statistics</strong></button>
+              <button type="button" class="btn btn-success" onclick="read_vis()" name="action-assem" value="vis" id="vis-bt"><strong>Visualize reads</strong></button>
+              
+            
+          </div>
+          <br>
+          
+        </div> 
+        
+      </div>
+  
+         <!-- installation Output Section -->
+         <div class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
+          <div id="spin-fastq-list" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 100px; height: 100px; color: #5f547c;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <br>
+          <h6 style="color: rgb(12, 34, 31);">Fastq files are being prepared to display...</h6>
+          </div>
+
+        <div style="display: none; flex-direction: column; text-align: center; text-align-last: center; padding:10px; margin-top: 10px;  align-items: center; justify-content: center; border: 1px solid rgb(105, 105, 105);" id="fastq-ls-div">
+            <div style="border: 1px solid rgb(142, 140, 140);
+                padding: 10px;
+                margin: 10px;
+                width: 98%;
+                border-radius: 5px;
+                overflow-y: auto;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                background-color: #ffffff;
+                color: darkslategrey;" id="fastq-ls">
+                <h4 class="text-left mb-3">List of fastq files <strong>(FASTQ)</strong></h4>
+             
+          
+          </div>
+          <br>
+            <label class="form-label">Choose fastq size threshold <strong>(below 1024kb will be removed)</strong>: <span id="size-value" style="font-weight: bold; color: brown;"><strong>10Mb</strong></span><p>Mb</p></label>
+          <input type="range" class="form-range" id="size-slider" min="0" max="5000" step="1" value="10" name="size-threshold">
+          <br>
+         
+          <button type="button" style="btn btn-warning d-flex align-items-center justify-content-center gap-2" class="btn btn-warning" onclick="trimList()" id="trim-list" name="action-assem" value="stats"><strong>Trim the list!</strong>  <div class="spinner-border spinner-border-sm" role="status" style="display: none; width: 1rem; height: 1rem; vertical-align: middle;" id="spin-fastq">
+            <span class="visually-hidden">Loading...</span>
+          </div></button>
+        </div>
+          
+          <br>
+          
+        <!-- Plot Output Section -->
+         <div id="spin-seqkit" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <br>
+        <br>
+        <h3 style="color: blueviolet;">Report is being created...</h3>
+         </div>
+        
+        
+        <div id="seq-div" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+          <br>
+          
+          
+
+          <h4 class="text-left mb-3">Read statistics <strong>(SeqKit)</strong></h4>
+          <div id="output-seqkit" style="border: 1px solid rgb(105, 105, 105);
+                padding: 10px;
+                margin: 10px;
+                width: 98%;
+                overflow-y: auto;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                background-color: #ffffff;
+                color: darkslategrey;">
+             
+          
+          </div>
+          <br>
+          
+          
+          <br>
+        
+        </div>
+        <div class="container mt-3" id="threhold-input" style="display: none;">
+          <label for="customRange1" class="form-label">Choose read depth <strong>threshold</strong>: <span id="depth-value" style="font-weight: bold; color: brown;"><strong>1000</strong></span></label>
+          <input type="range" class="form-range" id="depth-slider" min="0" max="10000000" step="1000" value="1000">
+    
+        </div>
+    
+        <br>
+          <!-- plot output -->
+        <div id="qual-plot" style="border: 1px solid rgb(105, 105, 105);
+                padding: 10px;
+                margin: 10px;
+                width: 98%;
+                height: 80vh;
+                display: none;
+                overflow-y: auto;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                background-color: #ffffff;
+                color: darkslategrey;">
+             
+
+             <div id="spin-vis" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+              <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #9d4b3b;"> 
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <br>
+            <br>
+            <h3 style="color: rgb(43, 122, 226);">Visualization is in progress, please be patient...</h3>
+             </div>
+            
+             
+          
+        </div>
+        <br>
+        <!-- sliders for first plot -->
+        <div id="range1Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
+          
+          <div >
+            <label class="form-label">
+              Adjust the height of the plot <strong>(px)</strong>: 
+              <span id="height1-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range vertical-slider" id="range1H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+          
+          <div>
+            <label class="form-label">
+              Adjust the width of the plot <strong>(px)</strong>: 
+              <span id="width1-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range" id="range1" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+                    
+          <hr>
+          <br>
+      </div>
+      
+          <br>
+          <!-- heatmap column -->
+          <div id="qual-heat-plot" style="border: 1px solid rgb(105, 105, 105);
+          padding: 10px;
+          margin: 10px;
+          width: 98%;
+          height: 80vh;
+          display: none;
+          overflow-y: auto;
+          overflow-x: auto;
+          white-space: pre-wrap;
+          background-color: #ffffff;
+          color: darkslategrey;">
+       
+    
+          </div>
+          <br>
+
+          <!-- sliders for first plot -->
+        <div id="range2Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
+          
+          <div >
+            <label class="form-label">
+              Adjust the height of the plot <strong>(px)</strong>: 
+              <span id="height2-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range vertical-slider" id="range2H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+          
+          <div>
+            <label class="form-label">
+              Adjust the width of the plot <strong>(px)</strong>: 
+              <span id="width2-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range" id="range2" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+                    
+          <hr>
+        
+      </div>
+        <br>
+
+          <!-- heatmap column -->
+          <div id="qual-heat-pool-plot" style="border: 1px solid rgb(105, 105, 105);
+          padding: 10px;
+          margin: 10px;
+          width: 98%;
+          height: 80vh;
+          display: none;
+          overflow-y: auto;
+          overflow-x: auto;
+          white-space: pre-wrap;
+          background-color: #ffffff;
+          color: darkslategrey;">
+       
+    
+          </div>
+          <br>
+          <!-- sliders for first plot -->
+        <div id="range3Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
+          
+          <div >
+            <label class="form-label">
+              Adjust the height of the plot <strong>(px)</strong>: 
+              <span id="height3-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range vertical-slider" id="range3H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+          
+          <div>
+            <label class="form-label">
+              Adjust the width of the plot <strong>(px)</strong>: 
+              <span id="width3-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
+          </label>
+          <input type="range" class="form-range" id="range3" min="0" max="10000" step="10" value="1500" name="size-threshold">
+          </div>
+                    
+          <hr>
+          
+      </div>
+      <br>
+          <br>
+
+         </div> 
+        
+        
+      </div>
+  </div>
+  </form>  
+
+{% block extra_script %}
+<!-- DataTables JS -->
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}"></script>
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+ <!-- jQuery -->
+ <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+
+ <!-- DataTables JS -->
+ <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
+{% endblock %}
+
+{% endblock %}
