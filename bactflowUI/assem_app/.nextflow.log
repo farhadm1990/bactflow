@@ -1,0 +1,70 @@
+Mar-21 17:18:08.943 [main] DEBUG nextflow.cli.Launcher - $> nextflow run /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/main.nf --setup_only true --fastq_dir --concat_reads true --extension --cpus 1 --coverage_filter false --coverage --genome_size --out_dir ./bactflow_out --tensor_batch --nanofilter false --min_length --min_quality --medaka_polish false --basecaller_model r1041_e82_400bps_hac_v4.2.0 --genome_extension fasta --checkm_lineag_check false --run_flye false --circle_genome true --run_unicycler false --run_megahit false --run_spades false --tax_class false --prok_annot false --run_checkm false --checkm_db --gtdbtk_data_path --run_quast false --genome_dir -resume
+Mar-21 17:18:09.105 [main] DEBUG nextflow.cli.CmdRun - N E X T F L O W  ~  version 24.10.2
+Mar-21 17:18:09.155 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; embedded=false; plugins-dir=/home/hackion/.nextflow/plugins; core-plugins: nf-amazon@2.9.2,nf-azure@1.10.2,nf-cloudcache@0.4.2,nf-codecommit@0.2.2,nf-console@1.1.4,nf-google@1.15.2,nf-tower@1.9.3,nf-wave@1.7.4
+Mar-21 17:18:09.197 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+Mar-21 17:18:09.199 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+Mar-21 17:18:09.205 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.12.0 in 'deployment' mode
+Mar-21 17:18:09.231 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
+Mar-21 17:18:09.268 [main] DEBUG nextflow.config.ConfigBuilder - Found config local: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/nextflow.config
+Mar-21 17:18:09.274 [main] DEBUG nextflow.config.ConfigBuilder - Parsing config file: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/nextflow.config
+Mar-21 17:18:09.321 [main] DEBUG n.secret.LocalSecretsProvider - Secrets store: /home/hackion/.nextflow/secrets/store.json
+Mar-21 17:18:09.331 [main] DEBUG nextflow.secret.SecretsLoader - Discovered secrets providers: [nextflow.secret.LocalSecretsProvider@4925f4f5] - activable => nextflow.secret.LocalSecretsProvider@4925f4f5
+Mar-21 17:18:09.367 [main] DEBUG nextflow.config.ConfigBuilder - Applying config profile: `standard`
+Mar-21 17:18:10.149 [main] DEBUG nextflow.cli.CmdRun - Applied DSL=2 from script declaration
+Mar-21 17:18:10.185 [main] DEBUG nextflow.cli.CmdRun - Launching `/home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/main.nf` [suspicious_banach] DSL2 - revision: 6274fac780
+Mar-21 17:18:10.189 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins default=[]
+Mar-21 17:18:10.189 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins resolved requirement=[]
+Mar-21 17:18:10.283 [main] DEBUG nextflow.Session - Session UUID: b800f849-e78b-429a-9f4f-74a7e2447183
+Mar-21 17:18:10.284 [main] DEBUG nextflow.Session - Run name: suspicious_banach
+Mar-21 17:18:10.284 [main] DEBUG nextflow.Session - Executor pool size: 12
+Mar-21 17:18:10.300 [main] DEBUG nextflow.file.FilePorter - File porter settings maxRetries=3; maxTransfers=50; pollTimeout=null
+Mar-21 17:18:10.311 [main] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'FileTransfer' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[10000]; allowCoreThreadTimeout=false
+Mar-21 17:18:10.361 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 24.10.2 build 5932
+  Created: 27-11-2024 21:23 UTC (22:23 CEST)
+  System: Linux 6.5.0-17-generic
+  Runtime: Groovy 4.0.23 on OpenJDK 64-Bit Server VM 17.0.3-internal+0-adhoc..src
+  Encoding: UTF-8 (UTF-8)
+  Process: 663021@hackion [127.0.1.1]
+  CPUs: 12 - Mem: 54.9 GB (538.5 MB) - Swap: 2 GB (2 GB)
+Mar-21 17:18:10.412 [main] DEBUG nextflow.Session - Work-dir: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/work [ext2/ext3]
+Mar-21 17:18:10.413 [main] DEBUG nextflow.Session - Script base path does not exist or is not a directory: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/bin
+Mar-21 17:18:10.427 [main] DEBUG nextflow.executor.ExecutorFactory - Extension executors providers=[]
+Mar-21 17:18:10.445 [main] DEBUG nextflow.Session - Observer factory: DefaultObserverFactory
+Mar-21 17:18:10.491 [main] DEBUG nextflow.cache.CacheFactory - Using Nextflow cache factory: nextflow.cache.DefaultCacheFactory
+Mar-21 17:18:10.507 [main] DEBUG nextflow.util.CustomThreadPool - Creating default thread pool > poolSize: 13; maxThreads: 1000
+Mar-21 17:18:10.602 [main] DEBUG nextflow.Session - Session start
+Mar-21 17:18:11.893 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+Mar-21 17:18:11.908 [main] WARN  nextflow.NextflowMeta$Preview - WORKFLOW OUTPUT DSL IS A PREVIEW FEATURE - SYNTAX AND FUNCTIONALITY CAN CHANGE IN FUTURE RELEASES
+Mar-21 17:18:12.067 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-21 17:18:12.068 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-21 17:18:12.077 [main] DEBUG nextflow.executor.Executor - [warm up] executor > local
+Mar-21 17:18:12.087 [main] DEBUG n.processor.LocalPollingMonitor - Creating local task monitor for executor 'local' > cpus=12; memory=54.9 GB; capacity=12; pollInterval=100ms; dumpInterval=5m
+Mar-21 17:18:12.092 [main] DEBUG n.processor.TaskPollingMonitor - >>> barrier register (monitor: local)
+Mar-21 17:18:12.228 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-21 17:18:12.228 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-21 17:18:12.237 [main] DEBUG nextflow.Session - Workflow process names [dsl2]: prokAnnot, fastqConcater, nano_read_filt, assembly_flye1, coverage_filt, assembly_flye2, checkm_lineage, circulator, deduper, quast_check, envSetUP, taxonomyGTDBTK, testify
+Mar-21 17:18:12.238 [main] DEBUG nextflow.Session - Igniting dataflow network (2)
+Mar-21 17:18:12.240 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > envSetUP
+Mar-21 17:18:12.241 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > testify
+Mar-21 17:18:12.242 [main] DEBUG nextflow.script.ScriptRunner - Parsed script files:
+  Script_08e63aa9d7448f51: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/main.nf
+Mar-21 17:18:12.242 [main] DEBUG nextflow.script.ScriptRunner - > Awaiting termination 
+Mar-21 17:18:12.242 [main] DEBUG nextflow.Session - Session await
+Mar-21 17:18:12.462 [Task submitter] DEBUG n.executor.local.LocalTaskHandler - Launch cmd line: /bin/bash -ue .command.run
+Mar-21 17:18:12.466 [Task submitter] INFO  nextflow.Session - [17/fb0f13] Submitted process > envSetUP
+Mar-21 17:18:19.039 [Task monitor] DEBUG n.processor.TaskPollingMonitor - Task completed > TaskHandler[id: 1; name: envSetUP; status: COMPLETED; exit: 0; error: -; workDir: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/work/17/fb0f13a6fc3095fec988a186a23bfb]
+Mar-21 17:18:19.041 [Task monitor] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'TaskFinalizer' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[10000]; allowCoreThreadTimeout=false
+Mar-21 17:18:19.097 [TaskFinalizer-1] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'PublishDir' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[10000]; allowCoreThreadTimeout=false
+Mar-21 17:18:19.116 [Task submitter] DEBUG n.executor.local.LocalTaskHandler - Launch cmd line: /bin/bash -ue .command.run
+Mar-21 17:18:19.117 [Task submitter] INFO  nextflow.Session - [65/49f679] Submitted process > testify
+Mar-21 17:18:25.036 [Task monitor] DEBUG n.processor.TaskPollingMonitor - Task completed > TaskHandler[id: 2; name: testify; status: COMPLETED; exit: 0; error: -; workDir: /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/work/65/49f6792934fb94ac0aa43338af0d9b]
+Mar-21 17:18:25.039 [main] DEBUG nextflow.Session - Session await > all processes finished
+Mar-21 17:18:25.136 [Task monitor] DEBUG n.processor.TaskPollingMonitor - <<< barrier arrives (monitor: local) - terminating tasks monitor poll loop
+Mar-21 17:18:25.136 [main] DEBUG nextflow.Session - Session await > all barriers passed
+Mar-21 17:18:25.141 [main] DEBUG nextflow.util.ThreadPoolManager - Thread pool 'TaskFinalizer' shutdown completed (hard=false)
+Mar-21 17:18:25.142 [main] DEBUG nextflow.util.ThreadPoolManager - Thread pool 'PublishDir' shutdown completed (hard=false)
+Mar-21 17:18:25.152 [main] DEBUG n.trace.WorkflowStatsObserver - Workflow completed > WorkflowStats[succeededCount=2; failedCount=0; ignoredCount=0; cachedCount=0; pendingCount=0; submittedCount=0; runningCount=0; retriesCount=0; abortedCount=0; succeedDuration=12.4s; failedDuration=0ms; cachedDuration=0ms;loadCpus=0; loadMemory=0; peakRunning=1; peakCpus=1; peakMemory=0; ]
+Mar-21 17:18:25.283 [main] DEBUG nextflow.cache.CacheDB - Closing CacheDB done
+Mar-21 17:18:25.303 [main] DEBUG nextflow.util.ThreadPoolManager - Thread pool 'FileTransfer' shutdown completed (hard=false)
+Mar-21 17:18:25.303 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye

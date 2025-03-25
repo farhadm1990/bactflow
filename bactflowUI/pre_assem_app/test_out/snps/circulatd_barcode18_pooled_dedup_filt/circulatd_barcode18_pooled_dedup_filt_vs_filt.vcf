@@ -1,0 +1,45 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##bcftoolsVersion=1.21+htslib-1.21
+##bcftoolsCommand=mpileup -Ou -f /home/hackion/bactflow_out_moseb/asm_out_dir/fastas/barcode23_pooled_dedup_filt.fasta --threads 12 /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/bactflow_out/snps/circulatd_barcode18_pooled_dedup_filt/circulatd_barcode18_pooled_dedup_filt_vs_filt_al.bam
+##reference=file:///home/hackion/bactflow_out_moseb/asm_out_dir/fastas/barcode23_pooled_dedup_filt.fasta
+##contig=<ID=contig_1,length=15822>
+##contig=<ID=contig_10,length=277737>
+##contig=<ID=contig_11,length=932868>
+##contig=<ID=contig_12,length=40316>
+##contig=<ID=contig_13,length=881907>
+##contig=<ID=contig_14,length=77288>
+##contig=<ID=contig_15,length=650217>
+##contig=<ID=contig_16,length=93135>
+##contig=<ID=contig_17,length=41860>
+##contig=<ID=contig_18,length=48897>
+##contig=<ID=contig_2,length=14105>
+##contig=<ID=contig_3,length=1225624>
+##contig=<ID=contig_4,length=379654>
+##contig=<ID=contig_5,length=173878>
+##contig=<ID=contig_6,length=613777>
+##contig=<ID=contig_8,length=58002>
+##contig=<ID=contig_9,length=708409>
+##ALT=<ID=*,Description="Represents allele(s) other than observed.">
+##INFO=<ID=INDEL,Number=0,Type=Flag,Description="Indicates that the variant is an INDEL.">
+##INFO=<ID=IDV,Number=1,Type=Integer,Description="Maximum number of raw reads supporting an indel">
+##INFO=<ID=IMF,Number=1,Type=Float,Description="Maximum fraction of raw reads supporting an indel">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Raw read depth">
+##INFO=<ID=VDB,Number=1,Type=Float,Description="Variant Distance Bias for filtering splice-site artefacts in RNA-seq data (bigger is better)",Version="3">
+##INFO=<ID=RPBZ,Number=1,Type=Float,Description="Mann-Whitney U-z test of Read Position Bias (closer to 0 is better)">
+##INFO=<ID=MQBZ,Number=1,Type=Float,Description="Mann-Whitney U-z test of Mapping Quality Bias (closer to 0 is better)">
+##INFO=<ID=BQBZ,Number=1,Type=Float,Description="Mann-Whitney U-z test of Base Quality Bias (closer to 0 is better)">
+##INFO=<ID=MQSBZ,Number=1,Type=Float,Description="Mann-Whitney U-z test of Mapping Quality vs Strand Bias (closer to 0 is better)">
+##INFO=<ID=SCBZ,Number=1,Type=Float,Description="Mann-Whitney U-z test of Soft-Clip Length Bias (closer to 0 is better)">
+##INFO=<ID=SGB,Number=1,Type=Float,Description="Segregation based metric, http://samtools.github.io/bcftools/rd-SegBias.pdf">
+##INFO=<ID=MQ0F,Number=1,Type=Float,Description="Fraction of MQ0 reads (smaller is better)">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="List of Phred-scaled genotype likelihoods">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths (high-quality bases)">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes for each ALT allele, in the same order as listed">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
+##INFO=<ID=DP4,Number=4,Type=Integer,Description="Number of high-quality ref-forward , ref-reverse, alt-forward and alt-reverse bases">
+##INFO=<ID=MQ,Number=1,Type=Integer,Description="Average mapping quality">
+##bcftools_callVersion=1.21+htslib-1.21
+##bcftools_callCommand=call -mv -Ov -o /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/bactflow_out/snps/circulatd_barcode18_pooled_dedup_filt/circulatd_barcode18_pooled_dedup_filt_vs_filt.vcf; Date=Tue Mar 18 19:41:36 2025
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	/home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/bactflow_out/snps/circulatd_barcode18_pooled_dedup_filt/circulatd_barcode18_pooled_dedup_filt_vs_filt_al.bam

@@ -1,0 +1,64 @@
+name: bactflow
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies: 
+  - curl
+  - libcurl
+  - pkg-config
+  - python=3.11.0
+  - openjdk=11
+  - nextflow
+  - bcftools
+  - minimap2=2.28
+  - checkm-genome
+  - flye
+  - bwa
+  - mummer
+  - medaka
+  - pplacer
+  - gtdbtk
+  - hmmer
+  - prodigal
+  - unicycler
+  - spades
+  - megahit
+  - nanofilt
+  - rasusa
+  - miniasm
+  - racon
+  - samtools
+  - git
+  - pip
+  - seqkit
+  - fastani
+  - skani
+  - parallel
+  - pomoxis
+  # - plassembler=1.6.2
+  - pip:
+    - pyCirclize
+    - ont-parasail
+    - circlator
+    - pytmler
+    - bokeh
+    - numpy
+    - h5py
+    - pandas
+    - pysam
+    - biopython
+    - flask
+    - quast
+    - gunicorn
+  - prokka
+  - r-base=4.4
+  # - r-essentials
+  - r-ggplot2
+  - r-dplyr
+  - r-igraph
+  - r-biocmanager
+
+
+      
+
