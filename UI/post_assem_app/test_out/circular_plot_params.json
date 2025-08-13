@@ -1,0 +1,9 @@
+{
+    "add_gc": "True",
+    "add_skew": "True",
+    "dpi": 200,
+    "figsize": 10,
+    "interval": 5,
+    "f_color": "#563d7c",
+    "r_color": "#e5a50a"
+}

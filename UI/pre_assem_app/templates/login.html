@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+<!-- title bloc -->
+{% block title %} {{ title }} {% endblock %}
+
+{% block content %}
+
+<!-- Error handler for signup -->
+{% if error_statement %}
+
+<div class="alert alert-warning alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ error_statement }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+
+{% endif %}
+
+    <br>
+
+      <div class="intro" style="margin-top: 10px; justify-content: center; margin-left: 10px;">
+        <h1>Subscribe:</h1> 
+        <br>
+      </div>
+    <br>
+
+    <div style="display: flex; padding: 10px;">
+      <form action="/login" method="POST">
+        <div class="mb-3">
+         
+          <input type="text" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="Frist Name" name="first_name">
+         
+        </div>
+        
+        <div class="mb-3">
+          <input type="text" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="Last Name" name="last_name">
+        </div>
+        
+        <div class="mb-3">
+          <input type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="Email" name="email_address">
+        </div>
+
+        <div class="mb-3">
+          <input type="password" class="form-control" id="exampleInputPassword1" placeholder="Password" name="password">
+        </div>
+        <br>
+       
+        <button type="submit" class="btn btn-secondary">Submit!</button>
+      </form>
+
+    </div>
+
+    <hr>
+    <div class="intro" style="margin-top: 10px; justify-content: center; margin-left: 10px;">
+      <h1>Or login:</h1>
+    </div>
+
+    <br>
+    <div style="display: flex; padding: 10px;">
+
+      <form action="/" method="POST">
+        <div class="mb-3">
+          <label for="exampleInputEmail1" class="form-label">Email address:</label>
+          <input type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp">
+         
+        </div>
+        <div class="mb-3">
+          <label for="exampleInputPassword1" class="form-label">Password:</label>
+          <input type="password" class="form-control" id="exampleInputPassword1">
+        </div>
+       
+        <button type="submit" class="btn btn-secondary">Submit!</button>
+      </form>
+
+    </div>
+
+    
+      
+      
+{% endblock %}

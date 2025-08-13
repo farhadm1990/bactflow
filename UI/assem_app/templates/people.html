@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+
+
+{% block content %}
+
+
+<br>
+
+{% if users %}
+
+<div style="padding: 6px;">
+    <table class="table">
+        <label for="table">Subscribers</label>
+        <thead>
+          <tr>
+            <th scope="col"># (ID)</th>
+            <th scope="col">Name</th>
+            <th scope="col">Email</th>
+            <th scope="col">Date Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <th scope="row">{{ user.id }}</th>
+           <td>{{ user.name }} <a href="/delete/{{ user.id }}" class="btn btn-outline-danger btn-sm">Delete</a></td>  
+            <td>{{ user.email }}</td>
+            <td>{{ user.date_created }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+</div>
+
+
+{% endif %}
+
+
+{% endblock %}

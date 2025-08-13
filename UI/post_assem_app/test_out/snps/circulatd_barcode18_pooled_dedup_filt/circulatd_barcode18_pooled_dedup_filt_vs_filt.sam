@@ -1,0 +1,29 @@
+@SQ	SN:contig_1	LN:15822
+@SQ	SN:contig_10	LN:277737
+@SQ	SN:contig_11	LN:932868
+@SQ	SN:contig_12	LN:40316
+@SQ	SN:contig_13	LN:881907
+@SQ	SN:contig_14	LN:77288
+@SQ	SN:contig_15	LN:650217
+@SQ	SN:contig_16	LN:93135
+@SQ	SN:contig_17	LN:41860
+@SQ	SN:contig_18	LN:48897
+@SQ	SN:contig_2	LN:14105
+@SQ	SN:contig_3	LN:1225624
+@SQ	SN:contig_4	LN:379654
+@SQ	SN:contig_5	LN:173878
+@SQ	SN:contig_6	LN:613777
+@SQ	SN:contig_8	LN:58002
+@SQ	SN:contig_9	LN:708409
+@HD	VN:1.5	SO:unsorted	GO:query
+@PG	ID:bwa	PN:bwa	VN:0.7.18-r1243-dirty	CL:bwa mem /home/hackion/bactflow_out_moseb/asm_out_dir/fastas/barcode23_pooled_dedup_filt.fasta /home/hackion/bactflow_out_moseb/circulated_fasta/circulatd_barcode18_pooled_dedup_filt.fasta.bwt -t 12 -o /home/hackion/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/tutorial/bactflow_out/snps/circulatd_barcode18_pooled_dedup_filt/circulatd_barcode18_pooled_dedup_filt_vs_filt.sam
+	4	*	0	0	*	*	0	0	NbN}Í‹?pò6åqªD„Éçro]1	4	*	0	0	*	*	0	0	rNANsaMNNsN mhdNNNNNNNN¬	4	*	0	0	*	*	0	0	NN¡0FÍs?£‰ÜÇíô	4	*	0	0	*	*	0	0	CyNNrNmNCNN	4	*	0	0	*	*	0	0	iNè/^X6)•aˆåd•àï$¹Yž•ë-Ž[ð»	4	*	0	0	*	*	0	0	NNNeN_MNNsNNNNbGCNNeaN.AdaNNiCeCAAAAANCAAAAANACAAAAAwNCAAAAAmNiN/¿	4	*	0	0	*	*	0	0	e.NNNNhaN  NeNNNNwNhMNhNsimCAAAAAi'´19+ew<uÊ{0	4	*	0	0	*	*	0	0	3×•wPéº6	4	*	0	0	*	*	0	0	Nr NTssGmNNNNNGAAAAANgCAAAAA_NCAAAAANrCAAAAA	4	*	0	0	*	*	0	0	iNt
+N:NANeANNN%NANNNÀº	4	*	0	0	*	*	0	0	N e
+NN:atAn
+s%etxNwNao.sNrGAAAAANNGAAAAAA'CAAAAANhCAAAAAdNynNNn'NNsyNCY	4	*	0	0	*	*	0	0	óñ°t¡ŒtdÍuÌ<3Æ†%CŒðÖz	4	*	0	0	*	*	0	0	nGAAAAA.CcNc	4	*	0	0	*	*	0	0	NNesNNNsNÜá5Þ¿'’˜%B	4	*	0	0	*	*	0	0	iGAAAAANNTAAAAANr NeNNNNú€CëöŸ	4	*	0	0	*	*	0	0	 NNaw
+NNNeNNOÀ0Ò^Á¯	4	*	0	0	*	*	0	0	ANNNaeNé}£<Ï¢ãI	4	*	0	0	*	*	0	0	dNAAAAArATAAAAAybTAAAAAsâ	4	*	0	0	*	*	0	0	lNtNNNNnrNNNaNs_N TNs_NN ,~P¿P#’B¸	4	*	0	0	*	*	0	0	cNAAAAAb[TAAAAANNNAAAAA N‹á	4	*	0	0	*	*	0	0	NeC'N NAtmNAAAAANnNAAAAAN TAAAAANNNAAAAAANNNNNhNNN
+A NseNNNNNANsNGNN. NNNeNAAAAANnNAAAAAN TAAAAAaNNAAAAAsneTNogNN NGNNoNmNdsNNNN`Z	4	*	0	0	*	*	0	0	dNNboNAAAAANgNAAAAANiTAAAAA_NNAAAAANNANNCNHª¦ÁèRLüØÉFî	4	*	0	0	*	*	0	0	gN.NN³í‡¾cð¥	4	*	0	0	*	*	0	0	NNNGa	4	*	0	0	*	*	0	0	hNChNCNNNNdeGN  NohNANnaNAAAAANdNAAAAANNNAAAAA eNAAAAANN[.NgÀC"%l$ŽUø6UU¥	4	*	0	0	*	*	0	0	NNNNNNNrN_NN.N NNA N  yNNAAAAAiNNAAAAAhyNAAAAANCNAAAAA
+NAnN_NN6O	4	*	0	0	*	*	0	0	 NNNraG NC.eoN¬Ë©‚¦BÙ	4	*	0	0	*	*	0	0	N NNNAAAAAsNNAAAAANmNAAAAANNAAAAAANANNNNNgo TNNAsreNNNNcNNN'lNNoNNNAAAAAsNNAAAAANmNAAAAANNAAAAAa	4	*	0	0	*	*	0	0	NN NAAAAA¨ªã	4	*	0	0	*	*	0	0	d %‘‰Q0Ãð‹¤SH"Ðºqß	4	*	0	0	*	*	0	0	NAAAAAsGNAAAAANnTasž•¾	4	*	0	0	*	*	0	0	NCNAm¨L!¥Ÿ’;ƒ`ˆaã¼jÍ’&`¿Þb	4	*	0	0	*	*	0	0	 ap_AáÐ	4	*	0	0	*	*	0	0	N_NNAAAAA	4	*	0	0	*	*	0	0	AAAAANNNAAAAANNNAAAAANyNAAAAAsGtNNdG NANedo	4	*	0	0	*	*	0	0	AAAAANNNAAAAANGNAAAAAN NAAAAA_NaNedhNshNNhNAihaN—ÞÜÅ3üñUTÊ°‡	4	*	0	0	*	*	0	0	AAAAAmNNAAAAAoNNAAAAATaNAAAAAN¼@€H‚°ƒCI„“ÀŒ	4	*	0	0	*	*	0	0	AAAAA_eNAAAAAsnNAAAAANcNAAAAANGNNNaD…Z@©C@!$œ	4	*	0	0	*	*	0	0		4	*	0	0	*	*	0	0	NN
+nFoR@PuQ%®EÄUôM4)×ƒpÀÖY5I	4	*	0	0	*	*	0	0	Neëoð½“@	4	*	0	0	*	*	0	0	 NNNNNN NchNra_NNAAAAANNNAAAAA[lNAAAAAmNNAAAAANN
+NhGNNN&4"H“)BL	4	*	0	0	*	*	0	0	ymNÙÎðäG€2PKhGâ€ìàñT¡ô"Ÿ¨³TÛ¢4á&U	4	*	0	0	*	*	0	0	(¹(2.îø‰5Ø}¬S€†š¤i	4	*	0	0	*	*	0	0	si'iN
+eNNNNT

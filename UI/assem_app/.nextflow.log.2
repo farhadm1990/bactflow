@@ -1,0 +1,75 @@
+May-10 11:19:28.961 [main] DEBUG nextflow.cli.Launcher - $> nextflow run /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/main.nf --help
+May-10 11:19:29.399 [main] DEBUG nextflow.cli.CmdRun - N E X T F L O W  ~  version 24.10.2
+May-10 11:19:29.615 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; embedded=false; plugins-dir=/home/farhad/.nextflow/plugins; core-plugins: nf-amazon@2.9.2,nf-azure@1.10.2,nf-cloudcache@0.4.2,nf-codecommit@0.2.2,nf-console@1.1.4,nf-google@1.15.2,nf-tower@1.9.3,nf-wave@1.7.4
+May-10 11:19:29.672 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+May-10 11:19:29.674 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+May-10 11:19:29.678 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.12.0 in 'deployment' mode
+May-10 11:19:29.709 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
+May-10 11:19:29.834 [main] DEBUG nextflow.config.ConfigBuilder - Found config local: /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/nextflow.config
+May-10 11:19:29.853 [main] DEBUG nextflow.config.ConfigBuilder - Parsing config file: /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/nextflow.config
+May-10 11:19:30.268 [main] DEBUG n.secret.LocalSecretsProvider - Secrets store: /home/farhad/.nextflow/secrets/store.json
+May-10 11:19:30.314 [main] DEBUG nextflow.secret.SecretsLoader - Discovered secrets providers: [nextflow.secret.LocalSecretsProvider@794b435f] - activable => nextflow.secret.LocalSecretsProvider@794b435f
+May-10 11:19:30.462 [main] DEBUG nextflow.config.ConfigBuilder - Applying config profile: `standard`
+May-10 11:19:32.415 [main] DEBUG nextflow.cli.CmdRun - Applied DSL=2 from script declaration
+May-10 11:19:33.071 [main] DEBUG nextflow.cli.CmdRun - Launching `/home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/main.nf` [irreverent_tesla] DSL2 - revision: 6274fac780
+May-10 11:19:33.073 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins default=[]
+May-10 11:19:33.074 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins resolved requirement=[]
+May-10 11:19:33.773 [main] DEBUG nextflow.Session - Session UUID: c655a6f1-9bb8-4c05-aa11-a32c872c76b3
+May-10 11:19:33.773 [main] DEBUG nextflow.Session - Run name: irreverent_tesla
+May-10 11:19:33.774 [main] DEBUG nextflow.Session - Executor pool size: 12
+May-10 11:19:33.795 [main] DEBUG nextflow.file.FilePorter - File porter settings maxRetries=3; maxTransfers=50; pollTimeout=null
+May-10 11:19:33.801 [main] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'FileTransfer' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[10000]; allowCoreThreadTimeout=false
+May-10 11:19:33.823 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 24.10.2 build 5932
+  Created: 27-11-2024 21:23 UTC (22:23 CEST)
+  System: Linux 6.8.0-57-generic
+  Runtime: Groovy 4.0.23 on OpenJDK 64-Bit Server VM 11.0.27+6-post-Ubuntu-0ubuntu122.04
+  Encoding: UTF-8 (UTF-8)
+  Process: 66326@farhad [127.0.1.1]
+  CPUs: 12 - Mem: 31.2 GB (301.6 MB) - Swap: 2 GB (2 GB)
+May-10 11:19:33.853 [main] DEBUG nextflow.Session - Work-dir: /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/work [ext2/ext3]
+May-10 11:19:33.854 [main] DEBUG nextflow.Session - Script base path does not exist or is not a directory: /home/farhad/Dropbox/Old-2gb/postdoc/ONT_helper/scripts/UI_bactflow/app/assem_app/bin
+May-10 11:19:33.904 [main] DEBUG nextflow.executor.ExecutorFactory - Extension executors providers=[]
+May-10 11:19:33.916 [main] DEBUG nextflow.Session - Observer factory: DefaultObserverFactory
+May-10 11:19:33.970 [main] DEBUG nextflow.cache.CacheFactory - Using Nextflow cache factory: nextflow.cache.DefaultCacheFactory
+May-10 11:19:34.030 [main] DEBUG nextflow.util.CustomThreadPool - Creating default thread pool > poolSize: 13; maxThreads: 1000
+May-10 11:19:35.402 [main] DEBUG nextflow.Session - Session start
+May-10 11:19:37.405 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+May-10 11:19:37.416 [main] WARN  nextflow.NextflowMeta$Preview - WORKFLOW OUTPUT DSL IS A PREVIEW FEATURE - SYNTAX AND FUNCTIONALITY CAN CHANGE IN FUTURE RELEASES
+May-10 11:19:37.454 [main] INFO  nextflow.Nextflow - 
+
+Usage: nextflow run bactflow [options]
+
+Options:
+   
+    --setup_only            If true, only runs envSetUp(), default false
+    --fastq_dir             Absolute path to the fastq_pass directory (required). 
+    --concat_reads          Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
+    --extension             String; extention of basecalled fastq files; default '.fastq.gz'
+    --cpus                  Number of available cpus; default 1.
+    --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
+    --coverage              Only if '--coverage_filter true'; default is 50.
+    --genome_size           Genome size for coverage normalizaiton. Only if '--coverage_filter true'; default is 6.
+    --out_dir               Output directory of your final results. Default "genebrosh_output"
+    --tensor_batch          Medaka tensorflow batch size. Lower it in low coverage genomes. Default 200.
+    --nanofilter            Filtering reads for length and quality; default true.
+    --min_length            If '--nanofilter' true, filter reads below a certain read length (default 1000). 
+    --min_quality           If '--nanofilter' true, filter reads below a certain read quality (default 16 for R10.4.1 flowcells). 
+    --medaka_polish         If true, it will polish assembled genomes by medaka (dfault false).
+    --basecaller_model      Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
+    --checkm_lineag_check   If true, the genomes will be checked for their lineage completeness in one bin (default false).
+    --genome_extension      Required if '--checkm_lineag_check true'; default fasta.
+    --run_flye              If true, it runs Flye assembler; default true.
+    --circle_genome         If ture, it runs circlator to fix the start of genome based on e.g. dnaA gene.
+    --run_unicycler         If true, it runs Unicycler hybrid assemlber, default false.
+    --run_megahit           If true, it runs Megahit assembler, default false.
+    --run_spades            If true, it runs Spades assembler, default false.
+    --tax_class             If true, it runs GTBtk taxonomic classification, default true.
+    --prok_annot            If true, it runs gene annotaiton by Prokka, default false. 
+    --run_checkm            If true, it runs checmk lineage and phylogenetic tree workflow.
+    --checkm_db             An absolute path to the Checkm database.  
+    --gtdbtk_data_path      Absolute path to the GDBtk database. 
+    --run_quast             Post-assembly stats by Quaset, default true.
+    --genome_dir            Path to already assembled genomes, only to run post-assembly tasks, e.g. taxonomy classification, gene annotations and quast or checkm 
+
+
