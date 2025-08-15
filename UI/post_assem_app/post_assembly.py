@@ -358,7 +358,7 @@ def check_bakta():
             rm {bakta_path}/*inference.tsv {bakta_path}/*hypotheticals.tsv 
             mkdir -p {bakta_path}/genes && mv {bakta_path}/*.tsv {bakta_path}/genes
            
-            {base_dir}/gene_counter_bakta.py -d {bakta_path}/genes -t {gene_type} -o {out_dir}/gene_count
+            python {base_dir}/gene_counter_bakta.py -d {bakta_path}/genes -t {gene_type} -o {out_dir}/gene_count
             """
             
             gene_count = os.path.join(out_dir, "gene_count.tsv")
@@ -487,7 +487,7 @@ def circular():
 @app.route("/taxa-report", methods = ["POST"])
 def taxa_report():
     out_dir = request.form.get("out_dir")
-    tax_file = os.path.join(out_dir, "taxonomy.tsv")
+    tax_file = os.path.join(out_dir, "gtdbtk_out/classify/gtdbtk.bac120.summary.tsv")
 
     if os.path.exists(tax_file):
         df = pd.read_csv(tax_file, sep = "\t")

@@ -50,12 +50,13 @@ WORKDIR /app
 
 
 COPY static/ static/
+COPY gene_counter_bakta.py /app/
 COPY templates/ templates/
 COPY test_out/ test_out/
-COPY *.py *.sh *.r *.yml main.nf nextflow.config ./
+COPY *.py *.sh *.r *.yml main.nf nextflow.config /app/
 
 
-RUN chmod +x *.sh
+RUN chmod +x *.sh *.py
 
 
 EXPOSE 5001

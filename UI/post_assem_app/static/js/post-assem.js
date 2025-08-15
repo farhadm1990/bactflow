@@ -492,7 +492,7 @@ async function quastReport() {
 async function baktaReport() {
   const form = document.getElementById("postForm");
   const formData = new FormData(form);
-  console.log("I am trying to get the resulltsssss")
+  
   try {
     
     let baktaResponse = await fetch("/check-bakta", { method: "POST", body: formData });

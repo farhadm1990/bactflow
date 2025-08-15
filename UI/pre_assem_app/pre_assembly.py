@@ -210,7 +210,7 @@ def ls_fastq():
 
         result = subprocess.run(command, shell=True, text=True, capture_output=True)
         fastq_files = result.stdout.strip().split("\n")
-        print(f"Here are the fastq files {fastq_dir}")
+       
         table_html = """<table class='display table table-striped table-bordered nowrap table-hover' id='read-fastq' border='0.5'>
     <thead>
         <tr>
@@ -251,7 +251,7 @@ def trim_list():
         conda activate bactflow
         {base_dir}/read_filter.sh -d {fastq_dir} -t {threshold} 
         """
-    print(threshold)
+ 
 
     subprocess.run(command, shell=True, text=True, executable="/bin/bash")
     return jsonify({"status": "completed"}), 200
@@ -402,7 +402,7 @@ def plot_qual():
             print(f'fastq dir {fqd}')
 
             df = process_fq_folder(fastq_folder=fqd, threads=cpus)
-            print(f'here is the DF {df}')
+           
             if df.empty or df.shape[0] == 0:
                 return jsonify({"error": "No data available for visualization."})
             df.to_csv(f"{out_dir}/fastq_df.csv", sep="\t", index=False)
