@@ -54,12 +54,20 @@ dependencies:
     - flask_migrate
     - psutil
   - prokka
-  - r-base=4.4
+  # - r-base=4.4
   # - r-essentials
   - r-ggplot2
   - r-dplyr
   - r-igraph
   - r-biocmanager
+  - r-base
+  - r-optparse
+  - r-tidyverse
+  - r-readr
+  - r-ape
+  - r-pheatmap
+  - r-glue
+
 
 
       

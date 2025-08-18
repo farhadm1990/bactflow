@@ -328,11 +328,12 @@
       </div>
       <hr>
       <br>
-      <!-- Strain finder Parameters -->
-      <div class="card mb-3" style="width: 100%; height: 50vh; top: 20px; bottom: 20px; padding: 10px; overflow-y: auto;">
+      <!-- Strain finder Parameters --> 
+      <div class="card mb-3" style="width: 100%;  top: 20px; bottom: 20px; padding: 10px; overflow-y: auto;">
         <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(249, 138, 59); height: 100px;">
           <h4 class="mb-0">Strain finder <strong>(Genome clustering)</strong></h4>
         </div>
+
         <div class="card-body">
           
           <div class="mb-3" id="enz-file">
@@ -369,7 +370,27 @@
 
 
           <br>
+               
+
+           
+
         </div>
+        <br>
+        <div id="sliders" style="margin-bottom: 100px !important;">
+                <!-- adding slider for width -->
+              <label id="w-range" for="plot_width" class="form-label">Ajust the widht of the plot (cm):
+              <span id="width-value" style="color: blueviolet;"><strong>10</strong></span> cm
+              </label>
+              <input type="range" name  ="plot_width" min="1" max="200" class="form-range" id="width-range">
+
+              <!-- adding slider for height -->
+              <label id="h-range" for="plot_height" class="form-label">Ajust the height of the plot (cm):
+                <span id="height-value" style="color: blueviolet;"><strong >10</strong></span> cm
+              </label>
+              <input type="range" class="form-range" name ="plot_height" min="1" max="200"  id="height-range">
+        </div>
+        <br>
+
 
         <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
           <div class="btn-group" style="justify-content: center; display: flex;">
@@ -380,7 +401,7 @@
               
             
           </div>
-          <br>
+          
           
           
         </div> 
@@ -564,8 +585,8 @@
         <br>
       </div>
 
-      <div id="abundDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Abundance-based classification of genomes based ond requested genes</h4>
+      <div id="abundDiv" class="col-md-7" style="overflow-y: auto; overflow-x: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Abundance-based classification for genomes based on requested genes</h4>
          <div id="output-abund" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -593,8 +614,8 @@
         <br>
       </div>
       <br>
-      <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Plot of bundance-based classification of genomes based ond requested genes</h4>
+      <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: auto; height: auto;">
+        <h4 class="text-left mb-3">Plot of abundance-based classification for genomes based on requested genes</h4>
          <div id="output-abund-img" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -625,9 +646,10 @@
 
       
 
-    </div>  <!-- End of div-->
-    <div id="prevDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-      <h4 class="text-left mb-3">Prevalance-based classification of genomes based ond requested genes</h4>
+    </div>  <!-- End of div for abundance -->
+
+    <div id="prevDiv" class="col-md-7" style="overflow-y: auto; overflow-x: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+      <h4 class="text-left mb-3">Prevalance-based classification of genomes based on requested genes</h4>
        <div id="output-prev" style="border: 1px solid rgb(105, 105, 105);
             padding: 10px;
             margin: 10px;
@@ -645,13 +667,42 @@
         <br>
         <br>
         <h3 style="color: blueviolet;">Report is being created...</h3>
-         </div>
-
-        <img id="prevImg" src="" alt="Prevalance classification Plot" style="max-width: 100%; height: auto;">
-    
+         </div>    
       </div>
       <br>
+      
+       <div id="prevImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: auto; height: auto;">
+        <h4 class="text-left mb-3">Plot of prevalance-based classification of genomes based on requested genes</h4>
+         <div id="output-prev-img" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 800px;
+              width: 95%;
+              overflow-y: auto;
+              white-space: pre-wrap;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          <div id="spin-prev" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <br>
+          <h3 style="color: blueviolet;">Report is being created...</h3>
+           </div>
+           <br>
+          
+            <img id="prevImg" src="" alt="Prevalance-based classification plot" style="max-width: 100%; height: auto;">
+          
+          
+      
+        </div>
+        <br>
+      </div>
+
     </div>
+    <!-- end of prev div -->
       
     </div>
 </div>

@@ -2,29 +2,22 @@
 
 crans = c('optparse', 'tidyverse', 'readr', 'ape', 'BiocManager', 'pheatmap', 'glue')
 
-for(pkg in crans){
-    if(!(requireNamespace(pkg, quietly = TRUE))){
-        options(repos = c(CRAN = "https://cloud.r-project.org/"))
-        install.packages(pkg, quiet = TRUE, keep_outputs = F)
-    }
-}
+# for(pkg in crans){
+#     if(!(requireNamespace(pkg, quietly = TRUE))){
+#         options(repos = c(CRAN = "https://cloud.r-project.org/"))
+#         install.packages(pkg, quiet = TRUE, keep_outputs = F)
+#     }
+# }
 
 
-if(!(requireNamespace('MatrixGenerics', quietly = T))){
-    BiocManager::install('MatrixGenerics', force = T)
-}
+# if(!(requireNamespace('MatrixGenerics', quietly = T))){
+#     BiocManager::install('MatrixGenerics', force = T)
+# }
 
 for (pkgs in c(crans, 'MatrixGenerics')){
-    library(pkgs, character.only = TRUE, verbose = FALSE)
+    suppressPackageStartupMessages(library(pkgs, character.only = TRUE, verbose = FALSE))
 }
 
-# library(optparse)
-# library(tidyverse)
-# library(readr)
-# library(ape)
-# library(MatrixGenerics)
-# library(pheatmap)
-# library(glue)
 
 # gene classification
 
@@ -252,4 +245,9 @@ write.table(x = mat_gen[o,] , file  = glue("{opt$output_dir}/{outname_table}"), 
 
 
 
-ggsave(plot = heat_p, filename = glue("{opt$output_dir}/{outname_jpeg}"), device = "png", dpi = 300, height =opt$height, width = opt$width, limitsize = F)
+ggsave(plot = heat_p, 
+filename = glue("{opt$output_dir}/{outname_jpeg}"), 
+device = "png", dpi = 300, 
+height=opt$height, 
+width = opt$width, 
+limitsize = F)

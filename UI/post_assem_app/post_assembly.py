@@ -571,17 +571,21 @@ def abund_finder():
     gene_files = request.form.get("gene_files")
     prevalance = "false"
     gene_type = request.form.get("gene_type").lower()
+    width = request.form.get("plot_width")
+    height = request.form.get('plot_height')
+
     
     output = os.path.join(out_dir, "strain_finder")
     enzyme_file = request.form.get("enzyme_loc")
     count_tab = os.path.join(output, "abundance.tsv")
     plot = os.path.join(output, "requested_genes_abundance.png")
-
+    print(f"this is widht {width} and heigth {height}")
     command = f"""
-    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f abundance -o {output} -e {enzyme_file}  -c false -p {prevalance}
+    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f abundance -o {output} -e {enzyme_file}  -c false -p {prevalance} -w {width} -l {height}
 
     """
-   
+    
+    
     subprocess.run(command, shell=True, text=True, check=True)
 
     if os.path.exists(count_tab) and os.path.exists(plot):
@@ -627,10 +631,12 @@ def prev_finder():
     enzyme_file = request.form.get("enzyme_loc")
     count_tab = os.path.join(output, "prevalance.tsv")
     plot = os.path.join(output, "requested_genes_prevalence.png")
+    width = request.form.get("plot_width")
+    height = request.form.get('plot_height')
 
     command = f"""
     
-    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f prevalance -o {output} -e {enzyme_file}  -c false -p {prevalance}
+    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f prevalance -o {output} -e {enzyme_file}  -c false -p {prevalance} -w {width} -l {height}
 
     """
    

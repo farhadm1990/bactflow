@@ -710,7 +710,7 @@ async function abundRun(){
       
       
       setTimeout(() => {
-        abundImgOut.src = abundData.plot_abund + "?t=" + new Date().getTime();
+        abundImgOut.src = abundData.plot_abund;
           console.log("✅ Image src updated:", abundImgOut.src);
       }, 500);
      
@@ -744,7 +744,9 @@ async function prevRun(){
 
     let prevData = await prevRes.json();
     
-    // let prevImg = document.getElementById("prevImgDiv");
+   
+
+    let prevImg = document.getElementById("prevImgDiv");
     let prevImgOut = document.getElementById("prevImg");
     let prevDiv = document.getElementById("output-prev");
     let prevDIV = document.getElementById("prevDiv");
@@ -787,11 +789,11 @@ async function prevRun(){
       
       
       
-      
+      prevImg.style.display = 'block';
       
       
       setTimeout(() => {
-        prevImgOut.src = prevData.plot_prev + "?t=" + new Date().getTime();
+        prevImgOut.src = prevData.plot_prev;
           
       }, 500);
      
@@ -892,6 +894,23 @@ const toggler = (motherId, childId) => {
   motherDiv.addEventListener("change", toggleDiv)
 });
 };
+
+
+// slider height 
+const sliderW = document.getElementById('width-range');
+const spanW = document.getElementById('width-value');
+spanW.textContent = sliderW.value;
+sliderW.addEventListener("input", ()=>{
+  spanW.textContent = sliderW.value;
+})
+
+
+const sliderH = document.getElementById('height-range');
+const spanH = document.getElementById('height-value');
+spanH.textContent = sliderH.value;
+sliderH.addEventListener("input", ()=>{
+  spanH.textContent = sliderH.value;
+})
 
 //medaka basecaller model toggle
 toggler("medaka_polish", "medakaModel");

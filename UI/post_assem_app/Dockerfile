@@ -50,9 +50,8 @@ WORKDIR /app
 
 
 COPY static/ static/
-COPY gene_counter_bakta.py /app/
 COPY templates/ templates/
-COPY test_out/ test_out/
+# COPY test_out/ test_out/
 COPY *.py *.sh *.r *.yml main.nf nextflow.config /app/
 
 

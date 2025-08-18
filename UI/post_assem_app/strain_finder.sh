@@ -101,10 +101,11 @@ then
     mkdir -p "$out_dir"
 fi 
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 
-chmod +x ./gene_counter_bakta.py
-chmod +x ./gene_plotter.r
+chmod +x "${script_dir}"/gene_counter_bakta.py
+chmod +x "${script_dir}"/gene_plotter.r
 
 if [ $prevalance = "true" ]
 then 
@@ -114,15 +115,15 @@ then
     prevalance="FALSE"
 fi 
 
-script_dir="$(dirname "$(realpath "$0")")"
+# script_dir="$(dirname "$(realpath "$0")")"
 
-./gene_counter_bakta.py -d "${gene_dir}" -t "${gene_type}" -o "${out_dir}/${out_name}"
+python "${script_dir}"/gene_counter_bakta.py -d "${gene_dir}" -t "${gene_type}" -o "${out_dir}/${out_name}"
 
 if [ $count_only = 'false' ]
 then 
 
     in_name=$(echo "${out_dir}/${out_name}.tsv")
 
-   ./gene_plotter.r -c "${in_name}" -p "${prevalance}" -o "${out_dir}" -n "${organism}" -e "${enzyme_file}" -w "${width}" -l "${height}"
+  Rscript "${script_dir}"/gene_plotter.r -c "${in_name}" -p "${prevalance}" -o "${out_dir}" -n "${organism}" -e "${enzyme_file}" -w "${width}" -l "${height}"
 
 fi
