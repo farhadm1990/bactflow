@@ -22,6 +22,7 @@ echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
 RUN conda init bash && \
     echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
 
+RUN  Rscript -e "if(!(requireNamespace('MatrixGenerics', quietly = T))){ BiocManager::install('MatrixGenerics', force = T)}"
 # Install Nextflow
 RUN wget -qO- https://get.nextflow.io | bash && \
     mv nextflow /usr/local/bin/ && \
