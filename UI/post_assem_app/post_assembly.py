@@ -1,7 +1,7 @@
 
 # installing pkgs
 
-import sys, subprocess, importlib, os
+import sys, subprocess, importlib, os, shlex
 
 # def install_pks(pks):
 #     """installing pkgs"""
@@ -445,19 +445,18 @@ def circular():
     #     last_params = {}
 
 
+
     if not os.path.exists(crc_plt) or params != last_params:
         print("🔄 Parameters changed or plot missing. Regenerating plot...")
-        
-   
-        with open(params_file, "w") as f:
-            json.dump(params, f, indent=4)
+        if not os.path.isdir(gbk_dir):
+            return jsonify({"plot": False, "reason": "no_bakta_dir"}), 200  # keep polling
+        try:
+            with open(params_file, "w") as f:
+                json.dump(params, f, indent=4)
+        except Exception as e:
+            return jsonify({"plot": False, "error": f"Failed to write params: {e}"}), 500
 
-        # source $(conda info --base)/etc/profile.d/conda.sh
-        # conda activate bactflow
-      
        
-  
-
         command = f"""
         bash -c "source $(conda info --base)/etc/profile.d/conda.sh && \
         conda activate bactflow && \
@@ -469,18 +468,22 @@ def circular():
         --f_color '{params['f_color']}' \
         --r_color '{params['r_color']}'"
         """
-        
-        if out_dir:
-            subprocess.run(command, shell=True, check=True, text=True)
 
-  
+        try:
+            subprocess.run(
+                command, shell=True, check=True, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            print(" am running the command ")
+        except Exception as e:
+            return jsonify({"plot": False, "error": str(e)}), 200
+
     if os.path.exists(crc_plt):
         with open(crc_plt, "rb") as img_file:
             img_base = base64.b64encode(img_file.read()).decode("utf-8")
         return jsonify({"plot": f"data:image/png;base64,{img_base}"})
     else:
-        return jsonify({"error": "Error: Circular plot doesn't exist!"}), 404
-
+        return jsonify({"plot": False, "reason": "not_found_after_generation"}), 200
 
 
     

@@ -291,65 +291,65 @@ def stream_bactflow():
     return Response(generate(), content_type='text/event-stream')
 
 # progress bar
-prog = {"completed": 0}
+# prog = {"completed": 0}
 
-@app.route("/progress", methods = ["POST", "GET"])
-def progress():
+# @app.route("/progress", methods = ["POST", "GET"])
+# def progress():
     
-    if request.method == "POST":
-        out_dir = request.form.get('out_dir', './bactflow_out')
-        genome_dir = request.form.get('genome_dir')
+#     if request.method == "POST":
+#         out_dir = request.form.get('out_dir', './bactflow_out')
+#         genome_dir = request.form.get('genome_dir')
 
 
-        pars =  None
+#         pars =  None
 
-        if not genome_dir:
-            pars = {
-            "run_flye": True if request.form.get("run_flye") == "true" else False,
-            "run_unicycler": True if request.form.get("run_unicycler") == "true" else False,
-            "run_spades": True if request.form.get("run_spades") == "true" else False,
-            "run_megahit": True if request.form.get("run_megahit") == "true" else False,
-            "run_quast": True if request.form.get("run_quast") == "true" else False,
-            "circle_genome": True if request.form.get("circle_genome") == "true" else False,
-            "tax_class": True if request.form.get("tax_class") == "true" else False,
-            "prok_annot": True if request.form.get("prok_annot") == "true" else False,
-            "run_checkm": True if request.form.get("run_checkm") == "true" else False,
-            "run_bakta": True if request.form.get("run_bakta") == "true" else False,
-            }
-        else:
-            pars = {
-            "run_quast": True if request.form.get("run_quast") == "true" else False,
-            "tax_class": True if request.form.get("tax_class") == "true" else False,
-            "prok_annot": True if request.form.get("prok_annot") == "true" else False,
-            "run_checkm": True if request.form.get("run_checkm") == "true" else False,
-            "run_bakta": True if request.form.get("run_bakta") == "true" else False,
-            }
+#         if not genome_dir:
+#             pars = {
+#             "run_flye": True if request.form.get("run_flye") == "true" else False,
+#             "run_unicycler": True if request.form.get("run_unicycler") == "true" else False,
+#             "run_spades": True if request.form.get("run_spades") == "true" else False,
+#             "run_megahit": True if request.form.get("run_megahit") == "true" else False,
+#             "run_quast": True if request.form.get("run_quast") == "true" else False,
+#             "circle_genome": True if request.form.get("circle_genome") == "true" else False,
+#             "tax_class": True if request.form.get("tax_class") == "true" else False,
+#             "prok_annot": True if request.form.get("prok_annot") == "true" else False,
+#             "run_checkm": True if request.form.get("run_checkm") == "true" else False,
+#             "run_bakta": True if request.form.get("run_bakta") == "true" else False,
+#             }
+#         else:
+#             pars = {
+#             "run_quast": True if request.form.get("run_quast") == "true" else False,
+#             "tax_class": True if request.form.get("tax_class") == "true" else False,
+#             "prok_annot": True if request.form.get("prok_annot") == "true" else False,
+#             "run_checkm": True if request.form.get("run_checkm") == "true" else False,
+#             "run_bakta": True if request.form.get("run_bakta") == "true" else False,
+#             }
 
        
-        def out_dir_watcher(out_dir):
+#         def out_dir_watcher(out_dir):
             
-            global prog
+#             global prog
             
-            expected_counts = sum(value is True for value in pars.values())
+#             expected_counts = sum(value is True for value in pars.values())
 
-            pr_stat = process_status["running"]
+#             pr_stat = process_status["running"]
 
-            if expected_counts > 0:
-                while pr_stat:
-                    try:
-                        current_count = len(os.listdir(out_dir)) if os.path.exists(out_dir) else 0
-                        prog = 0
-                        prog = {"completed": f"{current_count/expected_counts*100}"}
+#             if expected_counts > 0:
+#                 while pr_stat:
+#                     try:
+#                         current_count = len(os.listdir(out_dir)) if os.path.exists(out_dir) else 0
+#                         prog = 0
+#                         prog = {"completed": f"{current_count/expected_counts*100}"}
 
-                        if current_count >= expected_counts:
-                            pr_stat = False
-                    except Exception as e:
-                        print(f"Error watching the output directory: {e}")
-                    time.sleep(2)
-        wather_thread = threading.Thread(target=out_dir_watcher, args=(out_dir,), daemon=True)
-        wather_thread.start() 
+#                         if current_count >= expected_counts:
+#                             pr_stat = False
+#                     except Exception as e:
+#                         print(f"Error watching the output directory: {e}")
+#                     time.sleep(2)
+#         wather_thread = threading.Thread(target=out_dir_watcher, args=(out_dir,), daemon=True)
+#         wather_thread.start() 
 
-    return jsonify(prog) 
+#     return jsonify(prog) 
 
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():

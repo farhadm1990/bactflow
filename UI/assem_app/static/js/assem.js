@@ -12,81 +12,81 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 //progress function
 // getting values of the run buttons 
-let clickedButtonValue = null;
-document.addEventListener("click", function(event) {
-  if (event.target.name === "action-assem") {
-       clickedButtonValue = event.target.value;
+// let clickedButtonValue = null;
+// document.addEventListener("click", function(event) {
+//   if (event.target.name === "action-assem") {
+//        clickedButtonValue = event.target.value;
      
-  }
-});
+//   }
+// });
 
-const updateProgress = () =>{
-  const form = document.getElementById("runForm");
-  const formData = new FormData(form);
+// const updateProgress = () =>{
+//   const form = document.getElementById("runForm");
+//   const formData = new FormData(form);
 
   
-  const setupOnly = document.getElementById("setup_only").value;
+//   const setupOnly = document.getElementById("setup_only").value;
   
   
 
-  if(clickedButtonValue === "run" && setupOnly === "false"){
+//   if(clickedButtonValue === "run" && setupOnly === "false"){
     
-    fetch("/progress", { method: "POST", body: formData } )
-    .then(response => response.json())
-    .then(data =>{
-      let percentage = data.completed;
-      let progressBar = document.querySelector(".progress-bar");
-      let progDiv = document.querySelector(".progress");
+//     fetch("/progress", { method: "POST", body: formData } )
+//     .then(response => response.json())
+//     .then(data =>{
+//       let percentage = data.completed;
+//       let progressBar = document.querySelector(".progress-bar");
+//       let progDiv = document.querySelector(".progress");
       
-      progDiv.style.display = "block";
+//       progDiv.style.display = "block";
       
-      progressBar.style.width = percentage + "%";
-      progressBar.setAttribute("aria-valuenow", percentage);
+//       progressBar.style.width = percentage + "%";
+//       progressBar.setAttribute("aria-valuenow", percentage);
 
-      progressBar.innerText = Math.round(percentage) + "%";
+//       progressBar.innerText = Math.round(percentage) + "%";
       
-      if(percentage < 100){
-        setTimeout(updateProgress,2000);
-      } else {
-        progDiv.style.transition = "background-color 1s ease, color 1s ease, text-align 0s ease";
-        setTimeout(() => {
-          progDiv.style.backgroundColor = "green";
-          progDiv.style.color = "white";
-          progressBar.style.opacity = "0"; 
+//       if(percentage < 100){
+//         setTimeout(updateProgress,2000);
+//       } else {
+//         progDiv.style.transition = "background-color 1s ease, color 1s ease, text-align 0s ease";
+//         setTimeout(() => {
+//           progDiv.style.backgroundColor = "green";
+//           progDiv.style.color = "white";
+//           progressBar.style.opacity = "0"; 
   
-          setTimeout(() => {
-              progressBar.style.display = "none"; 
-          }, 5);
+//           setTimeout(() => {
+//               progressBar.style.display = "none"; 
+//           }, 5);
   
         
-          progDiv.style.opacity = "5"; 
-          progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`;
-          progDiv.style.textAlign = "justify";
-          progDiv.style.textAlignLast = "center";
-          progDiv.style.height = '30px';
-          progDiv.style.padding = '5px';
+//           progDiv.style.opacity = "5"; 
+//           progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`;
+//           progDiv.style.textAlign = "justify";
+//           progDiv.style.textAlignLast = "center";
+//           progDiv.style.height = '30px';
+//           progDiv.style.padding = '5px';
 
   
-          setTimeout(() => {
-              progDiv.style.opacity = "1"; // Fade in the text
-          }, 20); // Small delay for smooth appearance
+//           setTimeout(() => {
+//               progDiv.style.opacity = "1"; // Fade in the text
+//           }, 20); // Small delay for smooth appearance
   
-      }, 200); // Slight delay after progress completes
-        // progDiv.style.backgroundColor = "green";
-        // progDiv.style.color = "white";
-        // progressBar.style.display = "none";
-        // progDiv.style.textAlign = "justify";
-        // progDiv.style.textAlignLast= "center"; 
+//       }, 200); // Slight delay after progress completes
+//         // progDiv.style.backgroundColor = "green";
+//         // progDiv.style.color = "white";
+//         // progressBar.style.display = "none";
+//         // progDiv.style.textAlign = "justify";
+//         // progDiv.style.textAlignLast= "center"; 
 
 
-        progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`
+//         progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`
 
-      }
-    })
-    .catch(error => console.error("Error fetching progress:", error))
-  } 
+//       }
+//     })
+//     .catch(error => console.error("Error fetching progress:", error))
+//   } 
   
-}
+// }
 
 
 // connect to stream when on assembly
@@ -183,20 +183,20 @@ function run_wf(action){
 
         // getting value of the setup only field
         let setOnly = document.getElementById("setup_only").value;
-        let progressBar = document.querySelector(".progress-bar");
-        let progDiv = document.querySelector(".progress");
-          progressBar.style.width = "0%";
-          progressBar.setAttribute("aria-valuenow", "0");
-          progressBar.innerText = "0%";
-        if(setOnly === "false"){
-          progDiv.style.display = "block";
-          progressBar.style.width = "0%";
-          progressBar.setAttribute("aria-valuenow", "0");
-          progressBar.innerText = "0%";
-          updateProgress();
-        } else {
-          progDiv.style.display = "none";
-        };
+        // let progressBar = document.querySelector(".progress-bar");
+        // let progDiv = document.querySelector(".progress");
+          // progressBar.style.width = "0%";
+          // progressBar.setAttribute("aria-valuenow", "0");
+          // progressBar.innerText = "0%";
+        // if(setOnly === "false"){
+          // progDiv.style.display = "block";
+          // progressBar.style.width = "0%";
+          // progressBar.setAttribute("aria-valuenow", "0");
+          // progressBar.innerText = "0%";
+          // updateProgress();
+        // } else {
+        //   progDiv.style.display = "none";
+        // };
         
         //now we start streatming here
        
@@ -217,8 +217,7 @@ function run_wf(action){
       {
         document.getElementById('help-bt').disabled = false;
         document.getElementById('run-bt').disabled = false;
-        let progDiv = document.querySelector(".progress");
-        progDiv.style.display = "none";
+     
 
 
     fetch(`/run_bactflow?action-assem=${action}`, { 
@@ -240,8 +239,7 @@ function run_wf(action){
       {
         outputDiv.innerHTML = "";
         document.getElementById('help-bt').disabled = true;
-        let progDiv = document.querySelector(".progress");
-        progDiv.style.display = "none";
+       
 
         // hide quast
         const quastDiv = document.getElementById("quastDiv");

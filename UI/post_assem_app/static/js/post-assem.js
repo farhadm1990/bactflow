@@ -10,83 +10,7 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 
 
-//progress function
-// getting values of the run buttons 
-let clickedButtonValue = null;
-document.addEventListener("click", function(event) {
-  if (event.target.name === "action-assem") {
-       clickedButtonValue = event.target.value;
-     
-  }
-});
 
-const updateProgress = () =>{
-  const form = document.getElementById("postForm");
-  const formData = new FormData(form);
-
-  
-  const setupOnly = document.getElementById("setup_only").value;
-  
-  
-
-  if(clickedButtonValue === "run" && setupOnly === "false"){
-    const percentage = 0;
-    fetch("/progress", { method: "POST", body: formData } )
-    .then(response => response.json())
-    .then(data =>{
-      let percentage = data.completed;
-      let progressBar = document.querySelector(".progress-bar");
-      let progDiv = document.querySelector(".progress");
-      
-      progDiv.style.display = "block";
-      
-      progressBar.style.width = percentage + "%";
-      progressBar.setAttribute("aria-valuenow", percentage);
-
-      progressBar.innerText = Math.round(percentage) + "%";
-      
-      if(percentage < 100){
-        setTimeout(updateProgress,2000);
-      } else {
-        progDiv.style.transition = "background-color 1s ease, color 1s ease, text-align 0s ease";
-        setTimeout(() => {
-          progDiv.style.backgroundColor = "green";
-          progDiv.style.color = "white";
-          progressBar.style.opacity = "0"; 
-  
-          setTimeout(() => {
-              progressBar.style.display = "none"; 
-          }, 5);
-  
-        
-          progDiv.style.opacity = "5"; 
-          progDiv.innerHTML = `<strong>Analysis was successfully done!</strong>`;
-          progDiv.style.textAlign = "justify";
-          progDiv.style.textAlignLast = "center";
-          progDiv.style.height = '30px';
-          progDiv.style.padding = '5px';
-
-  
-          setTimeout(() => {
-              progDiv.style.opacity = "1"; // Fade in the text
-          }, 20); // Small delay for smooth appearance
-  
-      }, 200); // Slight delay after progress completes
-        // progDiv.style.backgroundColor = "green";
-        // progDiv.style.color = "white";
-        // progressBar.style.display = "none";
-        // progDiv.style.textAlign = "justify";
-        // progDiv.style.textAlignLast= "center"; 
-
-
-        progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`
-
-      }
-    })
-    .catch(error => console.error("Error fetching progress:", error))
-  } 
-  
-}
 
 
 // connect to stream when on assembly
@@ -174,22 +98,8 @@ function run_wf(action){
 
         outputDiv.innerHTML += "Bactflow started :)\n";
 
-        // getting value of the setup only field
-        let setOnly = document.getElementById("setup_only").value;
-        let progressBar = document.querySelector(".progress-bar");
-        let progDiv = document.querySelector(".progress");
-          progressBar.style.width = "0%";
-          progressBar.setAttribute("aria-valuenow", "0");
-          progressBar.innerText = "0%";
-        if(setOnly === "false"){
-          // progDiv.style.display = "block";
-          progressBar.style.width = "0%";
-          progressBar.setAttribute("aria-valuenow", "0");
-          progressBar.innerText = "0%";
-          // updateProgress();
-        } else {
-          progDiv.style.display = "none";
-        };
+      
+        
         
         //now we start streatming here
        
@@ -210,8 +120,7 @@ function run_wf(action){
       {
         document.getElementById('help-bt').disabled = false;
         document.getElementById('run-bt').disabled = false;
-        let progDiv = document.querySelector(".progress");
-        progDiv.style.display = "none";
+    
 
 
     fetch(`/run_bactflow?action-assem=${action}`, { 
@@ -233,8 +142,8 @@ function run_wf(action){
       {
         outputDiv.innerHTML = "";
         document.getElementById('help-bt').disabled = true;
-        let progDiv = document.querySelector(".progress");
-        progDiv.style.display = "none";
+    
+   
 
         // hide quast
         const quastDiv = document.getElementById("quastDiv");
@@ -335,6 +244,7 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 
 // function to show quast
+
 function showReport(){
   const form = document.getElementById("postForm");
   const formData = new FormData(form);
@@ -346,6 +256,7 @@ function showReport(){
   ])
   
     // quast and bakta
+    // .then(([quastData, baktaData, circPlt, taxData]) => {
     .then(([quastData, baktaData, circPlt, taxData]) => {
       let quastDiv = document.getElementById("quastDiv");
       let baktaDiv = document.getElementById("baktaDiv");
@@ -354,13 +265,14 @@ function showReport(){
       let taxDiv = document.getElementById("taxa_class");
   
       if(quastData.exists){
+        console.log("this is quast data" + quastData);
         console.log("✅ Quast report found! Loading...");
         
         
 
         quastDiv.style.display = "block";
         quastReport();
-        clearInterval(quastCheckInterval);
+        clearInterval(reportCheckInterval);
       } else {
         console.log("⏳ Waiting for Quast report...");
         
@@ -372,7 +284,7 @@ function showReport(){
       if (baktaData.exists) {
         console.log("✅ Bakta report found! Loading...");
         baktaDiv.style.display = "block";
-        clearInterval(quastCheckInterval);
+        clearInterval(reportCheckInterval);
         baktaReport();  
       } else {
         console.warn("⏳ Bakta report not available yet...");
@@ -384,7 +296,7 @@ function showReport(){
         circDiv.style.display = "block";
         circSpin.style.display = 'block';
         circReport();
-        clearInterval(quastCheckInterval);
+        clearInterval(reportCheckInterval);
       } else {
         console.warn("⏳ Circular plot not available yet...");
         circDiv.style.display = "none";
@@ -396,7 +308,7 @@ function showReport(){
         taxDiv.style.display = "block";
         
         taxReport();
-        clearInterval(quastCheckInterval);
+        clearInterval(reportCheckInterval);
       } else {
         console.warn("⏳ Taxonomy table not available yet...");
         taxDiv.style.display = "none";
@@ -472,7 +384,7 @@ async function quastReport() {
     let quastOutputDiv = document.getElementById("output-quast");
     quastOutputDiv.innerHTML = ""; 
     quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
+   
     // for contig
     let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
     if (!contigResponse.ok) throw new Error("Failed to fetch Contig report");
@@ -580,7 +492,7 @@ async function circReport(){
   }
 }
 
-var quastCheckInterval = setInterval(showReport, 5000);
+var reportCheckInterval = setInterval(showReport, 5000);
 
 
 // gene annotation 
@@ -921,8 +833,7 @@ toggler("coverage_filter", "covDiv");
 // filter read
 toggler(motherId = "nanofilter", childId = "qualDiv");
 
-// medaka tensor
-toggler(motherId = "medaka_polish", childID = "tesnDiv")
+
 
 //gtdbtk
 toggler("tax_class", "gtdbtk_dbDiv")
