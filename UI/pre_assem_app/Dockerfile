@@ -51,7 +51,6 @@ WORKDIR /app
 
 COPY static/ static/
 COPY templates/ templates/
-COPY test_out/ test_out/
 COPY *.py *.sh *.r *.yml main.nf nextflow.config ./
 
 
