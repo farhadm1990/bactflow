@@ -174,17 +174,21 @@ This will automatically launch the respective apps.
     <p><strong>Fig 3. </strong> Interface of the pre assembly module. </p>
 </div>
 
+
 ```sh
 ./bactflow.sh assem /home/user/work_dir    # for assembly module
 ```
+
 <div style="text-align: center; margin-top: 10;">
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/assem.png" alt="Assem" style="max-width: 100%; height: auto;"/>
     <p><strong>Fig 4. </strong> Interface of the assembly module. </p>
 </div>
 
+
 ```sh
 ./bactflow.sh postassem /home/user/work_dir # for post assembly module
 ```
+
 <div style="text-align: center; margin-top: 10;">
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/postassem.png" alt="Post assem" style="max-width: 100%; height: auto;"/>
     <p><strong>Fig 5. </strong> Interface of the post assembly module. </p>
