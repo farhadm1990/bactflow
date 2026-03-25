@@ -17,7 +17,18 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 - [Nextflow](https://www.nextflow.io/docs/latest/index.html)
 - [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Docker](https://www.docker.com/)
 
-## Installation
+### NOTE: if you want to run the UI through docker, remeber to have docker installed and added to your group
+
+```sh 
+sudo groupadd docker
+sudo usermod -aG docker $USER
+newgrp docker
+# test
+docker run hello-world
+
+```
+
+## Installation: for local run without docker
 
 1. **Clone the Repository**
 ```sh
@@ -31,6 +42,8 @@ BactFlow is a workflow for bacterial genome assembly of single isolate and metag
 
    nextflow run bactflow --help
 ```
+
+# Running via Nextflow
 
 2. **Clone the Repository via `nextflow pull` command**
 ```sh
@@ -138,4 +151,42 @@ unset xml_catalog_files_libxml2
 
 
 ```
+
+# Running BactFlow via docker: commandline
+```sh
+docker run -v $HOME/workdir:/work_dir bactflow_preassem:v0.01 
+docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_assem:v0.01
+docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_postassem:v0.01
+
+```
+
+# Alternatively (easy way): Running BactFlow via bactflow.sh command
+
+In this case you must provide the module name among `preassem, assem, or postassem` plus an absolute path to your working directory. This path must contain a folder in which your either pooled or unpooled fastq files are plassed. If unpooled, the fastq directory must contain folder in which the `fastq.gz` files, bascalled but not pooled, are present. Each folder belongs to one demultiplexed sample. If pooled, each fastq.gz file is for one demultiplexed sample. 
+This will automatically launch the respective apps. 
+
+## Examples:
+```sh 
+./bactflow.sh preassem /home/user/work_dir # for pre assemly module
+```
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 3. </strong> Interface of the pre assembly module. </p>
+</div>
+
+```sh
+./bactflow.sh assem /home/user/work_dir    # for assembly module
+```
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/assem.png" alt="Assem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 4. </strong> Interface of the assembly module. </p>
+</div>
+
+```sh
+./bactflow.sh postassem /home/user/work_dir # for post assembly module
+```
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/postassem.png" alt="Post assem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 5. </strong> Interface of the post assembly module. </p>
+</div>
 
