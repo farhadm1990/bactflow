@@ -164,7 +164,7 @@ WORK_DIR=$(realpath "$WORK_DIR" 2>/dev/null || echo "$WORK_DIR")
 # Validate module and set defaults
 case $MODULE in
     preassem)
-        IMAGE="bactflow_preassem:v0.01"
+        IMAGE="farhadm1990/bactflow_preassem:v0.01"
         DEFAULT_CPUS=""
         DEFAULT_MEMORY=""
         CONTAINER_PORT="5000"
