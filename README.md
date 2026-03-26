@@ -160,9 +160,9 @@ docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactf
 
 ```
 
-# Alternatively (easy way): Running BactFlow via bactflow.sh command
+# Alternatively (easy way): Running BactFlow via `bactflow.sh` command
 
-In this case you must provide the module name among `preassem, assem, or postassem` plus an absolute path to your working directory. This path must contain a folder in which your either pooled or unpooled fastq files are plassed. If unpooled, the fastq directory must contain folder in which the `fastq.gz` files, bascalled but not pooled, are present. Each folder belongs to one demultiplexed sample. If pooled, each fastq.gz file is for one demultiplexed sample. 
+In this case you must provide the module name among `preassem, assem, or postassem` plus an absolute path to your working directory. This path must contain a folder in which your either pooled or unpooled fastq files are placed. If unpooled, the fastq directory must contain folder(s) in which the `fastq.gz` files, bascalled but not pooled, are present. Each folder belongs to one demultiplexed sample. If pooled, each fastq.gz file is for one demultiplexed sample. If you want to perfom taxonomic classification, you must have the `GTBtk` database for release `220` available in the working directory. If you already have it somewhere else, you can always make a symbolic link pointing at the database. The same goes for `CheckM` post assembly quality control. You output dierctory must be under your working direcoty with the absolute path, e.g.; `/home/user/work_dir/output`. Because this absolute path to your working directory is the only location where docker can read from and write to. 
 This will automatically launch the respective apps. 
 
 ## Examples:
@@ -173,6 +173,7 @@ This will automatically launch the respective apps.
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>
     <p><strong>Fig 3. </strong> Interface of the pre assembly module. </p>
 </div>
+<br>
 
 
 ```sh
@@ -183,7 +184,7 @@ This will automatically launch the respective apps.
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/assem.png" alt="Assem" style="max-width: 100%; height: auto;"/>
     <p><strong>Fig 4. </strong> Interface of the assembly module. </p>
 </div>
-
+<br>
 
 ```sh
 ./bactflow.sh postassem /home/user/work_dir # for post assembly module
