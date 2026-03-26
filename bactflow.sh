@@ -30,7 +30,7 @@ ${YELLOW}REQUIRED:${NC}
 
 ${YELLOW}OPTIONS:${NC}
     --no-browser        Don't automatically open browser
-    --port PORT         Host port to map (default: 5000 for preassem, 8080 for others)
+    --port PORT         Host port to map (default: 5000 for preassem, 5002 for assem and 5001 for postassem)
     --cpus N            Number of CPU cores (default: auto for preassem, 10 for assem/postassem)
     --memory SIZE       Memory limit (default: auto for preassem, 16g for assem/postassem)
     --help              Show this help message
@@ -49,7 +49,7 @@ ${YELLOW}EXAMPLES:${NC}
     $0 postassem /home/user/work_dir --no-browser
     
     # Full custom example
-    $0 assem /home/user/work_dir --port 8888 --cpus 16 --memory 24g
+    $0 assem /home/user/work_dir --port 5002 --cpus 16 --memory 24g
 
 EOF
     exit 1
@@ -307,7 +307,7 @@ tail -f "$LOG_FILE" | while IFS= read -r line; do
             # Extract URL from Flask output
             if [[ $line =~ (http://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+) ]]; then
                 URL="${BASH_REMATCH[1]}"
-                # Replace container IP with localhost for browser
+                # Replacing container IP with localhost for browser
                 URL=$(echo "$URL" | sed 's/[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+/localhost/')
                 echo -e "\n${GREEN}Detected Flask server: $URL${NC}"
                 open_browser "$URL" 0
