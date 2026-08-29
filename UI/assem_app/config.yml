@@ -16,8 +16,8 @@ dependencies:
   - htslib=1.21
   - samtools=1.21
   - bcftools=1.21
-  - medaka=2.0.1
-  - mappy=2.28
+  - medaka=2.0.1=py311hfd2b166_0
+  - mappy=2.28=py311h0152c62_2
   - minimap2=2.28
   - checkm-genome=1.2.4
   - flye=2.9.5
