@@ -1,0 +1,3 @@
+# Keep medaka (conda) happy: do not let other pip packages upgrade these.
+h5py==3.10.0
+ont-mappy==2.28
