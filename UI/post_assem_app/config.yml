@@ -3,7 +3,7 @@ name: bactflow
 channels:
   - conda-forge
   - bioconda
-  - defaults
+channel_priority: strict
 dependencies:
   - curl=8.15.0
   - libcurl=8.15.0
