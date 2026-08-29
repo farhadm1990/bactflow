@@ -1,5 +1,2 @@
-# Keep medaka/gtdbtk/pomoxis-compatible versions during pip installs.
 h5py==3.10.0
 ont-mappy==2.28
-numpy==1.26.4
-biopython==1.85
