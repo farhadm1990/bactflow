@@ -10,14 +10,14 @@
 
 ## Introduction
 
-BactFlow is a workflow for bacterial genome assembly of single isolate and metagenomics sequencing reads extracted from Oxford Nanopore Technology (ONT) and Illumina platforms. It is designed using Nextflow DSL 2 technology and reads the generic outputs of Guppy and Dorado basecallers.
+BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single isolate and metagenomics sequencing reads extracted from Oxford Nanopore Technology (ONT) and Illumina platforms. It is designed using Nextflow DSL 2 technology and reads the generic outputs of Guppy and Dorado basecallers.
 
 ## Requirements
 
 - [Nextflow](https://www.nextflow.io/docs/latest/index.html)
 - [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Docker](https://www.docker.com/)
 
-### NOTE: if you want to run the UI through docker, remeber to have docker installed and added to your group
+### NOTE: if you want to run the UI through docker (recommended), remeber to have docker installed and added to your group
 
 ```sh 
 sudo groupadd docker
@@ -28,7 +28,53 @@ docker run hello-world
 
 ```
 
+
+# Running BactFlow via docker: commandline
+```sh
+docker run -v $HOME/workdir:/work_dir bactflow_preassem:v0.01 
+docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_assem:v0.01
+docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_postassem:v0.01
+
+```
+
+# Alternatively (easy way): Running BactFlow via `bactflow.sh` command
+
+In this case you must provide the module name among `preassem, assem, or postassem` plus an absolute path to your working directory. This path must contain a folder in which your either pooled or unpooled fastq files are placed. If unpooled, the fastq directory must contain folder(s) in which the `fastq.gz` files, bascalled but not pooled, are present. Each folder belongs to one demultiplexed sample. If pooled, each fastq.gz file is for one demultiplexed sample. If you want to perfom taxonomic classification, you must have the `GTBtk` database for release `220` available in the working directory. If you already have it somewhere else, you can always make a symbolic link pointing at the database. The same goes for `CheckM` post assembly quality control. You output dierctory must be under your working direcoty with the absolute path, e.g.; `/home/user/work_dir/output`. Because this absolute path to your working directory is the only location where docker can read from and write to. As for recources, the script uses the max cpu and memory by default, but you can adjust it via `--cpus` and `--memory` flags.
+This will automatically launch the respective apps. 
+
+## Examples:
+```sh 
+./bactflow.sh preassem /home/user/work_dir # for pre assemly module
+```
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 3. </strong> Interface of the pre assembly module. </p>
+</div>
+<br>
+
+
+```sh
+./bactflow.sh assem /home/user/work_dir    # for assembly module
+```
+
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/assem.png" alt="Assem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 4. </strong> Interface of the assembly module. </p>
+</div>
+<br>
+
+```sh
+./bactflow.sh postassem /home/user/work_dir # for post assembly module
+```
+
+<div style="text-align: center; margin-top: 10;">
+    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/postassem.png" alt="Post assem" style="max-width: 100%; height: auto;"/>
+    <p><strong>Fig 5. </strong> Interface of the post assembly module. </p>
+</div>
+
+
 ## Installation: for local run without docker
+If you want to run the scrits outside the docker container, make sure that you have setup the bactflow conda environment via following steps:
 
 1. **Clone the Repository**
 ```sh
@@ -151,47 +197,3 @@ unset xml_catalog_files_libxml2
 
 
 ```
-
-# Running BactFlow via docker: commandline
-```sh
-docker run -v $HOME/workdir:/work_dir bactflow_preassem:v0.01 
-docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_assem:v0.01
-docker run --cpus=10 --memory="16g" -v $HOME/workdir:/work_dir farhadm1990/bactflow_postassem:v0.01
-
-```
-
-# Alternatively (easy way): Running BactFlow via `bactflow.sh` command
-
-In this case you must provide the module name among `preassem, assem, or postassem` plus an absolute path to your working directory. This path must contain a folder in which your either pooled or unpooled fastq files are placed. If unpooled, the fastq directory must contain folder(s) in which the `fastq.gz` files, bascalled but not pooled, are present. Each folder belongs to one demultiplexed sample. If pooled, each fastq.gz file is for one demultiplexed sample. If you want to perfom taxonomic classification, you must have the `GTBtk` database for release `220` available in the working directory. If you already have it somewhere else, you can always make a symbolic link pointing at the database. The same goes for `CheckM` post assembly quality control. You output dierctory must be under your working direcoty with the absolute path, e.g.; `/home/user/work_dir/output`. Because this absolute path to your working directory is the only location where docker can read from and write to. As for recources, the script uses the max cpu and memory by default, but you can adjust it via `--cpus` and `--memory` flags.
-This will automatically launch the respective apps. 
-
-## Examples:
-```sh 
-./bactflow.sh preassem /home/user/work_dir # for pre assemly module
-```
-<div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>
-    <p><strong>Fig 3. </strong> Interface of the pre assembly module. </p>
-</div>
-<br>
-
-
-```sh
-./bactflow.sh assem /home/user/work_dir    # for assembly module
-```
-
-<div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/assem.png" alt="Assem" style="max-width: 100%; height: auto;"/>
-    <p><strong>Fig 4. </strong> Interface of the assembly module. </p>
-</div>
-<br>
-
-```sh
-./bactflow.sh postassem /home/user/work_dir # for post assembly module
-```
-
-<div style="text-align: center; margin-top: 10;">
-    <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/postassem.png" alt="Post assem" style="max-width: 100%; height: auto;"/>
-    <p><strong>Fig 5. </strong> Interface of the post assembly module. </p>
-</div>
-
