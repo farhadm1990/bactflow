@@ -26,6 +26,22 @@ app = Flask(__name__,
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, 'static'))
 
+BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
+
+NF_JAVA_SETUP = f"""
+source "{BACTFLOW_RUNTIME_SH}"
+bactflow_prepare_nextflow || exit 1
+echo "Using Java for Nextflow: $JAVA_CMD"
+"$JAVA_CMD" -version
+echo "Using Nextflow: $BACTFLOW_NEXTFLOW_BIN"
+"$BACTFLOW_NEXTFLOW_BIN" -version
+export NXF_ANSI_LOG=false
+"""
+
+
+def with_nextflow_java(command):
+    return NF_JAVA_SETUP + "\n" + command
+
 manager = Manager()
 process_status = manager.dict({"running": False})
 output_queue = Queue()
@@ -34,9 +50,10 @@ def run_bact(command, process_status, output_queue):
     """To run bactflow in mutliprocess"""
     process_status["running"] = True
     process = subprocess.Popen(
-        command, 
-        shell=True, 
-        stdout= subprocess.PIPE,
+        command,
+        shell=True,
+        executable="/bin/bash",
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True
     )
@@ -113,10 +130,10 @@ def install_bactflow():
             
 
 
-        command = f"""
+        command = with_nextflow_java(f"""
         
         nextflow run {base_dir}/main.nf --setup_only true --out_dir {out_dir}
-        """
+        """)
     
         back_process = Process(target=run_bact, args=(command, process_status, output_queue))
         back_process.start()

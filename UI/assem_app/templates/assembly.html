@@ -41,10 +41,10 @@
       
         
 
-        <!-- Raw Read Parameters -->
+        <!-- Basic Parameters -->
         <div class="card mb-3"  >
           <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(13, 59, 88); height: 100px; position: relative; padding-top: auto;">
-            <h6 class="mb-0" style="color: white;">Raw Read Parameters</h6>
+            <h6 class="mb-0" style="color: white;">Basic Parameters</h6>
           </div>
           <div class="card-body">
             <div class="mb-3">
@@ -53,32 +53,6 @@
                 <option value="true" >True</option>
                 <option value="false" selected>False</option>
               </select>
-            </div>
-            <div class="mb-3">
-              <label for="fastq_dir" class="form-label" id="fastqDirLabel">FASTQ Directory</label>
-              <div class="input-group">
-                <input
-                type="text"
-                class="form-control"
-                id="filePicker"
-                name="fastq_dir"
-                placeholder="./"
-                webkitdirectory
-                directory
-                />
-             
-              </div>
-            </div>
-            <div class="mb-3">
-              <label for="concat_reads" class="form-label">Concat Reads</label>
-              <select class="form-select" id="concat_reads" name="concat_reads">
-                <option value="true" selected>True</option>
-                <option value="false">False</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label for="extension" class="form-label">Extension</label>
-              <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" />
             </div>
             <hr>
             <div class="mb-3">
@@ -102,45 +76,6 @@
             <h6 class="mb-0">Assembly Parameters</h6>
           </div>
           <div class="card-body">
-            <div id="flyeCoverageOptions">
-            <div class="mb-3">
-              <label for="coverage_filter" class="form-label">Coverage Filter</label>
-              <select class="form-select" id="coverage_filter" name="coverage_filter">
-                <option value="true">True</option>
-                <option value="false" selected>False</option>
-              </select>
-            </div>
-            <div id="covDiv" style="display: none;">
-              <div class="mb-3">
-                <label for="coverage" class="form-label">Coverage</label>
-                <input type="number" class="form-control" id="coverage" name="coverage" placeholder="40" />
-              </div>
-              <div class="mb-3">
-                <label for="genome_size" class="form-label">Genome Size</label>
-                <input type="number" class="form-control" id="genome_size" name="genome_size" placeholder="6" step="0.1"/>
-              </div>
-            </div>
-            </div>
-          
-
-            <div class="mb-3">
-              <label for="nanofilter" class="form-label">Quality and length filter</label>
-              <select class="form-select" id="nanofilter" name="nanofilter">
-                <option value="true">True</option>
-                <option value="false" selected> False</option>
-              </select>
-            </div>
-            <div id="qualDiv" style="display: none;">
-              <div class="mb-3">
-                <label for="min_quality" class="form-label">Average read quality</label>
-                <input type="number" class="form-control" id="quality" name="min_quality" placeholder="16" />
-              </div>
-              <div class="mb-3">
-                <label for="min_length" class="form-label">Minimum read length</label>
-                <input type="number" class="form-control" id="readLen" name="min_length" placeholder="1000" />
-              </div>
-            </div>
-            <hr>
             <div class="mb-3">
               <label for="assemblerDropdown" class="form-label">Select Assembler</label>
               <select class="form-select" id="assemblerDropdown" name="assemblerDropdown">
@@ -151,15 +86,42 @@
                 <option value="pacbio">Flye (PacBio)</option>
               </select>
             </div>
+
+            <div class="mb-3" id="fastqDirGroup" style="display: none;">
+              <label for="fastq_dir" class="form-label" id="fastqDirLabel">FASTQ Directory</label>
+              <div class="input-group">
+                <input
+                type="text"
+                class="form-control"
+                id="fastq_dir"
+                name="fastq_dir"
+                placeholder="./"
+                webkitdirectory
+                directory
+                />
+              </div>
+            </div>
+
+            <div class="mb-3" id="concatReadsGroup" style="display: none;">
+              <label for="concat_reads" class="form-label">Concat Reads</label>
+              <select class="form-select" id="concat_reads" name="concat_reads">
+                <option value="true" selected>True</option>
+                <option value="false">False</option>
+              </select>
+            </div>
+            <div class="mb-3" id="extensionGroup" style="display: none;">
+              <label for="extension" class="form-label">Extension</label>
+              <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" />
+            </div>
             
-            <!-- Hidden input fields for  assemlbers -->
+            <!-- Hidden input fields for assemblers -->
             <input type="hidden" id="run_flye" name="run_flye" value="false">
             <input type="hidden" id="run_unicycler" name="run_unicycler" value="false">
             <input type="hidden" id="run_spades" name="run_spades" value="false">
-            <div id="spadesHint" class="form-text" style="display: none;">
+            <div id="spadesHint" class="form-text mb-3" style="display: none;">
               SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>.
             </div>
-            <div id="pacbioHint" class="form-text" style="display: none;">
+            <div id="pacbioHint" class="form-text mb-3" style="display: none;">
               PacBio assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>, matching Flye sample names.
             </div>
 
@@ -179,26 +141,77 @@
               </div>
             </div>
 
-            <div id="pacbioDiv" style="display: none;">
+            <div id="flyeOntDiv" style="display: none;">
               <div class="mb-3">
-                <label for="pacbio_read_type" class="form-label">PacBio read type</label>
-                <select class="form-select" id="pacbio_read_type" name="pacbio_read_type">
-                  <option value="hifi" selected>HiFi (CCS)</option>
-                  <option value="clr">CLR (raw)</option>
+                <label for="ont_read_type" class="form-label">ONT read type (Flye)</label>
+                <select class="form-select" id="ont_read_type" name="ont_read_type">
+                  <option value="nano-raw" selected>nano-raw — regular ONT reads, pre-Guppy5 (&lt;20% error)</option>
+                  <option value="nano-corr">nano-corr — ONT corrected reads (&lt;3% error)</option>
+                  <option value="nano-hq">nano-hq — Guppy5+ SUP / Q20 (&lt;5% error)</option>
                 </select>
               </div>
             </div>
 
-            <br>
+            <div id="pacbioDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="pacbio_read_type" class="form-label">PacBio read type (Flye)</label>
+                <select class="form-select" id="pacbio_read_type" name="pacbio_read_type">
+                  <option value="pacbio-hifi" selected>pacbio-hifi — HiFi / CCS reads (&lt;1% error)</option>
+                  <option value="pacbio-corr">pacbio-corr — corrected PacBio reads (&lt;3% error)</option>
+                  <option value="pacbio-raw">pacbio-raw — regular CLR reads (&lt;20% error)</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="flyeCoverageOptions" style="display: none;">
             <div class="mb-3">
+              <label for="coverage_filter" class="form-label">Coverage Filter</label>
+              <select class="form-select" id="coverage_filter" name="coverage_filter">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+            </div>
+            <div id="covDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="coverage" class="form-label">Coverage</label>
+                <input type="number" class="form-control" id="coverage" name="coverage" placeholder="40" />
+              </div>
+              <div class="mb-3">
+                <label for="genome_size" class="form-label">Genome Size</label>
+                <input type="number" class="form-control" id="genome_size" name="genome_size" placeholder="6" step="0.1"/>
+              </div>
+            </div>
+            </div>
+
+            <div id="nanofilterGroup" style="display: none;">
+            <div class="mb-3">
+              <label for="nanofilter" class="form-label">Quality and length filter</label>
+              <select class="form-select" id="nanofilter" name="nanofilter">
+                <option value="true">True</option>
+                <option value="false" selected> False</option>
+              </select>
+            </div>
+            <div id="qualDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="min_quality" class="form-label">Average read quality</label>
+                <input type="number" class="form-control" id="quality" name="min_quality" placeholder="16" />
+              </div>
+              <div class="mb-3">
+                <label for="min_length" class="form-label">Minimum read length</label>
+                <input type="number" class="form-control" id="readLen" name="min_length" placeholder="1000" />
+              </div>
+            </div>
+            </div>
+
+            <div class="mb-3" id="circleGenomeGroup" style="display: none;">
               <label for="circle_genome" class="form-label">Fix start point of your genome? <strong>(Circulate)</strong></label>
               <select class="form-select" id="circle_genome" name="circle_genome">
                 <option value="true" selected>True</option>
                 <option value="false">False</option>
               </select>
             </div>
-            <hr>
-            <div id="flyePolishOptions">
+
+            <div id="flyePolishOptions" style="display: none;">
             <div class="mb-3">
               <label for="medaka_polish" class="form-label">Polish with <strong>Medaka?</strong></label>
               <select class="form-select" id="medaka_polish" name="medaka_polish">
@@ -366,7 +379,6 @@
         <div id="output-div" class="col-md-7 bf-terminal-wrap" style="height: auto; overflow: hidden; display: none; width: 100%;">
 
         <div class="bf-terminal-bar">
-          <span class="bf-dots"><span class="r"></span><span class="y"></span><span class="g"></span></span>
           <span class="bf-terminal-title">BactFlow Terminal — assembly</span>
           <label class="bf-verbose"><input type="checkbox" id="logVerbose"> Verbose</label>
         </div>

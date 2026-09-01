@@ -27,12 +27,13 @@ Options:
     --checkm_lineag_check   If true, the genomes will be checked for their lineage completeness in one bin (default false).
     --genome_extension      Required if '--checkm_lineag_check true'; default fasta.
     --run_flye              If true, it runs Flye assembler on ONT reads; default true.
+    --ont_read_type         ONT Flye read mode: nano-raw, nano-corr, or nano-hq (default nano-raw).
     --circle_genome         If ture, it runs circlator to fix the start of genome based on e.g. dnaA gene.
     --run_unicycler         If true, it runs Unicycler hybrid assembly (long + short reads), default false.
     --short_read_dir       Absolute path to Illumina paired-end reads. Required if '--run_unicycler true'.
     --run_spades            If true, it runs SPAdes isolate assembly on Illumina paired-end reads in --fastq_dir, default false.
     --run_pacbio           If true, it runs Flye on PacBio reads, default false.
-    --pacbio_read_type      PacBio chemistry for Flye: 'hifi' (default) or 'clr'.
+    --pacbio_read_type      PacBio Flye read mode: pacbio-raw, pacbio-corr, or pacbio-hifi (default pacbio-hifi).
     --tax_class             If true, it runs GTBtk taxonomic classification, default true.
     --bakta_annot           If true, it runs gene annotaiton by Bakta, default false. 
     --bakta_db              Directory to bakta database (required if bakta_annot is true)
@@ -130,7 +131,8 @@ workflow {
                     params.min_quality,
                     params.basecaller_model,
                     params.tensor_batch,
-                    params.medaka_polish
+                    params.medaka_polish,
+                    params.ont_read_type
                 )
                 } else {
                     fastas_fold = assembly_flye2(
@@ -143,7 +145,8 @@ workflow {
                     params.min_quality,
                     params.basecaller_model,
                     params.tensor_batch,
-                    params.medaka_polish
+                    params.medaka_polish,
+                    params.ont_read_type
                 )
                 }
             } else if (params.run_unicycler) {
@@ -558,6 +561,7 @@ process assembly_flye1 {
     val basecaller_model
     val tensor_batch
     val medaka_polish
+    val ont_read_type
 
     when:
     params.coverage_filter
@@ -585,9 +589,17 @@ process assembly_flye1 {
     
         out_name=\$(basename \$i | cut -f 1 -d'.')
 
-        echo "running flye..."
+        echo "running flye (${ont_read_type})..."
         
-        flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye  #--asm-coverage ${coverage} -g ${genome_size}m
+        if [ "${ont_read_type}" = "nano-hq" ]
+        then
+            flye --nano-hq \$i -t ${cpus} --out-dir asm_out_dir/"\${out_name}"_flye
+        elif [ "${ont_read_type}" = "nano-corr" ]
+        then
+            flye --nano-corr \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye
+        else
+            flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye
+        fi
 
         if [ '${medaka_polish}' == "true" ]
         then 
@@ -656,6 +668,7 @@ process assembly_flye2 {
     val basecaller_model
     val tensor_batch
     val medaka_polish
+    val ont_read_type
 
     when:
     ! params.coverage_filter
@@ -683,9 +696,17 @@ process assembly_flye2 {
     
         out_name=\$(basename \$i | cut -f 1 -d'.')
 
-        echo "running flye..."
+        echo "running flye (${ont_read_type})..."
         
-        flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye  #--asm-coverage ${coverage} -g ${genome_size}m
+        if [ "${ont_read_type}" = "nano-hq" ]
+        then
+            flye --nano-hq \$i -t ${cpus} --out-dir asm_out_dir/"\${out_name}"_flye
+        elif [ "${ont_read_type}" = "nano-corr" ]
+        then
+            flye --nano-corr \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye
+        else
+            flye --nano-raw \$i -t ${cpus} -i 2 --out-dir asm_out_dir/"\${out_name}"_flye
+        fi
 
         if [ '${medaka_polish}' == "true" ]
         then 
@@ -949,12 +970,15 @@ process assembly_pacbio {
         out_name=\$(basename \$i | cut -f 1 -d'.')
         pb_dir=asm_out_dir/"\${out_name}"_pacbio
 
-        echo "running Flye on PacBio \${pacbio_read_type} reads for \${out_name}..."
-        if [ "${pacbio_read_type}" = "clr" ]
+        echo "running Flye on PacBio ${pacbio_read_type} reads for \${out_name}..."
+        if [ "${pacbio_read_type}" = "pacbio-hifi" ]
         then
-            flye --pacbio-raw \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
-        else
             flye --pacbio-hifi \$i -t ${cpus} --out-dir "\$pb_dir"
+        elif [ "${pacbio_read_type}" = "pacbio-corr" ]
+        then
+            flye --pacbio-corr \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
+        else
+            flye --pacbio-raw \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
         fi
 
         if [ ! -f "\$pb_dir"/assembly.fasta ]
@@ -1041,25 +1065,6 @@ process baktaAnnot {
     
     """
 }
-
-// process baktaAnnot {
-
-
-//     script:
-
-//     """
-//     source \$(conda info --base)/etc/profile.d/conda.sh
-//     conda activate bactflow
-
-//     if [ ! -d bakta_annot ]
-//     then 
-//         mkdir -p bakta_annot
-//     fi
-
-//     bash ${projectDir}/bakta_annot.sh
-
-//     """
-// }
 
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
@@ -1190,15 +1195,6 @@ process quast_check {
     """
 }
 
-
-
-
-
-// process trycile {
-    
-
-
-// }
 
 
 

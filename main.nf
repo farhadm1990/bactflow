@@ -950,12 +950,3 @@ process quast_check {
 
 
 
-
-// process trycile {
-    
-
-
-// }
-
-
-

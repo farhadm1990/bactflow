@@ -25,38 +25,15 @@ app = Flask(__name__,
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
 
-NF_JAVA_SETUP = r"""
-unset JAVA_CMD
-java_major() {
-  "$1" -version 2>&1 | sed -n 's/.*version "\([0-9]\+\).*/\1/p' | head -n1
-}
-pick_nf_java() {
-  local candidate major java_bin
-  for candidate in \
-    ${JAVA_HOME:+"$JAVA_HOME/bin/java"} \
-    "$(command -v java 2>/dev/null)" \
-    "$HOME/.sdkman/candidates/java/current/bin/java" \
-    /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
-    /usr/lib/jvm/java-17-openjdk-amd64/bin/java
-  do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    major=$(java_major "$candidate")
-    if [ -n "$major" ] && [ "$major" -ge 17 ] && [ "$major" -le 24 ]; then
-      java_bin=$(readlink -f "$candidate" 2>/dev/null || echo "$candidate")
-      export JAVA_CMD="$java_bin"
-      export JAVA_HOME="$(dirname "$(dirname "$java_bin")")"
-      export PATH="$(dirname "$java_bin"):$PATH"
-      return 0
-    fi
-  done
-  return 1
-}
-if ! pick_nf_java; then
-  echo "ERROR: Nextflow needs Java 17-24. The bactflow env Java is too new (OpenJDK 25)." >&2
-  exit 1
-fi
+BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
+
+NF_JAVA_SETUP = f"""
+source "{BACTFLOW_RUNTIME_SH}"
+bactflow_prepare_nextflow || exit 1
 echo "Using Java for Nextflow: $JAVA_CMD"
 "$JAVA_CMD" -version
+echo "Using Nextflow: $BACTFLOW_NEXTFLOW_BIN"
+"$BACTFLOW_NEXTFLOW_BIN" -version
 export NXF_ANSI_LOG=false
 """
 
@@ -105,9 +82,10 @@ def run_bact(command, process_status, output_queue, output_history):
 
     process_status["running"]=True
     process = subprocess.Popen(
-        command, 
+        command,
         shell=True,
-        stdout=subprocess.PIPE, 
+        executable="/bin/bash",
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1

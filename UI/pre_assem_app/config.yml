@@ -8,7 +8,9 @@ dependencies:
   - libcurl=8.21.0
   - pkg-config=0.29.2
   - python=3.11.0
+  # Nextflow 24.x requires Java 17-24; do not upgrade to OpenJDK 25+
   - openjdk=21
+  - nextflow=24.10.2
   - gsl=2.7
   - htslib=1.23.1
   - bcftools=1.24

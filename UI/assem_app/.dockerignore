@@ -1,0 +1,10 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+.git
+.gitignore
+*.md
+Dockerfile
+.dockerignore
+illumina_pair_finder.sh

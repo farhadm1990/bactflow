@@ -5,7 +5,6 @@ const helpButton = document.getElementById("help-bt");
 let eventSource = null;
 
 
-const filePicker = document.getElementById("filePicker");
 const fastqDirInput = document.getElementById("fastq_dir");
 
 
@@ -121,6 +120,7 @@ function connectToStream(action){
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
     flushLog();
+    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
     BactflowTerminal.append("Stream disconnected.", true);
     BactflowTerminal.setStatus("Stream disconnected", "warn");
     eventSource.close();
@@ -154,12 +154,29 @@ document.getElementById("assemblerDropdown").addEventListener("change", function
   updateAssemblerUI();
 });
 
-function setInactiveStyle(el, inactive) {
+function showEl(el, visible) {
   if (!el) {
     return;
   }
-  el.style.opacity = inactive ? "0.45" : "1";
-  el.style.pointerEvents = inactive ? "none" : "auto";
+  el.style.display = visible ? "" : "none";
+}
+
+function resetFlyeOptions() {
+  const coverageFilter = document.getElementById("coverage_filter");
+  if (coverageFilter) {
+    coverageFilter.value = "false";
+    coverageFilter.dispatchEvent(new Event("change"));
+  }
+  const nanofilter = document.getElementById("nanofilter");
+  if (nanofilter) {
+    nanofilter.value = "false";
+    nanofilter.dispatchEvent(new Event("change"));
+  }
+  const medakaPolish = document.getElementById("medaka_polish");
+  if (medakaPolish) {
+    medakaPolish.value = "false";
+    medakaPolish.dispatchEvent(new Event("change"));
+  }
 }
 
 function updateAssemblerUI() {
@@ -178,71 +195,62 @@ function updateAssemblerUI() {
     }
   }
 
+  const isNone = selectedAssembler === "none";
   const isFlye = selectedAssembler === "flye";
   const isSpades = selectedAssembler === "spades";
   const isUnicycler = selectedAssembler === "unicycler";
   const isPacbio = selectedAssembler === "pacbio";
+  const isLongRead = isFlye || isUnicycler || isPacbio;
 
+  const fastqDirGroup = document.getElementById("fastqDirGroup");
+  const fastqLabel = document.getElementById("fastqDirLabel");
   const unicyclerDiv = document.getElementById("unicyclerDiv");
+  const flyeOntDiv = document.getElementById("flyeOntDiv");
   const pacbioDiv = document.getElementById("pacbioDiv");
   const shortReadInput = document.getElementById("short_read_dir");
   const flyeCoverage = document.getElementById("flyeCoverageOptions");
   const flyePolish = document.getElementById("flyePolishOptions");
-  const fastqLabel = document.getElementById("fastqDirLabel");
-  const concatReads = document.getElementById("concat_reads");
-  const nanofilter = document.getElementById("nanofilter");
+  const nanofilterGroup = document.getElementById("nanofilterGroup");
+  const circleGenomeGroup = document.getElementById("circleGenomeGroup");
+  const concatReadsGroup = document.getElementById("concatReadsGroup");
+  const extensionGroup = document.getElementById("extensionGroup");
+  const spadesHint = document.getElementById("spadesHint");
+  const pacbioHint = document.getElementById("pacbioHint");
 
-  if (unicyclerDiv) {
-    unicyclerDiv.style.display = isUnicycler ? "block" : "none";
-  }
+  showEl(fastqDirGroup, !isNone);
+  showEl(flyeOntDiv, isFlye);
+  showEl(unicyclerDiv, isUnicycler);
+  showEl(pacbioDiv, isPacbio);
+  showEl(spadesHint, isSpades);
+  showEl(pacbioHint, isPacbio);
+  showEl(flyeCoverage, isFlye || isPacbio);
+  showEl(nanofilterGroup, isLongRead);
+  showEl(flyePolish, isFlye);
+  showEl(circleGenomeGroup, isFlye || isPacbio);
+  showEl(concatReadsGroup, isLongRead);
+  showEl(extensionGroup, isLongRead);
+
   if (shortReadInput) {
     shortReadInput.required = isUnicycler;
     if (!isUnicycler) {
       shortReadInput.value = "";
     }
   }
-  if (pacbioDiv) {
-    pacbioDiv.style.display = isPacbio ? "block" : "none";
-  }
-  const spadesHint = document.getElementById("spadesHint");
-  const pacbioHint = document.getElementById("pacbioHint");
-  if (spadesHint) {
-    spadesHint.style.display = isSpades ? "block" : "none";
-  }
-  if (pacbioHint) {
-    pacbioHint.style.display = isPacbio ? "block" : "none";
-  }
 
-  // SPAdes is Illumina isolate assembly: Flye/ONT options must be inactive.
-  setInactiveStyle(flyeCoverage, isSpades);
-  setInactiveStyle(flyePolish, !isFlye);
-  if (concatReads) {
-    setInactiveStyle(concatReads.closest(".mb-3"), isSpades);
-  }
-  if (nanofilter) {
-    setInactiveStyle(nanofilter.closest(".mb-3"), isSpades);
-    setInactiveStyle(document.getElementById("qualDiv"), isSpades);
-  }
-
-  if (isSpades) {
-    const coverageFilter = document.getElementById("coverage_filter");
-    if (coverageFilter) {
-      coverageFilter.value = "false";
-      coverageFilter.dispatchEvent(new Event("change"));
-    }
-    if (concatReads) {
-      concatReads.value = "false";
-    }
-    if (nanofilter) {
-      nanofilter.value = "false";
-      nanofilter.dispatchEvent(new Event("change"));
-    }
-  }
-  if (!isFlye) {
+  if (isSpades || isNone) {
+    resetFlyeOptions();
+  } else if (!isFlye) {
     const medakaPolish = document.getElementById("medaka_polish");
     if (medakaPolish) {
       medakaPolish.value = "false";
       medakaPolish.dispatchEvent(new Event("change"));
+    }
+  }
+
+  if (isSpades) {
+    const concatReads = document.getElementById("concat_reads");
+    if (concatReads) {
+      concatReads.value = "false";
     }
   }
 
@@ -394,7 +402,7 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
 
   const action = e.submitter.value;
   const selectedAssembler = document.getElementById("assemblerDropdown").value;
-  const longReads = document.getElementById("filePicker").value.trim();
+  const longReads = document.getElementById("fastq_dir").value.trim();
   if (action === "run" && selectedAssembler === "unicycler") {
     const shortReads = document.getElementById("short_read_dir").value.trim();
     if (!longReads || !shortReads) {
@@ -588,19 +596,17 @@ window.addEventListener("beforeunloaded", ()=>{
 });
 
 
-// Handle directory selection
-filePicker.addEventListener("click", (event) => {
-  const selectedFiles = Array.from(event.target.files);
+// Handle directory selection for FASTQ input
+if (fastqDirInput) {
+  fastqDirInput.addEventListener("change", (event) => {
+    const selectedFiles = Array.from(event.target.files || []);
 
-  if (selectedFiles.length > 0) {
-    // Extract the directory path from the first file
-    const selectedDirectory = selectedFiles[0].webkitRelativePath.split("/")[0];
-    const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
-
-    // Update the input field with the absolute directory path
-    fastqDirInput.value = absolutePath;
-  }
-});
+    if (selectedFiles.length > 0) {
+      const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
+      fastqDirInput.value = absolutePath;
+    }
+  });
+}
 
 
 // tggler function

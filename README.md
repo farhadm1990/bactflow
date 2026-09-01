@@ -81,12 +81,21 @@ If you want to run the scrits outside the docker container, make sure that you h
    git clone https://github.com/farhadm1990/bactflow.git
 
    cd bactflow
-   mamba env create -f config.yml
+   bash scripts/setup_bactflow_env.sh
 
    cd ..
    cp bactflow ~/.nextflow/assets/farhadm1990/
 
    nextflow run bactflow --help
+```
+
+After `conda activate bactflow`, Java and Nextflow are configured automatically (Java 17–24, Nextflow 24.10.2). If you have an older env, run:
+
+```sh
+mamba install -n bactflow openjdk=21 'nextflow=24.10.2'
+bash scripts/install_bactflow_hooks.sh
+conda deactivate && conda activate bactflow
+nextflow -version
 ```
 
 # Running via Nextflow

@@ -1,64 +1,68 @@
+# syntax=docker/dockerfile:1
 
-FROM continuumio/miniconda3:latest AS builder
-
-
-ENV CONDA_ENV=bactflow
-ENV PATH="/opt/conda/envs/$CONDA_ENV/bin:$PATH"
-
-
-WORKDIR /app
-
-
-COPY config.yml /tmp/config.yml
-
-# Install Mamba and create the Conda environment
-RUN conda install -n base -c conda-forge mamba -y && \
-    mamba env create -f /tmp/config.yml -y && \
-    conda clean --all -y
-
-RUN mamba shell init --shell bash --root-prefix=/opt/conda && \
-echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
-
-RUN conda init bash && \
-    echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
-
-# Install Nextflow
-RUN wget -qO- https://get.nextflow.io | bash && \
-    mv nextflow /usr/local/bin/ && \
-    chmod +x /usr/local/bin/nextflow
-
-
-FROM debian:bullseye-slim AS final
-
+FROM condaforge/mambaforge:24.9.2-0 AS builder
 
 ENV CONDA_ENV=bactflow
-ENV PATH="/opt/conda/bin:$PATH"
+ENV BACTFLOW_NXF_VER=24.10.2
+ENV NXF_VER=24.10.2
+ENV MAMBA_NO_LOW_SPEED_LIMIT=1
+ENV PATH="/opt/conda/envs/${CONDA_ENV}/bin:/opt/conda/bin:${PATH}"
 
-# Install dependencies 
-RUN apt-get update && apt-get install -y \
+WORKDIR /build
+
+COPY config.yml bactflow_runtime.sh ./
+
+RUN --mount=type=cache,target=/opt/conda/pkgs \
+    mamba env create -f config.yml -y && \
+    mamba clean -afy && \
+    mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d && \
+    cp bactflow_runtime.sh /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh && \
+    chmod +x /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh && \
+    /opt/conda/envs/bactflow/bin/java -version 2>&1 | grep -qE 'version "1[7-9]\.|version "2[0-4]\.' && \
+    /opt/conda/envs/bactflow/bin/nextflow -version 2>&1 | grep -qE 'version 24\.' && \
+    find /opt/conda/envs/bactflow -type f \( -name '*.a' -o -name '*.la' \) -delete && \
+    find /opt/conda/envs/bactflow -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+    find /opt/conda/envs/bactflow -type f -name '*.pyc' -delete && \
+    rm -rf /opt/conda/envs/bactflow/share/man /opt/conda/envs/bactflow/share/doc && \
+    mamba install -y -c conda-forge conda-pack && \
+    conda-pack -n bactflow -o /tmp/bactflow-env.tar.gz && \
+    mamba clean -afy
+
+
+FROM debian:bookworm-slim AS final
+
+ENV CONDA_ENV=bactflow
+ENV BACTFLOW_NXF_VER=24.10.2
+ENV NXF_VER=24.10.2
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/opt/conda/envs/bactflow/bin:${PATH}"
+ENV BACTFLOW_JAVA_HOME=/usr/lib/jvm/bactflow-java
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
-    wget \
-    openjdk-11-jre \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    openjdk-17-jre-headless \
+    && ln -sfn /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/bactflow-java \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
-# Copy Conda installation and environment from builder stage
-COPY --from=builder /opt/conda /opt/conda
-COPY --from=builder /usr/local/bin/nextflow /usr/local/bin/nextflow
+COPY --from=builder /tmp/bactflow-env.tar.gz /tmp/bactflow-env.tar.gz
 
-# Set working directory
+RUN mkdir -p /opt/conda/envs/bactflow && \
+    tar -xzf /tmp/bactflow-env.tar.gz -C /opt/conda/envs/bactflow && \
+    /opt/conda/envs/bactflow/conda-unpack && \
+    rm /tmp/bactflow-env.tar.gz && \
+    find /opt/conda/envs/bactflow -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+    /usr/lib/jvm/bactflow-java/bin/java -version && \
+    /opt/conda/envs/bactflow/bin/nextflow -version 2>&1 | grep -qE 'version 24\.'
+
 WORKDIR /app
-
 
 COPY static/ static/
 COPY templates/ templates/
-COPY *.py *.sh *.r *.yml main.nf nextflow.config ./
+COPY *.py *.sh *.r main.nf nextflow.config ./
 
-
-RUN chmod +x *.sh
-
+RUN chmod +x *.sh 2>/dev/null || true
 
 EXPOSE 5002
 
-
-
-CMD ["/bin/bash", "-c", "source /opt/conda/bin/activate bactflow && python assembly.py"]
+CMD ["python", "assembly.py"]

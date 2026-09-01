@@ -20,22 +20,6 @@
   user-select: none;
 }
 
-.bf-dots {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.bf-dots span {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.bf-dots .r { background: #ff5f56; }
-.bf-dots .y { background: #ffbd2e; }
-.bf-dots .g { background: #27c93f; }
-
 .bf-terminal-title {
   flex: 1;
   color: #d4d4d4;
@@ -91,6 +75,20 @@
 
 .bf-terminal-body .log-line {
   margin: 0;
+}
+
+.log-eta {
+  color: #e5c07b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.log-eta.is-done {
+  color: #89d185;
+}
+
+.log-line .log-text {
+  color: inherit;
 }
 
 .log-error { color: #f14c4c; }

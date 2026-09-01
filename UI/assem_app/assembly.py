@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import sys, subprocess, importlib, os
+import pty
+import select
 
 from flask import Flask, send_from_directory, render_template, request, redirect, Response, stream_with_context, jsonify
 
@@ -25,40 +27,16 @@ app = Flask(__name__,
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
 
-# Nextflow accepts Java 17-24. The bactflow conda env currently ships OpenJDK 25.
-NF_JAVA_SETUP = r"""
-unset JAVA_CMD
-java_major() {
-  "$1" -version 2>&1 | sed -n 's/.*version "\([0-9]\+\).*/\1/p' | head -n1
-}
-pick_nf_java() {
-  local candidate major java_bin
-  for candidate in \
-    ${JAVA_HOME:+"$JAVA_HOME/bin/java"} \
-    "$(command -v java 2>/dev/null)" \
-    "$HOME/.sdkman/candidates/java/current/bin/java" \
-    /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
-    /usr/lib/jvm/java-17-openjdk-amd64/bin/java
-  do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    major=$(java_major "$candidate")
-    if [ -n "$major" ] && [ "$major" -ge 17 ] && [ "$major" -le 24 ]; then
-      java_bin=$(readlink -f "$candidate" 2>/dev/null || echo "$candidate")
-      export JAVA_CMD="$java_bin"
-      export JAVA_HOME="$(dirname "$(dirname "$java_bin")")"
-      export PATH="$(dirname "$java_bin"):$PATH"
-      return 0
-    fi
-  done
-  return 1
-}
-if ! pick_nf_java; then
-  echo "ERROR: Nextflow needs Java 17-24. The bactflow env Java is too new (OpenJDK 25)." >&2
-  exit 1
-fi
+BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
+
+NF_JAVA_SETUP = f"""
+source "{BACTFLOW_RUNTIME_SH}"
+bactflow_prepare_nextflow || exit 1
 echo "Using Java for Nextflow: $JAVA_CMD"
 "$JAVA_CMD" -version
-export NXF_ANSI_LOG=false
+echo "Using Nextflow: $BACTFLOW_NEXTFLOW_BIN"
+"$BACTFLOW_NEXTFLOW_BIN" -version
+export NXF_ANSI_LOG=true
 """
 
 
@@ -100,35 +78,136 @@ process_status = manager.dict({"pid": None, "running": False})
 output_queue = Queue()
 output_history = manager.list() # to store output history 
 
-def run_bact(command, process_status, output_queue, output_history):
+def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
+    """Forward completion lines from .nextflow.log (PTY stream often misses them)."""
+    log_path = os.path.join(work_root, ".nextflow.log")
+    pos = 0
+    skip_re = re.compile(
+        r"\[Task monitor\]|TaskPollingMonitor|\bDEBUG\b",
+        re.IGNORECASE,
+    )
+    done_re = re.compile(
+        r"✔|Executor finished|\[100%\].*of",
+        re.IGNORECASE,
+    )
+    while not stop_event.is_set():
+        if os.path.isfile(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                    handle.seek(pos)
+                    chunk = handle.read()
+                    pos = handle.tell()
+            except OSError:
+                chunk = ""
+            for raw in chunk.splitlines():
+                line = clean_log_line(raw)
+                if not line or line in seen_lines:
+                    continue
+                if skip_re.search(line):
+                    continue
+                if done_re.search(line) or (
+                    re.search(r"\[[0-9a-f/]+\]", line, re.I)
+                    and re.search(r"process\s+>", line, re.I)
+                    and re.search(r"\[\s*\d+%\]", line)
+                ):
+                    seen_lines.add(line)
+                    output_queue.put(line)
+        stop_event.wait(0.8)
+
+
+def run_bact(command, process_status, output_queue, output_history, work_root=None):
     """Function to run bactflow"""
 
-
-    process_status["running"]=True
-    process = subprocess.Popen(
-        command, 
-        shell=True,
-        stdout=subprocess.PIPE, 
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-    process_status["pid"]=process.pid
-    output_history[:] = []
+    process_status["running"] = True
     history_cap = 1500
-    for line in iter(process.stdout.readline, ""):
-        line = clean_log_line(line)
-        if not line:
-            continue
-        output_queue.put(line)
-        output_history.append(line)
-        if len(output_history) >= history_cap + 250:
-            del output_history[0:250]
+    output_history[:] = []
+    seen_lines = set()
+    stop_event = threading.Event()
+    log_thread = None
+    if work_root:
+        log_thread = threading.Thread(
+            target=_tail_nextflow_log,
+            args=(work_root, output_queue, stop_event, seen_lines),
+            daemon=True,
+        )
+        log_thread.start()
 
-    process.stdout.close()
-    process.wait()
+    master_fd, slave_fd = pty.openpty()
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            executable="/bin/bash",
+            stdout=slave_fd,
+            stderr=slave_fd,
+            stdin=slave_fd,
+            close_fds=True,
+        )
+    finally:
+        os.close(slave_fd)
+
+    process_status["pid"] = process.pid
+    buffer = ""
+
+    while True:
+        if process.poll() is not None:
+            try:
+                while True:
+                    chunk = os.read(master_fd, 4096).decode(errors="replace")
+                    if not chunk:
+                        break
+                    buffer += chunk
+            except OSError:
+                pass
+            break
+
+        ready, _, _ = select.select([master_fd], [], [], 0.2)
+        if master_fd in ready:
+            try:
+                chunk = os.read(master_fd, 4096).decode(errors="replace")
+            except OSError:
+                chunk = ""
+            if not chunk:
+                break
+            buffer += chunk
+
+        while buffer:
+            split_at = len(buffer)
+            for sep in ("\n", "\r"):
+                idx = buffer.find(sep)
+                if idx != -1:
+                    split_at = min(split_at, idx)
+            if split_at == len(buffer):
+                break
+            line = clean_log_line(buffer[:split_at])
+            buffer = buffer[split_at + 1 :]
+            if not line:
+                continue
+            output_queue.put(line)
+            output_history.append(line)
+            if len(output_history) >= history_cap + 250:
+                del output_history[0:250]
+
+    if buffer.strip():
+        line = clean_log_line(buffer)
+        if line:
+            output_queue.put(line)
+            output_history.append(line)
+
+    os.close(master_fd)
+    exit_code = process.wait()
+    stop_event.set()
+    if log_thread:
+        log_thread.join(timeout=2)
+
+    if exit_code == 0:
+        output_queue.put("BactFlow: Nextflow finished successfully.")
+    else:
+        output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
+
     process_status["running"] = False
-    process_status['pid'] = None
+    process_status["pid"] = None
+    return exit_code
 
 
 # run bactflow
@@ -174,7 +253,8 @@ def run_bactflow():
             run_spades = request.form.get('run_spades', 'false')
             run_pacbio = request.form.get('run_pacbio', 'false')
             short_read_dir = request.form.get('short_read_dir', '')
-            pacbio_read_type = request.form.get('pacbio_read_type', 'hifi')
+            ont_read_type = request.form.get('ont_read_type', 'nano-raw')
+            pacbio_read_type = request.form.get('pacbio_read_type', 'pacbio-hifi')
             tax_class  = request.form.get('tax_class', 'false')
             checkm_db = request.form.get('checkm_db', "")
             gtdbtk_data_path = request.form.get('gtdbtk_data_path', "")
@@ -201,59 +281,66 @@ def run_bactflow():
             if str(run_spades).lower() == "true" and not str(fastq_dir).strip():
                 return "SPAdes requires an Illumina paired-end FASTQ directory.\n", 400
              
-            command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && 
-                    nextflow run {base_dir}/main.nf \
-                    --setup_only {setup_only} \
-                    --fastq_dir '{fastq_dir}' \
-                    --concat_reads {concat_reads} \
-                    --extension {extension}\
-                    --cpus {cpus} \
-                    --coverage_filter {coverage_filter} \
-                    --coverage {coverage} \
-                    --genome_size {genome_size} \
-                    --out_dir '{out_dir}' \
-                    --tensor_batch {tensor_batch} \
-                    --nanofilter {nanofilter} \
-                    --min_length {min_length} \
-                    --min_quality {min_quality} \
-                    --medaka_polish {medaka_polish} \
-                    --basecaller_model {basecaller_model} \
-                    --genome_extension {genome_extension} \
-                    --checkm_lineag_check {checkm_lineag_check} \
-                    --run_flye {run_flye} \
-                    --circle_genome {circle_genome} \
-                    --run_unicycler {run_unicycler} \
-                    --run_spades {run_spades} \
-                    --run_pacbio {run_pacbio} \
-                    --short_read_dir '{short_read_dir}' \
-                    --pacbio_read_type {pacbio_read_type} \
-                    --tax_class {tax_class} \
-                    --bakta_annot {bakta_annot} \
-                    --bakta_db {bakta_db} \
-                    --run_checkm {run_checkm} \
-                    --checkm_db {checkm_db} \
-                    --gtdbtk_data_path {gtdbtk_data_path} \
-                    --run_quast {run_quast} \
-                    --genome_dir {genome_dir} \
-                    -ansi-log false"""
+            command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
+                    nextflow run {base_dir}/main.nf \\
+                    --setup_only {setup_only} \\
+                    --fastq_dir '{fastq_dir}' \\
+                    --concat_reads {concat_reads} \\
+                    --extension {extension}\\
+                    --cpus {cpus} \\
+                    --coverage_filter {coverage_filter} \\
+                    --coverage {coverage} \\
+                    --genome_size {genome_size} \\
+                    --out_dir '{out_dir}' \\
+                    --tensor_batch {tensor_batch} \\
+                    --nanofilter {nanofilter} \\
+                    --min_length {min_length} \\
+                    --min_quality {min_quality} \\
+                    --medaka_polish {medaka_polish} \\
+                    --basecaller_model {basecaller_model} \\
+                    --genome_extension {genome_extension} \\
+                    --checkm_lineag_check {checkm_lineag_check} \\
+                    --run_flye {run_flye} \\
+                    --ont_read_type {ont_read_type} \\
+                    --circle_genome {circle_genome} \\
+                    --run_unicycler {run_unicycler} \\
+                    --run_spades {run_spades} \\
+                    --run_pacbio {run_pacbio} \\
+                    --short_read_dir '{short_read_dir}' \\
+                    --pacbio_read_type {pacbio_read_type} \\
+                    --tax_class {tax_class} \\
+                    --bakta_annot {bakta_annot} \\
+                    --bakta_db {bakta_db} \\
+                    --run_checkm {run_checkm} \\
+                    --checkm_db {checkm_db} \\
+                    --gtdbtk_data_path {gtdbtk_data_path} \\
+                    --run_quast {run_quast} \\
+                    --genome_dir {genome_dir} \\
+                    -ansi-log true"""
             if resume_run:
                 command = command + " -resume"
-            else:
-                command = command
+            command = command + f"""
+                    NF_EXIT=$?
+                    if [ $NF_EXIT -eq 0 ]; then
+                      echo "BactFlow: cleaning temporary Nextflow work files..."
+                      rm -rf '{out_dir}/.nextflow-work' '{base_dir}/work' 2>/dev/null || true
+                      "$BACTFLOW_NEXTFLOW_BIN" clean -f 2>/dev/null || true
+                    fi
+                    exit $NF_EXIT"""
             command = with_nextflow_java(command)
                 
             output_history[:] = []
             
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history))
+            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             back_process.start()
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            command = with_nextflow_java(f"nextflow run {base_dir}/main.nf --help -ansi-log false")
+            command = with_nextflow_java(f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true")
             output_history[:] = []
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history))
+            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             back_process.start()
             
             command = None
@@ -325,67 +412,6 @@ def stream_bactflow():
  
 
     return Response(generate(), content_type='text/event-stream')
-
-# progress bar
-# prog = {"completed": 0}
-
-# @app.route("/progress", methods = ["POST", "GET"])
-# def progress():
-    
-#     if request.method == "POST":
-#         out_dir = request.form.get('out_dir', './bactflow_out')
-#         genome_dir = request.form.get('genome_dir')
-
-
-#         pars =  None
-
-#         if not genome_dir:
-#             pars = {
-#             "run_flye": True if request.form.get("run_flye") == "true" else False,
-#             "run_unicycler": True if request.form.get("run_unicycler") == "true" else False,
-#             "run_spades": True if request.form.get("run_spades") == "true" else False,
-#             "run_megahit": True if request.form.get("run_megahit") == "true" else False,
-#             "run_quast": True if request.form.get("run_quast") == "true" else False,
-#             "circle_genome": True if request.form.get("circle_genome") == "true" else False,
-#             "tax_class": True if request.form.get("tax_class") == "true" else False,
-#             "prok_annot": True if request.form.get("prok_annot") == "true" else False,
-#             "run_checkm": True if request.form.get("run_checkm") == "true" else False,
-#             "run_bakta": True if request.form.get("run_bakta") == "true" else False,
-#             }
-#         else:
-#             pars = {
-#             "run_quast": True if request.form.get("run_quast") == "true" else False,
-#             "tax_class": True if request.form.get("tax_class") == "true" else False,
-#             "prok_annot": True if request.form.get("prok_annot") == "true" else False,
-#             "run_checkm": True if request.form.get("run_checkm") == "true" else False,
-#             "run_bakta": True if request.form.get("run_bakta") == "true" else False,
-#             }
-
-       
-#         def out_dir_watcher(out_dir):
-            
-#             global prog
-            
-#             expected_counts = sum(value is True for value in pars.values())
-
-#             pr_stat = process_status["running"]
-
-#             if expected_counts > 0:
-#                 while pr_stat:
-#                     try:
-#                         current_count = len(os.listdir(out_dir)) if os.path.exists(out_dir) else 0
-#                         prog = 0
-#                         prog = {"completed": f"{current_count/expected_counts*100}"}
-
-#                         if current_count >= expected_counts:
-#                             pr_stat = False
-#                     except Exception as e:
-#                         print(f"Error watching the output directory: {e}")
-#                     time.sleep(2)
-#         wather_thread = threading.Thread(target=out_dir_watcher, args=(out_dir,), daemon=True)
-#         wather_thread.start() 
-
-#     return jsonify(prog) 
 
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():

@@ -799,25 +799,6 @@ process prokAnnot {
     """
 }
 
-// process baktaAnnot {
-
-
-//     script:
-
-//     """
-//     source \$(conda info --base)/etc/profile.d/conda.sh
-//     conda activate bactflow
-
-//     if [ ! -d bakta_annot ]
-//     then 
-//         mkdir -p bakta_annot
-//     fi
-
-//     bash ${projectDir}/bakta_annot.sh
-
-//     """
-// }
-
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
@@ -946,16 +927,5 @@ process quast_check {
     quast.py '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
     """
 }
-
-
-
-
-
-// process trycile {
-    
-
-
-// }
-
 
 
