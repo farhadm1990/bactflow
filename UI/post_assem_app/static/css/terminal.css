@@ -1,0 +1,104 @@
+/* VS Code-like terminal panel */
+.bf-terminal-wrap {
+  background: #1e1e1e !important;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  padding: 0 !important;
+  margin: 0 10px 10px 0;
+  overflow: hidden;
+}
+
+.bf-terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #3c3c3c;
+  color: #cccccc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  padding: 7px 12px;
+  user-select: none;
+}
+
+.bf-dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.bf-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.bf-dots .r { background: #ff5f56; }
+.bf-dots .y { background: #ffbd2e; }
+.bf-dots .g { background: #27c93f; }
+
+.bf-terminal-title {
+  flex: 1;
+  color: #d4d4d4;
+  letter-spacing: 0.2px;
+}
+
+.bf-verbose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #9cdcfe;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bf-verbose input {
+  margin: 0;
+  accent-color: #007acc;
+}
+
+.bf-status {
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  color: #9cdcfe;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 12px;
+  padding: 6px 14px;
+  min-height: 28px;
+}
+
+.bf-status.is-ok { color: #89d185; }
+.bf-status.is-warn { color: #dcdcaa; }
+.bf-status.is-error { color: #f14c4c; }
+.bf-status.is-run { color: #4fc1ff; }
+
+.bf-terminal-body {
+  background: #1e1e1e !important;
+  color: #d4d4d4 !important;
+  border: 0 !important;
+  margin: 0 !important;
+  padding: 12px 14px !important;
+  height: 420px !important;
+  width: 100% !important;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+.bf-terminal-body .log-line {
+  margin: 0;
+}
+
+.log-error { color: #f14c4c; }
+.log-warn { color: #dcdcaa; }
+.log-ok { color: #89d185; }
+.log-info { color: #4fc1ff; }
+.log-process { color: #9cdcfe; }
+.log-muted { color: #808080; }
+.log-default { color: #d4d4d4; }
+.log-path { color: #ce9178; }
+.log-purple { color: #c586c0; }

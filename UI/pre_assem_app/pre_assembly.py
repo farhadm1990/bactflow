@@ -1,64 +1,22 @@
-
-# installing pkgs
+#!/usr/bin/env python3
 
 import sys, subprocess, importlib, os
-
-# def install_pks(pks):
-#     """installing pkgs"""
- 
-#     try:
-#         subprocess.check_call([sys.executable, "-m", "pip", "install"] + pks)
-#     except subprocess.CalledProcessError as e:
-#         print(f"Failed to install packges: {pks}")
-#         sys.exit(1)
-
-# required_packages = {
-#     'flask': 'Flask',
-#     'plotly': 'plotly',
-#     'biopython': 'Bio',
-#     'flask_sqlalchemy': 'Flask-SQLAlchemy',
-#     'flask_migrate': 'Flask-Migrate',
-#     'pandas': 'pandas',
-#     'numpy': 'numpy',
-#     'psutil': 'psutil'
-# }   
-
-# missing_pkg = []
-
-# for module_name, package_name in required_packages.items():
-#     try:
-#         importlib.import_module(module_name)
-#     except ImportError:
-#         print(f"Package {package_name} not found. It will be installed now...!")
-#         missing_pkg.append(package_name)
-
-# if missing_pkg:
-#     install_pks(missing_pkg)
-#     print("Restarting the script to apply changes...")
-#     # os.execv(sys.executable, [sys.executable] + sys.argv)
-
-
 from flask import Flask, render_template, request, redirect, Response, stream_with_context, jsonify, render_template_string
 import plotly.express as px
 import concurrent.futures
 import plotly as py
 from Bio import SeqIO
-from flask_sqlalchemy import SQLAlchemy
 import json
 import gzip
 from datetime import datetime, timezone
-import smtplib # for emails 
 import pandas as pd
 import numpy as np
 import os
-# from dotenv import load_dotenv
-from flask_migrate import Migrate
 import subprocess
 import sys
 from multiprocessing import Process, Manager, Queue
 import time
 import signal
-import psutil  # for better process control
 from threading import Timer
 import webbrowser
 

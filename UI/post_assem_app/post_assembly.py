@@ -1,59 +1,11 @@
-
-# installing pkgs
-
+#!/usr/bin/env python3
 import sys, subprocess, importlib, os, shlex
-
-# def install_pks(pks):
-#     """installing pkgs"""
- 
-#     try:
-#         subprocess.check_call([sys.executable, "-m", "pip", "install"] + pks)
-#     except subprocess.CalledProcessError as e:
-#         print(f"Failed to install packges: {pks}")
-#         sys.exit(1)
-
-# required_packages = {
-    # 'flask': 'Flask',
-    # 'plotly': 'plotly',
-    # 'pycirclize': 'pycirclize',
-    # 'biopython': 'Bio',
-    # 'flask_sqlalchemy': 'Flask-SQLAlchemy',
-    # 'flask_migrate': 'Flask-Migrate',
-    # 'pandas': 'pandas',
-    # 'numpy': 'numpy',
-    # 'psutil': 'psutil'
-# } 
-
-# missing_pkg = []
-
-# for module_name, package_name in required_packages.items():
-#     try:
-#         importlib.import_module(module_name)
-#     except ImportError:
-#         print(f"Package {package_name} not found. It will be installed now...!")
-#         missing_pkg.append(package_name)
-
-# if missing_pkg:
-#     install_pks(missing_pkg)
-
-    # os.execv(sys.executable, [sys.executable] + sys.argv)
-
-
 from flask import Flask, render_template, request, redirect, Response, send_from_directory, stream_with_context, jsonify, render_template_string
-import plotly.express as px
-import concurrent.futures
-import plotly as py
-from Bio import SeqIO
-from flask_sqlalchemy import SQLAlchemy
 import json
-import gzip
 from datetime import datetime, timezone
-import smtplib # for emails 
 import pandas as pd
 import numpy as np
 import os
-# from dotenv import load_dotenv
-from flask_migrate import Migrate
 import subprocess
 import sys
 from multiprocessing import Process, Manager, Queue
@@ -65,12 +17,59 @@ import webbrowser
 import threading
 import base64
 import glob
+import re
 
 
 base_dir = os.path.abspath(os.path.dirname(__file__))# we can have access to all files from everywhere
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
+
+NF_JAVA_SETUP = r"""
+unset JAVA_CMD
+java_major() {
+  "$1" -version 2>&1 | sed -n 's/.*version "\([0-9]\+\).*/\1/p' | head -n1
+}
+pick_nf_java() {
+  local candidate major java_bin
+  for candidate in \
+    ${JAVA_HOME:+"$JAVA_HOME/bin/java"} \
+    "$(command -v java 2>/dev/null)" \
+    "$HOME/.sdkman/candidates/java/current/bin/java" \
+    /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
+    /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+  do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    major=$(java_major "$candidate")
+    if [ -n "$major" ] && [ "$major" -ge 17 ] && [ "$major" -le 24 ]; then
+      java_bin=$(readlink -f "$candidate" 2>/dev/null || echo "$candidate")
+      export JAVA_CMD="$java_bin"
+      export JAVA_HOME="$(dirname "$(dirname "$java_bin")")"
+      export PATH="$(dirname "$java_bin"):$PATH"
+      return 0
+    fi
+  done
+  return 1
+}
+if ! pick_nf_java; then
+  echo "ERROR: Nextflow needs Java 17-24. The bactflow env Java is too new (OpenJDK 25)." >&2
+  exit 1
+fi
+echo "Using Java for Nextflow: $JAVA_CMD"
+"$JAVA_CMD" -version
+export NXF_ANSI_LOG=false
+"""
+
+
+def with_nextflow_java(command):
+    return NF_JAVA_SETUP + "\n" + command
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def clean_log_line(line):
+    line = ANSI_RE.sub("", line or "")
+    return line.replace("\r", "").strip()
 
 
 
@@ -110,13 +109,20 @@ def run_bact(command, process_status, output_queue, output_history):
         shell=True,
         stdout=subprocess.PIPE, 
         stderr=subprocess.STDOUT,
-        text=True
+        text=True,
+        bufsize=1
     )
     process_status["pid"]=process.pid
     output_history[:] = []
+    history_cap = 1500
     for line in iter(process.stdout.readline, ""):
-        output_queue.put(line.strip())
-        output_history.append(line.strip())
+        line = clean_log_line(line)
+        if not line:
+            continue
+        output_queue.put(line)
+        output_history.append(line)
+        if len(output_history) >= history_cap + 250:
+            del output_history[0:250]
 
     process.stdout.close()
     process.wait()
@@ -172,11 +178,13 @@ def run_bactflow():
                     --bakta_db {bakta_db} \
                     --gtdbtk_data_path {gtdbtk_data_path} \
                     --run_quast {run_quast} \
-                    --genome_dir {genome_dir}"""
+                    --genome_dir {genome_dir} \
+                    -ansi-log false"""
             if resume_run:
                 command = command + " -resume"
             else:
                 command = command
+            command = with_nextflow_java(command)
                 
             output_history[:] = []
             
@@ -187,7 +195,7 @@ def run_bactflow():
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            command = f"nextflow run {base_dir}/main.nf --help"
+            command = with_nextflow_java(f"nextflow run {base_dir}/main.nf --help -ansi-log false")
             output_history[:] = []
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history))
             back_process.start()
@@ -251,7 +259,6 @@ def stream_bactflow():
         while process_status['running']  or not output_queue.empty():
             try:
                 line = output_queue.get(timeout=0.5)# wait for output
-                print
                 yield f"data: {line.strip()}\n\n"
             except Exception:
                 if not process_status['running']:

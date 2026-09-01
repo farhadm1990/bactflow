@@ -3,6 +3,10 @@
 <!-- title bloc -->
 {% block title %} Assembly  {% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
+{% endblock %}
+
 {% block content %}
 
 <header style="color: rgb(255, 255, 255); background-color: rgb(0, 122, 146); padding: 5px; height: 100px; display: flex; justify-content: space-between; align-items: center;">
@@ -51,7 +55,7 @@
               </select>
             </div>
             <div class="mb-3">
-              <label for="fastq_dir" class="form-label">FASTQ Directory</label>
+              <label for="fastq_dir" class="form-label" id="fastqDirLabel">FASTQ Directory</label>
               <div class="input-group">
                 <input
                 type="text"
@@ -98,6 +102,7 @@
             <h6 class="mb-0">Assembly Parameters</h6>
           </div>
           <div class="card-body">
+            <div id="flyeCoverageOptions">
             <div class="mb-3">
               <label for="coverage_filter" class="form-label">Coverage Filter</label>
               <select class="form-select" id="coverage_filter" name="coverage_filter">
@@ -114,6 +119,7 @@
                 <label for="genome_size" class="form-label">Genome Size</label>
                 <input type="number" class="form-control" id="genome_size" name="genome_size" placeholder="6" step="0.1"/>
               </div>
+            </div>
             </div>
           
 
@@ -139,18 +145,50 @@
               <label for="assemblerDropdown" class="form-label">Select Assembler</label>
               <select class="form-select" id="assemblerDropdown" name="assemblerDropdown">
                 <option value="none" selected>NONE</option>
-                <option value="flye">Flye</option>
-                <option value="unicycler">Unicycler</option>
-                <option value="megahit">MegaHit</option>
-                <option value="spades">SPAdes</option>
+                <option value="flye">Flye (ONT)</option>
+                <option value="spades">SPAdes (Illumina)</option>
+                <option value="unicycler">Unicycler (hybrid)</option>
+                <option value="pacbio">Flye (PacBio)</option>
               </select>
             </div>
             
             <!-- Hidden input fields for  assemlbers -->
             <input type="hidden" id="run_flye" name="run_flye" value="false">
             <input type="hidden" id="run_unicycler" name="run_unicycler" value="false">
-            <input type="hidden" id="run_megahit" name="run_megahit" value="false">
             <input type="hidden" id="run_spades" name="run_spades" value="false">
+            <div id="spadesHint" class="form-text" style="display: none;">
+              SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>.
+            </div>
+            <div id="pacbioHint" class="form-text" style="display: none;">
+              PacBio assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>, matching Flye sample names.
+            </div>
+
+            <div id="unicyclerDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="short_read_dir" class="form-label">Short-read FASTQ directory (Illumina paired-end)</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="short_read_dir"
+                  name="short_read_dir"
+                  placeholder="/path/to/illumina_reads"
+                />
+                <div class="form-text">
+                  Required for Unicycler. Pair files by sample name, e.g. <code>sample_R1.fastq.gz</code> and <code>sample_R2.fastq.gz</code>. Hybrid assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>.
+                </div>
+              </div>
+            </div>
+
+            <div id="pacbioDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="pacbio_read_type" class="form-label">PacBio read type</label>
+                <select class="form-select" id="pacbio_read_type" name="pacbio_read_type">
+                  <option value="hifi" selected>HiFi (CCS)</option>
+                  <option value="clr">CLR (raw)</option>
+                </select>
+              </div>
+            </div>
+
             <br>
             <div class="mb-3">
               <label for="circle_genome" class="form-label">Fix start point of your genome? <strong>(Circulate)</strong></label>
@@ -160,6 +198,7 @@
               </select>
             </div>
             <hr>
+            <div id="flyePolishOptions">
             <div class="mb-3">
               <label for="medaka_polish" class="form-label">Polish with <strong>Medaka?</strong></label>
               <select class="form-select" id="medaka_polish" name="medaka_polish">
@@ -174,9 +213,10 @@
               <input  type="text" class="form-control" id="medaka_model" placeholder="r1041_e82_400bps_hac_v4.2.0" name="basecaller_model" value="r1041_e82_400bps_hac_v4.2.0"/> 
             </div>
 
-            <div class="mb-3" id="tesnDiv">
+            <div class="mb-3" style="display: none; margin-top: 2px;" id="tesnDiv">
               <label for="tensor_batch" class="form-label">Tensor Batch</label>
               <input type="number" class="form-control" id="tensor_batch" name="tensor_batch" placeholder="200" />
+            </div>
             </div>
           </div>
         </div>
@@ -323,21 +363,15 @@
        <!-- Assembly Output Section -->
        <div class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
 
-        <div id="output-div" class="col-md-7" style="height: 50%; overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 10px; width: 100%;">
+        <div id="output-div" class="col-md-7 bf-terminal-wrap" style="height: auto; overflow: hidden; display: none; width: 100%;">
 
-        <h4 class="text-left mb-3"> Assembly progress</h4>
-        <div id="output-bactflow" style="border: 1px solid rgb(105, 105, 105);
-              padding: 10px;
-              margin: 10px;
-              border-radius: 5px;
-              height:80%;
-              width: 95%;
-              overflow-y: auto;
-              white-space: pre-wrap;
-              background-color: #ffffff;
-              color: darkslategrey;">
-       
+        <div class="bf-terminal-bar">
+          <span class="bf-dots"><span class="r"></span><span class="y"></span><span class="g"></span></span>
+          <span class="bf-terminal-title">BactFlow Terminal — assembly</span>
+          <label class="bf-verbose"><input type="checkbox" id="logVerbose"> Verbose</label>
         </div>
+        <div id="bf-status" class="bf-status">Ready</div>
+        <div id="output-bactflow" class="bf-terminal-body"></div>
 
         <!-- <div class="progress" style="width: 95%; margin-left: 5px; display: none;">
           <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-label="75" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 75%;"></div>
@@ -428,6 +462,7 @@
 
 
     <!-- scripts -->
+      <script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
       <script src="{{ url_for('static', filename='js/assem.js')}}"> </script>
   
       

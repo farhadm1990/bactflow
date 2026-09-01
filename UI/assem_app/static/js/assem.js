@@ -96,20 +96,33 @@ function connectToStream(action){
     return;
   }
 
-  
-  outputDiv.innerHTML = "";
+  BactflowTerminal.init();
+  let logBuffer = [];
+  let flushTimer = null;
+
+  const flushLog = () => {
+    flushTimer = null;
+    if (!logBuffer.length) {
+      return;
+    }
+    BactflowTerminal.appendMany(logBuffer);
+    logBuffer = [];
+  };
+
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
   
   eventSource.onmessage = (event) =>{
-    
-    outputDiv.innerHTML += event.data + '\n';
-    outputDiv.scrollTop = outputDiv.scrollHeight;
-    
+    logBuffer.push(event.data);
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushLog, 200);
+    }
   };
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
-    outputDiv.innerHTML += "Stream disconnected.  \n";
+    flushLog();
+    BactflowTerminal.append("Stream disconnected.", true);
+    BactflowTerminal.setStatus("Stream disconnected", "warn");
     eventSource.close();
     eventSource = null;
     updateButtonStates("stopped");
@@ -138,16 +151,113 @@ function updateButtonStates(status) {
 }
 
 document.getElementById("assemblerDropdown").addEventListener("change", function(){
-  var selectedAssembler = this.value;
-
-  var assemblers = ["flye", "unicycler", "megahit", "spades"];
-  assemblers.forEach(assembler => {
-    document.getElementById("run_" + assembler).value = "false";
-  });
-  if(selectedAssembler !=="none") {
-    document.getElementById("run_" + selectedAssembler).value = "true";
-  }
+  updateAssemblerUI();
 });
+
+function setInactiveStyle(el, inactive) {
+  if (!el) {
+    return;
+  }
+  el.style.opacity = inactive ? "0.45" : "1";
+  el.style.pointerEvents = inactive ? "none" : "auto";
+}
+
+function updateAssemblerUI() {
+  const selectedAssembler = document.getElementById("assemblerDropdown").value;
+  const assemblers = ["flye", "unicycler", "spades", "pacbio"];
+  assemblers.forEach(assembler => {
+    const flag = document.getElementById("run_" + assembler);
+    if (flag) {
+      flag.value = "false";
+    }
+  });
+  if (selectedAssembler !== "none") {
+    const selectedFlag = document.getElementById("run_" + selectedAssembler);
+    if (selectedFlag) {
+      selectedFlag.value = "true";
+    }
+  }
+
+  const isFlye = selectedAssembler === "flye";
+  const isSpades = selectedAssembler === "spades";
+  const isUnicycler = selectedAssembler === "unicycler";
+  const isPacbio = selectedAssembler === "pacbio";
+
+  const unicyclerDiv = document.getElementById("unicyclerDiv");
+  const pacbioDiv = document.getElementById("pacbioDiv");
+  const shortReadInput = document.getElementById("short_read_dir");
+  const flyeCoverage = document.getElementById("flyeCoverageOptions");
+  const flyePolish = document.getElementById("flyePolishOptions");
+  const fastqLabel = document.getElementById("fastqDirLabel");
+  const concatReads = document.getElementById("concat_reads");
+  const nanofilter = document.getElementById("nanofilter");
+
+  if (unicyclerDiv) {
+    unicyclerDiv.style.display = isUnicycler ? "block" : "none";
+  }
+  if (shortReadInput) {
+    shortReadInput.required = isUnicycler;
+    if (!isUnicycler) {
+      shortReadInput.value = "";
+    }
+  }
+  if (pacbioDiv) {
+    pacbioDiv.style.display = isPacbio ? "block" : "none";
+  }
+  const spadesHint = document.getElementById("spadesHint");
+  const pacbioHint = document.getElementById("pacbioHint");
+  if (spadesHint) {
+    spadesHint.style.display = isSpades ? "block" : "none";
+  }
+  if (pacbioHint) {
+    pacbioHint.style.display = isPacbio ? "block" : "none";
+  }
+
+  // SPAdes is Illumina isolate assembly: Flye/ONT options must be inactive.
+  setInactiveStyle(flyeCoverage, isSpades);
+  setInactiveStyle(flyePolish, !isFlye);
+  if (concatReads) {
+    setInactiveStyle(concatReads.closest(".mb-3"), isSpades);
+  }
+  if (nanofilter) {
+    setInactiveStyle(nanofilter.closest(".mb-3"), isSpades);
+    setInactiveStyle(document.getElementById("qualDiv"), isSpades);
+  }
+
+  if (isSpades) {
+    const coverageFilter = document.getElementById("coverage_filter");
+    if (coverageFilter) {
+      coverageFilter.value = "false";
+      coverageFilter.dispatchEvent(new Event("change"));
+    }
+    if (concatReads) {
+      concatReads.value = "false";
+    }
+    if (nanofilter) {
+      nanofilter.value = "false";
+      nanofilter.dispatchEvent(new Event("change"));
+    }
+  }
+  if (!isFlye) {
+    const medakaPolish = document.getElementById("medaka_polish");
+    if (medakaPolish) {
+      medakaPolish.value = "false";
+      medakaPolish.dispatchEvent(new Event("change"));
+    }
+  }
+
+  if (fastqLabel) {
+    if (isUnicycler) {
+      fastqLabel.textContent = "Long-read FASTQ directory";
+    } else if (isPacbio) {
+      fastqLabel.textContent = "PacBio FASTQ directory";
+    } else if (isSpades) {
+      fastqLabel.textContent = "Illumina FASTQ directory (paired-end)";
+    } else {
+      fastqLabel.textContent = "FASTQ Directory";
+    }
+  }
+}
 
 // Run BactFlow
 function run_wf(action){
@@ -170,16 +280,18 @@ function run_wf(action){
         
         fetch(`/run_bactflow?action-assem=${action}`, { method: "POST", body : formData })
         .then((response) => {
-          outputDiv.innerHTML = "";
+          BactflowTerminal.clear();
         if(!response.ok) {
-          outputDiv.innerHTML += "Error starting BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error starting BactFlow. It might already be running?!", true);
+          BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
         };
         
 
-        outputDiv.innerHTML += "Bactflow started :)\n";
+        BactflowTerminal.append("Bactflow started :)", true);
+        BactflowTerminal.setStatus("Running...", "run");
 
         // getting value of the setup only field
         let setOnly = document.getElementById("setup_only").value;
@@ -207,7 +319,8 @@ function run_wf(action){
     })
     
     .catch((error) => {
-      outputDiv.innerHTML += "Failed to start BactFlow" + error.message + "\n";
+      BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
+      BactflowTerminal.setStatus("Failed to start", "error");
       
     });
         break;
@@ -225,8 +338,9 @@ function run_wf(action){
     })
       .then((response) => response.text())
       .then((message) => {
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += message + "\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append(message, true);
+        BactflowTerminal.setStatus("Stopped", "warn");
         
         // disconnect
         disconnectStream();
@@ -237,7 +351,7 @@ function run_wf(action){
         
       case "help":
       {
-        outputDiv.innerHTML = "";
+        BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
        
 
@@ -248,13 +362,13 @@ function run_wf(action){
       fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
       .then((response) => {
         if(!response.ok) {
-          outputDiv.innerHTML += "Error showing help for BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error showing help for BactFlow. It might already be running?!", true);
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
         };
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += "Bactflow's help menue!\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append("Bactflow's help menu", true);
 
         // const action = "help";
         updateButtonStates("running");
@@ -263,7 +377,7 @@ function run_wf(action){
         
       })
       .catch((error) => {
-        outputDiv.innerHTML += "Failed to give you BactFlow help!" + error.message + "\n";
+        BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
         runButton.disabled = false;
         
       });
@@ -276,9 +390,28 @@ function run_wf(action){
 
 document.getElementById("runForm").addEventListener("submit", (e) => {
  e.preventDefault();
- outputDiv.innerHTML = "";
+ BactflowTerminal.clear();
 
   const action = e.submitter.value;
+  const selectedAssembler = document.getElementById("assemblerDropdown").value;
+  const longReads = document.getElementById("filePicker").value.trim();
+  if (action === "run" && selectedAssembler === "unicycler") {
+    const shortReads = document.getElementById("short_read_dir").value.trim();
+    if (!longReads || !shortReads) {
+      BactflowTerminal.append("Unicycler hybrid assembly needs both a long-read path and a short-read path.", true);
+      document.getElementById('run-bt').disabled = false;
+      document.getElementById('stop-bt').disabled = true;
+      document.getElementById('help-bt').disabled = false;
+      return;
+    }
+  }
+  if (action === "run" && selectedAssembler === "spades" && !longReads) {
+    BactflowTerminal.append("SPAdes needs an Illumina paired-end FASTQ directory (sample_R1 / sample_R2).", true);
+    document.getElementById('run-bt').disabled = false;
+    document.getElementById('stop-bt').disabled = true;
+    document.getElementById('help-bt').disabled = false;
+    return;
+  }
 
   document.getElementById('run-bt').disabled = true;
   document.getElementById('stop-bt').disabled = false; 
@@ -333,6 +466,7 @@ function clearFormData(){
 
 document.addEventListener("DOMContentLoaded", function(){
   restoreFormData(); //from local storage
+  updateAssemblerUI();
 
   document.getElementById("runForm").addEventListener("input", () =>{
     saveFormData();

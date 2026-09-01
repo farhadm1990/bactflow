@@ -26,11 +26,13 @@ Options:
     --basecaller_model      Basecaller model for medaka polishing step. 'r1041_e82_400bps_hac_v4.2.0'
     --checkm_lineag_check   If true, the genomes will be checked for their lineage completeness in one bin (default false).
     --genome_extension      Required if '--checkm_lineag_check true'; default fasta.
-    --run_flye              If true, it runs Flye assembler; default true.
+    --run_flye              If true, it runs Flye assembler on ONT reads; default true.
     --circle_genome         If ture, it runs circlator to fix the start of genome based on e.g. dnaA gene.
-    --run_unicycler         If true, it runs Unicycler hybrid assemlber, default false.
-    --run_megahit           If true, it runs Megahit assembler, default false.
-    --run_spades            If true, it runs Spades assembler, default false.
+    --run_unicycler         If true, it runs Unicycler hybrid assembly (long + short reads), default false.
+    --short_read_dir       Absolute path to Illumina paired-end reads. Required if '--run_unicycler true'.
+    --run_spades            If true, it runs SPAdes isolate assembly on Illumina paired-end reads in --fastq_dir, default false.
+    --run_pacbio           If true, it runs Flye on PacBio reads, default false.
+    --pacbio_read_type      PacBio chemistry for Flye: 'hifi' (default) or 'clr'.
     --tax_class             If true, it runs GTBtk taxonomic classification, default true.
     --bakta_annot           If true, it runs gene annotaiton by Bakta, default false. 
     --bakta_db              Directory to bakta database (required if bakta_annot is true)
@@ -65,11 +67,12 @@ workflow {
         def dedup_fastq
         def filt_fastqs
         def cov_fastqs
+        def asm_reads
         def fastas_fold
         def quast_out
         def circ_fasta
          // Get the concatenated fastq files
-        if (params.run_flye) {
+        if (params.run_flye || params.run_unicycler || params.run_pacbio) {
             if (params.concat_reads){
                 pooled_out = fastqConcater(
                 env_check,
@@ -110,33 +113,53 @@ workflow {
                     params.coverage,
                     params.genome_size
                 )
-
-                fastas_fold = assembly_flye1(
-                env_check,
-                cov_fastqs,
-                params.cpus,
-                params.coverage,
-                params.genome_size,
-                params.min_length,
-                params.min_quality,
-                params.basecaller_model,
-                params.tensor_batch,
-                params.medaka_polish
-            )
-                
+                asm_reads = cov_fastqs
             } else {
-                fastas_fold = assembly_flye2(
-                env_check,
-                filt_fastqs,
-                params.cpus,
-                params.coverage,
-                params.genome_size,
-                params.min_length,
-                params.min_quality,
-                params.basecaller_model,
-                params.tensor_batch,
-                params.medaka_polish
-            )
+                asm_reads = filt_fastqs
+            }
+
+            if (params.run_flye) {
+                if(params.coverage_filter) {
+                    fastas_fold = assembly_flye1(
+                    env_check,
+                    asm_reads,
+                    params.cpus,
+                    params.coverage,
+                    params.genome_size,
+                    params.min_length,
+                    params.min_quality,
+                    params.basecaller_model,
+                    params.tensor_batch,
+                    params.medaka_polish
+                )
+                } else {
+                    fastas_fold = assembly_flye2(
+                    env_check,
+                    asm_reads,
+                    params.cpus,
+                    params.coverage,
+                    params.genome_size,
+                    params.min_length,
+                    params.min_quality,
+                    params.basecaller_model,
+                    params.tensor_batch,
+                    params.medaka_polish
+                )
+                }
+            } else if (params.run_unicycler) {
+                fastas_fold = assembly_unicycler(
+                    env_check,
+                    asm_reads,
+                    params.short_read_dir,
+                    params.cpus
+                )
+            } else if (params.run_pacbio) {
+                fastas_fold = assembly_pacbio(
+                    env_check,
+                    asm_reads,
+                    params.cpus,
+                    params.pacbio_read_type
+                )
             }
 
             
@@ -144,30 +167,11 @@ workflow {
 
      
             
-        } else if (params.run_unicycler) {
-            pooled_out = fastqConcater(
-            env_check,
-            params.cpus,
-            params.fastq_dir, 
-            params.extension
-            )
-           fastas_fold = assembly_unicycler(
-                env_check,
-                pooled_out,
-                params.cpus,
-                params.output_dir
-            )
         } else if (params.run_spades) {
-          fastas_fold =   assembly_spades(
+            fastas_fold = assembly_spades(
                 env_check,
-                params.cpus,
-                params.output_dir
-            )
-        } else if (params.run_megahit) {
-           fastas_fold =  assembly_megahit(
-                env_check,
-                params.cpus,
-                params.output_dir
+                params.fastq_dir,
+                params.cpus
             )
         } else {
             fastas_fold = Channel.fromPath(params.genome_dir)
@@ -725,6 +729,244 @@ process assembly_flye2 {
      
     """
     // important: don't pass numeric values between quotes. 
+}
+
+// SPAdes isolate assembly from Illumina paired-end files in fastq_dir
+process assembly_spades {
+    cpus params.cpus
+    debug false
+    label 'Assemlby'
+    tag "SPAdes assembling ${fastq_dir}"
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+
+    input:
+    path env_check
+    val fastq_dir
+    val cpus
+
+    when:
+    params.run_spades
+
+    output:
+    path('asm_out_dir/fastas'), emit: fastas_fold
+
+    script:
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
+    mkdir -p asm_out_dir/fastas
+
+    reads_dir="${fastq_dir}"
+    if [ -z "\$reads_dir" ] || [ ! -d "\$reads_dir" ]
+    then
+        echo "SPAdes requires an existing Illumina FASTQ directory. Got: '\$reads_dir'" >&2
+        exit 1
+    fi
+
+    sample_from_r1() {
+        local r1="\$1"
+        local name
+        name=\$(basename "\$r1")
+        name=\${name%.fastq.gz}
+        name=\${name%.fq.gz}
+        name=\${name%.fastq}
+        name=\${name%.fq}
+        echo "\$name" | sed -E 's/(_R1|_r1|_1)\$//'
+    }
+
+    mapfile -t r1_files < <(find "\$reads_dir" -type f \\( -name '*_R1.fastq.gz' -o -name '*_R1.fastq' -o -name '*_r1.fastq.gz' -o -name '*_r1.fastq' -o -name '*_1.fastq.gz' -o -name '*_1.fastq' -o -name '*_R1.fq.gz' -o -name '*_1.fq.gz' \\) | sort -u)
+    if [ \${#r1_files[@]} -eq 0 ]
+    then
+        echo "No Illumina R1 files found in \$reads_dir. Expected names like sample_R1.fastq.gz" >&2
+        exit 1
+    fi
+
+    for r1 in "\${r1_files[@]}"
+    do
+        out_name=\$(sample_from_r1 "\$r1")
+        r2=\$(echo "\$r1" | sed -E 's/_R1/_R2/; s/_r1/_r2/; s/_1/_2/')
+        if [ ! -f "\$r2" ]
+        then
+            echo "Missing R2 pair for \$r1 (looked for \$r2)" >&2
+            exit 1
+        fi
+
+        spades_dir=asm_out_dir/"\${out_name}"_spades
+        mkdir -p "\$spades_dir"
+        echo "running SPAdes isolate assembly for \${out_name}..."
+        echo "R1: \$r1"
+        echo "R2: \$r2"
+        echo "SPAdes log: \$spades_dir/spades_run.log"
+
+        if ! spades.py -1 "\$r1" -2 "\$r2" --isolate -t ${cpus} -o "\$spades_dir" > "\$spades_dir"/spades_run.log 2>&1
+        then
+            echo "SPAdes failed for \${out_name}. Last log lines:" >&2
+            tail -n 40 "\$spades_dir"/spades_run.log >&2
+            exit 1
+        fi
+
+        if [ -f "\$spades_dir"/contigs.fasta ]
+        then
+            cp "\$spades_dir"/contigs.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        elif [ -f "\$spades_dir"/scaffolds.fasta ]
+        then
+            cp "\$spades_dir"/scaffolds.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        else
+            echo "SPAdes did not produce contigs.fasta for \${out_name}" >&2
+            exit 1
+        fi
+
+        echo "your fasta files are ready in asm_out_dir/fastas."
+    done
+    """
+}
+
+// Unicycler hybrid: long reads from the main FASTQ dir, Illumina pairs from short_read_dir
+process assembly_unicycler {
+    cpus params.cpus
+    debug true
+    label 'Assemlby'
+    tag "Unicycler hybrid assembling ${long_reads}"
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+
+    input:
+    path env_check
+    path long_reads
+    val short_read_dir
+    val cpus
+
+    when:
+    params.run_unicycler
+
+    output:
+    path('asm_out_dir/fastas'), emit: fastas_fold
+
+    script:
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
+    mkdir -p asm_out_dir/fastas
+
+    short_dir="${short_read_dir}"
+    if [ -z "\$short_dir" ] || [ ! -d "\$short_dir" ]
+    then
+        echo "Unicycler requires an existing short-read directory. Got: '\$short_dir'" >&2
+        exit 1
+    fi
+
+    find_illumina_pair() {
+        local sample="\$1"
+        local sdir="\$2"
+        local r1=""
+        local r2=""
+        local stripped
+        stripped=\$(echo "\$sample" | sed -E 's/(_filt|_dedup|_pooled)+\$//g')
+        local names="\$sample \$stripped"
+
+        for n in \$names
+        do
+            for r1_pat in "\${n}_R1" "\${n}_r1" "\${n}_1" "\${n}.R1" "\${n}.r1"
+            do
+                r1=\$(find "\$sdir" -type f \\( -name "\${r1_pat}.fastq.gz" -o -name "\${r1_pat}.fastq" -o -name "\${r1_pat}.fq.gz" -o -name "\${r1_pat}.fq" \\) | head -n 1)
+                if [ -n "\$r1" ]
+                then
+                    r2_pat=\$(echo "\$r1_pat" | sed -E 's/_R1/_R2/; s/_r1/_r2/; s/_1/_2/; s/\\.R1/.R2/; s/\\.r1/.r2/')
+                    r2=\$(find "\$sdir" -type f \\( -name "\${r2_pat}.fastq.gz" -o -name "\${r2_pat}.fastq" -o -name "\${r2_pat}.fq.gz" -o -name "\${r2_pat}.fq" \\) | head -n 1)
+                    if [ -n "\$r2" ]
+                    then
+                        echo "\$r1|\$r2"
+                        return 0
+                    fi
+                fi
+            done
+        done
+        return 1
+    }
+
+    for i in ${long_reads}
+    do
+        out_name=\$(basename \$i | cut -f 1 -d'.')
+        pair=\$(find_illumina_pair "\$out_name" "\$short_dir" || true)
+        if [ -z "\$pair" ]
+        then
+            echo "No Illumina R1/R2 pair found for sample '\${out_name}' in \$short_dir" >&2
+            exit 1
+        fi
+        r1=\$(echo "\$pair" | cut -d'|' -f1)
+        r2=\$(echo "\$pair" | cut -d'|' -f2)
+        uni_dir=asm_out_dir/"\${out_name}"_unicycler
+
+        echo "running Unicycler hybrid assembly for \${out_name}..."
+        echo "long: \$i"
+        echo "R1: \$r1"
+        echo "R2: \$r2"
+
+        unicycler -1 "\$r1" -2 "\$r2" -l \$i -o "\$uni_dir" -t ${cpus}
+
+        if [ ! -f "\$uni_dir"/assembly.fasta ]
+        then
+            echo "Unicycler did not produce assembly.fasta for \${out_name}" >&2
+            exit 1
+        fi
+
+        cp "\$uni_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        echo "your hybrid fasta files are ready in asm_out_dir/fastas."
+    done
+    """
+}
+
+// PacBio Flye: same fasta naming as ONT Flye
+process assembly_pacbio {
+    cpus params.cpus
+    debug true
+    label 'Assemlby'
+    tag "PacBio assembling ${asm_reads}"
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+
+    input:
+    path env_check
+    path asm_reads
+    val cpus
+    val pacbio_read_type
+
+    when:
+    params.run_pacbio
+
+    output:
+    path('asm_out_dir/fastas'), emit: fastas_fold
+
+    script:
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
+    mkdir -p asm_out_dir/fastas
+
+    for i in ${asm_reads}
+    do
+        out_name=\$(basename \$i | cut -f 1 -d'.')
+        pb_dir=asm_out_dir/"\${out_name}"_pacbio
+
+        echo "running Flye on PacBio \${pacbio_read_type} reads for \${out_name}..."
+        if [ "${pacbio_read_type}" = "clr" ]
+        then
+            flye --pacbio-raw \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
+        else
+            flye --pacbio-hifi \$i -t ${cpus} --out-dir "\$pb_dir"
+        fi
+
+        if [ ! -f "\$pb_dir"/assembly.fasta ]
+        then
+            echo "PacBio Flye did not produce assembly.fasta for \${out_name}" >&2
+            exit 1
+        fi
+
+        cp "\$pb_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        echo "your fasta files are ready in asm_out_dir/fastas."
+    done
+    """
 }
 
 // circulating the genomes

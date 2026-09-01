@@ -20,20 +20,33 @@ function connectToStream(action){
     return;
   }
 
-  
-  outputDiv.innerHTML = "";
+  BactflowTerminal.init();
+  let logBuffer = [];
+  let flushTimer = null;
+
+  const flushLog = () => {
+    flushTimer = null;
+    if (!logBuffer.length) {
+      return;
+    }
+    BactflowTerminal.appendMany(logBuffer);
+    logBuffer = [];
+  };
+
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
   
   eventSource.onmessage = (event) =>{
-    
-    outputDiv.innerHTML += event.data + '\n';
-    outputDiv.scrollTop = outputDiv.scrollHeight;
-    
+    logBuffer.push(event.data);
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushLog, 200);
+    }
   };
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
-    outputDiv.innerHTML += "Stream disconnected.  \n";
+    flushLog();
+    BactflowTerminal.append("Stream disconnected.", true);
+    BactflowTerminal.setStatus("Stream disconnected", "warn");
     eventSource.close();
     eventSource = null;
     updateButtonStates("stopped");
@@ -87,16 +100,18 @@ function run_wf(action){
             body : formData }
           )
         .then((response) => {
-          outputDiv.innerHTML = "";
+          BactflowTerminal.clear();
         if(!response.ok) {
-          outputDiv.innerHTML += "Error starting BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error starting BactFlow. It might already be running?!", true);
+          BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
         };
         
 
-        outputDiv.innerHTML += "Bactflow started :)\n";
+        BactflowTerminal.append("Bactflow started :)", true);
+        BactflowTerminal.setStatus("Running...", "run");
 
       
         
@@ -110,7 +125,8 @@ function run_wf(action){
     })
     
     .catch((error) => {
-      outputDiv.innerHTML += "Failed to start BactFlow" + error.message + "\n";
+      BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
+      BactflowTerminal.setStatus("Failed to start", "error");
       
     });
         break;
@@ -128,8 +144,9 @@ function run_wf(action){
     })
       .then((response) => response.text())
       .then((message) => {
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += message + "\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append(message, true);
+        BactflowTerminal.setStatus("Stopped", "warn");
         
         // disconnect
         disconnectStream();
@@ -140,7 +157,7 @@ function run_wf(action){
         
       case "help":
       {
-        outputDiv.innerHTML = "";
+        BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
     
    
@@ -152,13 +169,13 @@ function run_wf(action){
       fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
       .then((response) => {
         if(!response.ok) {
-          outputDiv.innerHTML += "Error showing help for BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error showing help for BactFlow. It might already be running?!", true);
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
         };
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += "Bactflow's help menue!\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append("Bactflow's help menu", true);
 
         // const action = "help";
         updateButtonStates("running");
@@ -167,7 +184,7 @@ function run_wf(action){
         
       })
       .catch((error) => {
-        outputDiv.innerHTML += "Failed to give you BactFlow help!" + error.message + "\n";
+        BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
         runButton.disabled = false;
         
       });
@@ -180,7 +197,7 @@ function run_wf(action){
 
 document.getElementById("postForm").addEventListener("submit", (e) => {
  e.preventDefault();
- outputDiv.innerHTML = "";
+ BactflowTerminal.clear();
 
   const action = e.submitter.value;
 

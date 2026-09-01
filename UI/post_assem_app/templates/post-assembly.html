@@ -7,6 +7,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -416,21 +417,15 @@
        <!-- Bactflow Output Section -->
        <div class="col-md-9" style="display: block; width: 70%; height: 200vh; overflow-y: auto;">
 
-        <div id="output-div" class="col-md-7" style="height: 50%; overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 10px; width: 100%;">
+        <div id="output-div" class="col-md-7 bf-terminal-wrap" style="height: auto; overflow: hidden; display: none; width: 100%;">
 
-        <h4 class="text-left mb-3"> Bactflow progress</h4>
-        <div id="output-bactflow" style="border: 1px solid rgb(105, 105, 105);
-              padding: 10px;
-              margin: 10px;
-              border-radius: 5px;
-              height:80%;
-              width: 95%;
-              overflow-y: auto;
-              white-space: pre-wrap;
-              background-color: #ffffff;
-              color: darkslategrey;">
-       
+        <div class="bf-terminal-bar">
+          <span class="bf-dots"><span class="r"></span><span class="y"></span><span class="g"></span></span>
+          <span class="bf-terminal-title">BactFlow Terminal — post-assembly</span>
+          <label class="bf-verbose"><input type="checkbox" id="logVerbose"> Verbose</label>
         </div>
+        <div id="bf-status" class="bf-status">Ready</div>
+        <div id="output-bactflow" class="bf-terminal-body"></div>
 
         <div class="progress" style="width: 95%; margin-left: 5px; display: none;">
           <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-label="75" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 75%;"></div>
@@ -714,6 +709,7 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
 <script src="{{ url_for('static', filename = 'js/post-assem.js') }}"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
