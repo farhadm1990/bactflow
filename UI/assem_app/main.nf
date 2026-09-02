@@ -17,7 +17,7 @@ Options:
     --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
     --coverage              Only if '--coverage_filter true'; default is 50.
     --genome_size           Genome size for coverage normalizaiton. Only if '--coverage_filter true'; default is 6.
-    --out_dir               Output directory of your final results. Default "genebrosh_output"
+    --out_dir               Output directory of your final results. Default "genebrosh_output". All assemblers write FASTA files into asm_out_dir/fastas (existing files are kept). QUAST is rebuilt from every FASTA in that folder (or circulated_fasta).
     --tensor_batch          Medaka tensorflow batch size. Lower it in low coverage genomes. Default 200.
     --nanofilter            Filtering reads for length and quality; default true.
     --min_length            If '--nanofilter' true, filter reads below a certain read length (default 1000). 
@@ -44,6 +44,68 @@ Options:
     --genome_dir            Path to already assembled genomes, only to run post-assembly tasks, e.g. taxonomy classification, gene annotations and quast or checkm 
 
 """
+
+// One assembler runs per workflow. Label outputs so Illumina, ONT, and PacBio
+// can share the same out_dir without clobbering each other.
+def assemblerLabel() {
+    if (params.run_flye) {
+        return 'flye'
+    }
+    if (params.run_unicycler) {
+        return 'unicycler'
+    }
+    if (params.run_pacbio) {
+        return 'pacbio'
+    }
+    if (params.run_spades) {
+        return 'spades'
+    }
+    return 'assembly'
+}
+
+// Copy a file into destDir only when that basename is not already there.
+// Returning null skips publishing (keeps existing Illumina files, still adds ONT/PacBio).
+def publishNewBasename(filename, destDir, suffix) {
+    def fname = file(filename.toString()).getName()
+    if (suffix && !fname.toLowerCase().endsWith(suffix)) {
+        return null
+    }
+    def dest = file("${destDir}/${fname}")
+    return dest.exists() ? null : fname
+}
+
+// Merge FASTA files into the shared published folder without replacing names that already exist.
+def poolFastas(String srcGlob, String destDir) {
+    return """
+    mkdir -p '${destDir}'
+    for f in ${srcGlob}
+    do
+        if [ -f "\$f" ]
+        then
+            dest='${destDir}'/"\$(basename "\$f")"
+            if [ ! -e "\$dest" ]
+            then
+                cp "\$f" "\$dest"
+                echo "Added \$dest"
+            else
+                echo "Kept existing \$dest"
+            fi
+        fi
+    done
+    """
+}
+
+def absOutDir() {
+    return file(params.out_dir).toAbsolutePath().toString()
+}
+
+def fastaPoolDir() {
+    return "${absOutDir()}/asm_out_dir/fastas"
+}
+
+def circPoolDir() {
+    return "${absOutDir()}/circulated_fasta"
+}
 
 
 workflow {
@@ -121,7 +183,7 @@ workflow {
 
             if (params.run_flye) {
                 if(params.coverage_filter) {
-                    fastas_fold = assembly_flye1(
+                    assembly_flye1(
                     env_check,
                     asm_reads,
                     params.cpus,
@@ -134,8 +196,9 @@ workflow {
                     params.medaka_polish,
                     params.ont_read_type
                 )
+                    fastas_fold = assembly_flye1.out.fastas_fold
                 } else {
-                    fastas_fold = assembly_flye2(
+                    assembly_flye2(
                     env_check,
                     asm_reads,
                     params.cpus,
@@ -148,21 +211,24 @@ workflow {
                     params.medaka_polish,
                     params.ont_read_type
                 )
+                    fastas_fold = assembly_flye2.out.fastas_fold
                 }
             } else if (params.run_unicycler) {
-                fastas_fold = assembly_unicycler(
+                assembly_unicycler(
                     env_check,
                     asm_reads,
                     params.short_read_dir,
                     params.cpus
                 )
+                fastas_fold = assembly_unicycler.out.fastas_fold
             } else if (params.run_pacbio) {
-                fastas_fold = assembly_pacbio(
+                assembly_pacbio(
                     env_check,
                     asm_reads,
                     params.cpus,
                     params.pacbio_read_type
                 )
+                fastas_fold = assembly_pacbio.out.fastas_fold
             }
 
             
@@ -171,11 +237,12 @@ workflow {
      
             
         } else if (params.run_spades) {
-            fastas_fold = assembly_spades(
+            assembly_spades(
                 env_check,
                 params.fastq_dir,
                 params.cpus
             )
+            fastas_fold = assembly_spades.out.fastas_fold
         } else {
             fastas_fold = Channel.fromPath(params.genome_dir)
                                     .collect() // 
@@ -184,10 +251,11 @@ workflow {
         // circulator
         
         if (params.circle_genome){
-            circ_fasta = circulator(
+            circulator(
                 env_check,
                 fastas_fold
             )
+            circ_fasta = circulator.out.circ_fasta
         } else {
             
             circ_fasta = fastas_fold
@@ -222,10 +290,12 @@ workflow {
 
         // quast stats
         if (params.run_quast) {
+            def quast_src = params.circle_genome ? circPoolDir() : fastaPoolDir()
             quast_stat = quast_check(
             env_check,
             circ_fasta,
-            params.cpus
+            params.cpus,
+            quast_src
             )
         }
         }
@@ -548,7 +618,7 @@ process assembly_flye1 {
   //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -567,8 +637,8 @@ process assembly_flye1 {
     params.coverage_filter
 
     output:
-  
     path('asm_out_dir/fastas'), emit: fastas_fold
+    path('asm_out_dir/fastas/*.fasta'), emit: fasta_files
 
     script:
     
@@ -616,7 +686,7 @@ process assembly_flye1 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
+            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
             echo "your polished fasta files are ready in asm_out_dir/fastas."
         else
         
@@ -625,7 +695,7 @@ process assembly_flye1 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
 
         
             # Final message 
@@ -637,12 +707,7 @@ process assembly_flye1 {
         
     done
 
-    
-     
-   
-
-
-     
+    ${poolFastas('asm_out_dir/fastas/*.fasta', fastaPoolDir())}
     """
     // important: don't pass numeric values between quotes. 
 }
@@ -655,7 +720,7 @@ process assembly_flye2 {
    // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -674,8 +739,8 @@ process assembly_flye2 {
     ! params.coverage_filter
 
     output:
-   
     path('asm_out_dir/fastas'), emit: fastas_fold
+    path('asm_out_dir/fastas/*.fasta'), emit: fasta_files
 
     script:
     
@@ -723,7 +788,7 @@ process assembly_flye2 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas
+            cp asm_out_dir/"\${out_name}"_flye/"\${out_name}"_polished.fasta  asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
             echo "your polished fasta files are ready in asm_out_dir/fastas."
         else 
         
@@ -732,7 +797,7 @@ process assembly_flye2 {
                 mkdir -p asm_out_dir/fastas 
             fi
 
-            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}".fasta 
+            cp asm_out_dir/"\${out_name}"_flye/assembly.fasta  asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
 
             # Final message 
 
@@ -742,12 +807,7 @@ process assembly_flye2 {
 
     done
 
-
-    
-
-    
-
-     
+    ${poolFastas('asm_out_dir/fastas/*.fasta', fastaPoolDir())}
     """
     // important: don't pass numeric values between quotes. 
 }
@@ -758,7 +818,7 @@ process assembly_spades {
     debug false
     label 'Assemlby'
     tag "SPAdes assembling ${fastq_dir}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -770,6 +830,7 @@ process assembly_spades {
 
     output:
     path('asm_out_dir/fastas'), emit: fastas_fold
+    path('asm_out_dir/fastas/*.fasta'), emit: fasta_files
 
     script:
     """
@@ -829,10 +890,10 @@ process assembly_spades {
 
         if [ -f "\$spades_dir"/contigs.fasta ]
         then
-            cp "\$spades_dir"/contigs.fasta asm_out_dir/fastas/"\${out_name}".fasta
+            cp "\$spades_dir"/contigs.fasta asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
         elif [ -f "\$spades_dir"/scaffolds.fasta ]
         then
-            cp "\$spades_dir"/scaffolds.fasta asm_out_dir/fastas/"\${out_name}".fasta
+            cp "\$spades_dir"/scaffolds.fasta asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
         else
             echo "SPAdes did not produce contigs.fasta for \${out_name}" >&2
             exit 1
@@ -840,16 +901,17 @@ process assembly_spades {
 
         echo "your fasta files are ready in asm_out_dir/fastas."
     done
+    ${poolFastas('asm_out_dir/fastas/*.fasta', fastaPoolDir())}
     """
 }
 
 // Unicycler hybrid: long reads from the main FASTQ dir, Illumina pairs from short_read_dir
 process assembly_unicycler {
     cpus params.cpus
-    debug true
+    debug false
     label 'Assemlby'
     tag "Unicycler hybrid assembling ${long_reads}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -862,6 +924,7 @@ process assembly_unicycler {
 
     output:
     path('asm_out_dir/fastas'), emit: fastas_fold
+    path('asm_out_dir/fastas/*.fasta'), emit: fasta_files
 
     script:
     """
@@ -882,29 +945,45 @@ process assembly_unicycler {
         local sdir="\$2"
         local r1=""
         local r2=""
-        local stripped
-        stripped=\$(echo "\$sample" | sed -E 's/(_filt|_dedup|_pooled)+\$//g')
-        local names="\$sample \$stripped"
+        local n tmp
+        local -a keys=()
 
-        for n in \$names
+        keys+=("\$sample")
+        tmp=\$(echo "\$sample" | sed -E 's/(_filt|_dedup|_pooled)+\$//g')
+        keys+=("\$tmp")
+        while [[ "\$tmp" == *_* ]]
         do
-            for r1_pat in "\${n}_R1" "\${n}_r1" "\${n}_1" "\${n}.R1" "\${n}.r1"
-            do
-                r1=\$(find "\$sdir" -type f \\( -name "\${r1_pat}.fastq.gz" -o -name "\${r1_pat}.fastq" -o -name "\${r1_pat}.fq.gz" -o -name "\${r1_pat}.fq" \\) | head -n 1)
-                if [ -n "\$r1" ]
-                then
-                    r2_pat=\$(echo "\$r1_pat" | sed -E 's/_R1/_R2/; s/_r1/_r2/; s/_1/_2/; s/\\.R1/.R2/; s/\\.r1/.r2/')
-                    r2=\$(find "\$sdir" -type f \\( -name "\${r2_pat}.fastq.gz" -o -name "\${r2_pat}.fastq" -o -name "\${r2_pat}.fq.gz" -o -name "\${r2_pat}.fq" \\) | head -n 1)
-                    if [ -n "\$r2" ]
-                    then
-                        echo "\$r1|\$r2"
-                        return 0
-                    fi
-                fi
-            done
+            tmp="\${tmp%_*}"
+            keys+=("\$tmp")
+        done
+
+        for n in "\${keys[@]}"
+        do
+            [ -n "\$n" ] || continue
+            r1=\$(find "\$sdir" -type f \\( \\
+                -name "\${n}_R1.fastq.gz" -o -name "\${n}_R1.fastq" -o -name "\${n}_R1.fq.gz" -o -name "\${n}_R1.fq" -o \\
+                -name "\${n}_r1.fastq.gz" -o -name "\${n}_r1.fastq" -o \\
+                -name "\${n}_1.fastq.gz" -o -name "\${n}_1.fastq" -o -name "\${n}_1.fq.gz" -o \\
+                -name "\${n}.R1.fastq.gz" -o -name "\${n}.R1.fastq" -o \\
+                -name "\${n}_*_R1.fastq.gz" -o -name "\${n}_*_R1.fastq" -o -name "\${n}_*_R1.fq.gz" -o -name "\${n}_*_R1.fq" -o \\
+                -name "\${n}_*_R1_*.fastq.gz" -o -name "\${n}_*_R1_*.fastq" -o \\
+                -name "\${n}_*_r1.fastq.gz" -o -name "\${n}_*_1.fastq.gz" \\
+            \\) | sort | head -n 1)
+            if [ -z "\$r1" ]
+            then
+                continue
+            fi
+            r2=\$(echo "\$r1" | sed -E 's/_R1/_R2/; s/_r1/_r2/; s/_1/_2/; s/\\.R1/.R2/; s/\\.r1/.r2/')
+            if [ -f "\$r2" ]
+            then
+                echo "\$r1|\$r2"
+                return 0
+            fi
         done
         return 1
     }
+
+    echo "Using Illumina directory \$short_dir"
 
     for i in ${long_reads}
     do
@@ -913,28 +992,38 @@ process assembly_unicycler {
         if [ -z "\$pair" ]
         then
             echo "No Illumina R1/R2 pair found for sample '\${out_name}' in \$short_dir" >&2
+            echo "Tried matching the ONT name down to its sample prefix (e.g. TL110) against files like sample_Illumina_R1.fastq.gz" >&2
             exit 1
         fi
         r1=\$(echo "\$pair" | cut -d'|' -f1)
         r2=\$(echo "\$pair" | cut -d'|' -f2)
         uni_dir=asm_out_dir/"\${out_name}"_unicycler
+        mkdir -p "\$uni_dir"
 
         echo "running Unicycler hybrid assembly for \${out_name}..."
         echo "long: \$i"
         echo "R1: \$r1"
         echo "R2: \$r2"
+        echo "Unicycler log: \$uni_dir/unicycler_run.log"
 
-        unicycler -1 "\$r1" -2 "\$r2" -l \$i -o "\$uni_dir" -t ${cpus}
+        if ! unicycler -1 "\$r1" -2 "\$r2" -l \$i -o "\$uni_dir" -t ${cpus} --verbosity 1 > "\$uni_dir"/unicycler_run.log 2>&1
+        then
+            echo "Unicycler failed for \${out_name}. Last log lines:" >&2
+            tail -n 40 "\$uni_dir"/unicycler_run.log >&2
+            exit 1
+        fi
 
         if [ ! -f "\$uni_dir"/assembly.fasta ]
         then
             echo "Unicycler did not produce assembly.fasta for \${out_name}" >&2
+            tail -n 40 "\$uni_dir"/unicycler_run.log >&2
             exit 1
         fi
 
-        cp "\$uni_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        cp "\$uni_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
         echo "your hybrid fasta files are ready in asm_out_dir/fastas."
     done
+    ${poolFastas('asm_out_dir/fastas/*.fasta', fastaPoolDir())}
     """
 }
 
@@ -944,7 +1033,7 @@ process assembly_pacbio {
     debug true
     label 'Assemlby'
     tag "PacBio assembling ${asm_reads}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -957,6 +1046,7 @@ process assembly_pacbio {
 
     output:
     path('asm_out_dir/fastas'), emit: fastas_fold
+    path('asm_out_dir/fastas/*.fasta'), emit: fasta_files
 
     script:
     """
@@ -987,15 +1077,16 @@ process assembly_pacbio {
             exit 1
         fi
 
-        cp "\$pb_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}".fasta
+        cp "\$pb_dir"/assembly.fasta asm_out_dir/fastas/"\${out_name}"_${assemblerLabel()}.fasta
         echo "your fasta files are ready in asm_out_dir/fastas."
     done
+    ${poolFastas('asm_out_dir/fastas/*.fasta', fastaPoolDir())}
     """
 }
 
 // circulating the genomes
 process circulator {
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir path: "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, circPoolDir(), '.fasta') }
 
     input:
     path env_check
@@ -1005,7 +1096,8 @@ process circulator {
     params.circle_genome
 
     output:
-    path("circulated_fasta"), emit: circ_fasta 
+    path("circulated_fasta"), emit: circ_fasta
+    path("circulated_fasta/*.fasta"), emit: circ_files 
 
     script:
     """
@@ -1033,6 +1125,7 @@ process circulator {
         cp circulatd_"\${prefix}".fasta circulated_fasta && rm -rf circulatd_*
     done
 
+    ${poolFastas('circulated_fasta/*.fasta', circPoolDir())}
     """
 }
 
@@ -1051,15 +1144,13 @@ process baktaAnnot {
     params.bakta_annot
 
     output:
-    path('bakta_out'), optional: true //so that it deons't stop upon failing
+    path('bakta_out'), optional: true
 
     script:
     
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-
-  
 
     bash ${projectDir}/bakta_annot.sh -g "${circ_fasta}" -c ${cpus} -d "${params.bakta_db}"
     
@@ -1079,7 +1170,7 @@ process taxonomyGTDBTK {
     val gtdbtk_data_path
     
     output:
-    path('gtdbtk_out'),  optional: true //so that it deons't stop upon failing
+    path('gtdbtk_out'), optional: true
 
     script:
     """
@@ -1162,13 +1253,14 @@ process checkm_lineage {
 // quast assembly stats
 process quast_check {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
     errorStrategy 'ignore'
 
     input:
     path env_check
     path circ_fasta
     val cpus
+    val fasta_pool_dir
 
     when:
     params.run_quast
@@ -1184,14 +1276,41 @@ process quast_check {
     #Update numpy 
     pip install --upgrade numpy
 
-    
-    if [ ! -d quast_stat ]
-    then 
-        mkdir -p quast_stat
+    mkdir -p quast_in quast_stat
 
-    fi 
+    if [ -d '${fasta_pool_dir}' ]
+    then
+        for f in '${fasta_pool_dir}'/*.fasta
+        do
+            if [ -f "\$f" ]
+            then
+                cp -f "\$f" quast_in/
+            fi
+        done
+    fi
 
-    quast.py '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
+    if [ -d '${circ_fasta}' ]
+    then
+        for f in '${circ_fasta}'/*.fasta
+        do
+            if [ -f "\$f" ]
+            then
+                cp -n "\$f" quast_in/ || true
+            fi
+        done
+    fi
+
+    nfastas=\$(ls quast_in/*.fasta 2>/dev/null | wc -l)
+    if [ "\$nfastas" -eq 0 ]
+    then
+        echo "No FASTA files found for QUAST in ${fasta_pool_dir} or the current run" >&2
+        exit 1
+    fi
+
+    echo "QUAST scoring \$nfastas assemblies from the shared FASTA pool:"
+    ls -1 quast_in/*.fasta
+
+    quast.py quast_in/*.fasta -o quast_stat -t ${cpus}
     """
 }
 

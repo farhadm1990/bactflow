@@ -4,7 +4,7 @@
 {% block title %} Assembly  {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters5">
 {% endblock %}
 
 {% block content %}
@@ -119,10 +119,10 @@
             <input type="hidden" id="run_unicycler" name="run_unicycler" value="false">
             <input type="hidden" id="run_spades" name="run_spades" value="false">
             <div id="spadesHint" class="form-text mb-3" style="display: none;">
-              SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>.
+              SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_spades.fasta</code> and will not replace existing ONT or PacBio FASTAs in the same folder.
             </div>
             <div id="pacbioHint" class="form-text mb-3" style="display: none;">
-              PacBio assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>, matching Flye sample names.
+              PacBio assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_pacbio.fasta</code> beside any existing Illumina or ONT genomes.
             </div>
 
             <div id="unicyclerDiv" style="display: none;">
@@ -136,7 +136,7 @@
                   placeholder="/path/to/illumina_reads"
                 />
                 <div class="form-text">
-                  Required for Unicycler. Pair files by sample name, e.g. <code>sample_R1.fastq.gz</code> and <code>sample_R2.fastq.gz</code>. Hybrid assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;.fasta</code>.
+                  Required for Unicycler. Long-read samples are paired to Illumina by sample ID, so <code>TL110_Native_R1041.fastq</code> matches <code>TL110_Illumina_R1.fastq.gz</code> / <code>TL110_Illumina_R2.fastq.gz</code> (or <code>TL110_R1</code>/<code>TL110_R2</code>). Hybrid assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_unicycler.fasta</code>.
                 </div>
               </div>
             </div>
@@ -376,6 +376,27 @@
        <!-- Assembly Output Section -->
        <div class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
 
+        <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
+          <div class="bf-meter" data-kind="cpu">
+            <span class="bf-meter-label">CPU</span>
+            <div class="bf-meter-track" title="Host CPU">
+              <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+              <div class="bf-meter-job" id="bf-cpu-job"></div>
+            </div>
+            <span class="bf-meter-val" id="bf-cpu-val">—</span>
+            <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+          <div class="bf-meter" data-kind="ram">
+            <span class="bf-meter-label">RAM</span>
+            <div class="bf-meter-track" title="Host memory">
+              <div class="bf-meter-fill" id="bf-ram-fill"></div>
+              <div class="bf-meter-job" id="bf-ram-job"></div>
+            </div>
+            <span class="bf-meter-val" id="bf-ram-val">—</span>
+            <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+        </div>
+
         <div id="output-div" class="col-md-7 bf-terminal-wrap" style="height: auto; overflow: hidden; display: none; width: 100%;">
 
         <div class="bf-terminal-bar">
@@ -474,7 +495,7 @@
 
 
     <!-- scripts -->
-      <script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=meters5"></script>
       <script src="{{ url_for('static', filename='js/assem.js')}}"> </script>
   
       

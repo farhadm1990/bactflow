@@ -5,6 +5,7 @@ import pty
 import select
 
 from flask import Flask, send_from_directory, render_template, request, redirect, Response, stream_with_context, jsonify
+import json
 
 from datetime import datetime, timezone
 import pandas as pd
@@ -16,6 +17,9 @@ from multiprocessing import Process, Manager, Queue
 import time
 import signal
 import psutil  # for better process control
+
+psutil.cpu_percent(interval=None)
+_JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
 import threading
 from threading import Timer
 import webbrowser
@@ -383,10 +387,129 @@ def bactflow_output():
 # Bactflow running status
 @app.route('/bactflow_status', methods = ['GET'])
 def bactflow_status():
+    payload = current_sys_stats()
+    payload["status"] = "running" if payload.get("running") else "stopped"
+    return jsonify(payload), 200
 
-    if process_status["running"]:
-        return {"status": "running"}, 200
-    return {"status": "stopped"}, 200
+
+def _manager_get(key, default=None):
+    try:
+        return process_status[key]
+    except Exception:
+        return default
+
+
+def _job_resource_stats(pid):
+    """CPU cores and RSS for the Nextflow process tree."""
+    global _JOB_CPU_CACHE
+    try:
+        parent = psutil.Process(int(pid))
+        procs = [parent] + parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        _JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
+        return None
+
+    cpu_sec = 0.0
+    rss = 0
+    for proc in procs:
+        try:
+            times = proc.cpu_times()
+            cpu_sec += times.user + times.system
+            rss += proc.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    now = time.time()
+    cores = 0.0
+    if _JOB_CPU_CACHE["pid"] == pid and _JOB_CPU_CACHE["stamp"]:
+        dt = max(now - _JOB_CPU_CACHE["stamp"], 1e-3)
+        cores = max(cpu_sec - _JOB_CPU_CACHE["cpu_sec"], 0.0) / dt
+    _JOB_CPU_CACHE = {"pid": pid, "stamp": now, "cpu_sec": cpu_sec}
+    ncpu = psutil.cpu_count() or 1
+    return {
+        "job_cores": round(cores, 2),
+        "job_cpu_percent": round(min(100.0, cores / ncpu * 100.0), 1),
+        "job_rss_gb": round(rss / (1024 ** 3), 2),
+        "job_procs": len(procs),
+    }
+
+
+def _build_sys_stats():
+    vm = psutil.virtual_memory()
+    ncpu = psutil.cpu_count(logical=True) or 1
+    payload = {
+        "cpu_percent": round(psutil.cpu_percent(interval=None), 1),
+        "cpu_count": ncpu,
+        "ram_percent": round(vm.percent, 1),
+        "ram_used_gb": round(vm.used / (1024 ** 3), 2),
+        "ram_total_gb": round(vm.total / (1024 ** 3), 2),
+        "running": bool(_manager_get("running", False)),
+        "job_cores": None,
+        "job_cpu_percent": None,
+        "job_rss_gb": None,
+        "job_procs": 0,
+    }
+    pid = _manager_get("pid")
+    if payload["running"] and pid:
+        job = _job_resource_stats(pid)
+        if job:
+            payload.update(job)
+    return payload
+
+
+_SYS_STATS = {}
+_SYS_STATS_LOCK = threading.Lock()
+_SYS_STATS_JSON = os.path.join(base_dir, "static", "sys_stats.json")
+
+
+def _write_sys_stats_file(payload):
+    try:
+        tmp = _SYS_STATS_JSON + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, _SYS_STATS_JSON)
+    except OSError:
+        pass
+
+
+def current_sys_stats():
+    with _SYS_STATS_LOCK:
+        if _SYS_STATS:
+            return dict(_SYS_STATS)
+    try:
+        return _build_sys_stats()
+    except Exception as exc:
+        return {
+            "cpu_percent": 0,
+            "cpu_count": 1,
+            "ram_percent": 0,
+            "ram_used_gb": 0,
+            "ram_total_gb": 0,
+            "running": False,
+            "error": str(exc),
+        }
+
+
+def _sys_stats_loop():
+    psutil.cpu_percent(interval=None)
+    while True:
+        time.sleep(1)
+        try:
+            payload = _build_sys_stats()
+            with _SYS_STATS_LOCK:
+                _SYS_STATS.clear()
+                _SYS_STATS.update(payload)
+            _write_sys_stats_file(payload)
+        except Exception:
+            continue
+
+
+threading.Thread(target=_sys_stats_loop, daemon=True, name="sys-stats").start()
+
+
+@app.route("/sys_stats", methods=["GET"])
+def sys_stats():
+    return jsonify(current_sys_stats())
 
 #Stream    
 @app.route('/stream_bactflow', methods = ['POST', 'GET'])
@@ -394,12 +517,17 @@ def stream_bactflow():
 
   
     def generate():
+        last_stats = 0
         # fitst show the history
         for line in output_history:
             yield f"data: {line}\n\n"
 
         # now stream new output
         while process_status['running']  or not output_queue.empty():
+            now = time.time()
+            if now - last_stats >= 1:
+                yield f"event: stats\ndata: {json.dumps(current_sys_stats())}\n\n"
+                last_stats = now
             try:
                 line = output_queue.get(timeout=0.5)# wait for output
                 yield f"data: {line.strip()}\n\n"
@@ -413,32 +541,42 @@ def stream_bactflow():
 
     return Response(generate(), content_type='text/event-stream')
 
+def find_quast_dir(out_dir):
+    """Use the single combined QUAST report in quast_stat."""
+    if not out_dir:
+        return None
+    path = os.path.join(out_dir, "quast_stat")
+    if os.path.isdir(path) and os.path.isfile(os.path.join(path, "report.html")):
+        return path
+    return None
+
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():
     out_dir = request.form.get("out_dir")
     if not out_dir:
         return jsonify({"exists":False, "error": "Missing out_dir"}), 400
-    quast_path = os.path.join(out_dir, "quast_stat")
-    if os.path.exists(quast_path):
-        return jsonify({"exists": True})
-    else:
-        return jsonify({"exists": False})
+    quast_path = find_quast_dir(out_dir)
+    if quast_path:
+        return jsonify({"exists": True, "quast_dir": os.path.basename(quast_path)})
+    return jsonify({"exists": False})
 
 
 @app.route("/quast-report", methods = ["POST"])
 def quast_report():
     out_dir = request.form.get("out_dir")
-    quast_check = True if os.path.exists(f"{out_dir}/quast_stat") else False
-    if quast_check:
-        return send_from_directory(f"{out_dir}/quast_stat","report.html")
+    quast_path = find_quast_dir(out_dir)
+    if quast_path:
+        return send_from_directory(quast_path, "report.html")
+    return jsonify({"error": "QUAST report not found"}), 404
 
 @app.route("/contig-report", methods = ["POST"])
 def contig_report():
     out_dir = request.form.get("out_dir")
-    quast_check = True if os.path.exists(f"{out_dir}/quast_stat") else False
-    if quast_check:
-        return send_from_directory(f"{out_dir}/quast_stat","icarus_viewers/contig_size_viewer.html")
+    quast_path = find_quast_dir(out_dir)
+    if quast_path:
+        return send_from_directory(quast_path, "icarus_viewers/contig_size_viewer.html")
+    return jsonify({"error": "QUAST contig viewer not found"}), 404
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
-    app.run(debug = True, port = 5002, host = "0.0.0.0",  use_reloader = False)#set use_reloader to true during developement 
+    app.run(debug = True, port = 5002, host = "0.0.0.0",  use_reloader = False, threaded=True)#set use_reloader to true during developement 

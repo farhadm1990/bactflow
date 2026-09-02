@@ -12,6 +12,9 @@ from multiprocessing import Process, Manager, Queue
 import time
 import signal
 import psutil  # for better process control
+
+psutil.cpu_percent(interval=None)
+_JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
 from threading import Timer
 import webbrowser
 import threading
@@ -222,6 +225,84 @@ def bactflow_status():
     if process_status["running"]:
         return {"status": "running"}, 200
     return {"status": "stopped"}, 200
+
+
+def _manager_get(key, default=None):
+    try:
+        return process_status[key]
+    except Exception:
+        return default
+
+
+def _job_resource_stats(pid):
+    """CPU cores and RSS for the Nextflow process tree."""
+    global _JOB_CPU_CACHE
+    try:
+        parent = psutil.Process(int(pid))
+        procs = [parent] + parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        _JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
+        return None
+
+    cpu_sec = 0.0
+    rss = 0
+    for proc in procs:
+        try:
+            times = proc.cpu_times()
+            cpu_sec += times.user + times.system
+            rss += proc.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    now = time.time()
+    cores = 0.0
+    if _JOB_CPU_CACHE["pid"] == pid and _JOB_CPU_CACHE["stamp"]:
+        dt = max(now - _JOB_CPU_CACHE["stamp"], 1e-3)
+        cores = max(cpu_sec - _JOB_CPU_CACHE["cpu_sec"], 0.0) / dt
+    _JOB_CPU_CACHE = {"pid": pid, "stamp": now, "cpu_sec": cpu_sec}
+    ncpu = psutil.cpu_count() or 1
+    return {
+        "job_cores": round(cores, 2),
+        "job_cpu_percent": round(min(100.0, cores / ncpu * 100.0), 1),
+        "job_rss_gb": round(rss / (1024 ** 3), 2),
+        "job_procs": len(procs),
+    }
+
+
+@app.route("/sys_stats", methods=["GET"])
+def sys_stats():
+    try:
+        vm = psutil.virtual_memory()
+        ncpu = psutil.cpu_count(logical=True) or 1
+        cpu = round(psutil.cpu_percent(interval=0.15), 1)
+        payload = {
+            "cpu_percent": cpu,
+            "cpu_count": ncpu,
+            "ram_percent": round(vm.percent, 1),
+            "ram_used_gb": round(vm.used / (1024 ** 3), 2),
+            "ram_total_gb": round(vm.total / (1024 ** 3), 2),
+            "running": bool(_manager_get("running", False)),
+            "job_cores": None,
+            "job_cpu_percent": None,
+            "job_rss_gb": None,
+            "job_procs": 0,
+        }
+        pid = _manager_get("pid")
+        if payload["running"] and pid:
+            job = _job_resource_stats(pid)
+            if job:
+                payload.update(job)
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({
+            "cpu_percent": 0,
+            "cpu_count": 1,
+            "ram_percent": 0,
+            "ram_used_gb": 0,
+            "ram_total_gb": 0,
+            "running": False,
+            "error": str(exc),
+        })
 
 #Stream    
 @app.route('/stream_bactflow', methods = ['POST', 'GET'])

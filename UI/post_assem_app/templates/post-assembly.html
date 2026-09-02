@@ -424,6 +424,26 @@
           <span class="bf-terminal-title">BactFlow Terminal — post-assembly</span>
           <label class="bf-verbose"><input type="checkbox" id="logVerbose"> Verbose</label>
         </div>
+        <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
+          <div class="bf-meter" data-kind="cpu">
+            <span class="bf-meter-label">CPU</span>
+            <div class="bf-meter-track" title="Host CPU">
+              <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+              <div class="bf-meter-job" id="bf-cpu-job"></div>
+            </div>
+            <span class="bf-meter-val" id="bf-cpu-val">—</span>
+            <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+          <div class="bf-meter" data-kind="ram">
+            <span class="bf-meter-label">RAM</span>
+            <div class="bf-meter-track" title="Host memory">
+              <div class="bf-meter-fill" id="bf-ram-fill"></div>
+              <div class="bf-meter-job" id="bf-ram-job"></div>
+            </div>
+            <span class="bf-meter-val" id="bf-ram-val">—</span>
+            <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+        </div>
         <div id="bf-status" class="bf-status">Ready</div>
         <div id="output-bactflow" class="bf-terminal-body"></div>
 
@@ -709,7 +729,7 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=meters2"></script>
 <script src="{{ url_for('static', filename = 'js/post-assem.js') }}"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>

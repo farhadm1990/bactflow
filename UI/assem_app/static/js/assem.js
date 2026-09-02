@@ -109,6 +109,9 @@ function connectToStream(action){
   };
 
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
+  if (window.BactflowMeters) {
+    BactflowMeters.attachStream(eventSource);
+  }
   
   eventSource.onmessage = (event) =>{
     logBuffer.push(event.data);
@@ -226,7 +229,7 @@ function updateAssemblerUI() {
   showEl(flyeCoverage, isFlye || isPacbio);
   showEl(nanofilterGroup, isLongRead);
   showEl(flyePolish, isFlye);
-  showEl(circleGenomeGroup, isFlye || isPacbio);
+  showEl(circleGenomeGroup, !isNone);
   showEl(concatReadsGroup, isLongRead);
   showEl(extensionGroup, isLongRead);
 

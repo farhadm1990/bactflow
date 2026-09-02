@@ -6,6 +6,49 @@ const BactflowProcessEta = {
   workflow: { startedAt: null, percent: 0, completed: 0, total: 0 },
   tickTimer: null,
 
+  prettyName(name) {
+    const labels = {
+      envsetup: "Environment setup",
+      testify: "Environment check",
+      coveragefilt: "Coverage filter",
+      nanoreadfilt: "Read filter",
+      fastqconcater: "Read concat",
+      deduper: "Deduper",
+      assemblyflye1: "Flye",
+      assemblyflye2: "Flye",
+      assemblyspades: "SPAdes",
+      assemblyunicycler: "Unicycler",
+      assemblypacbio: "Flye (PacBio)",
+      circulator: "Circulator",
+      quastcheck: "QUAST",
+      baktaannot: "Bakta",
+      taxonomygtdbtk: "GTDB-Tk",
+      checkmlineage: "CheckM"
+    };
+    const key = this.normalizeName(name);
+    if (labels[key]) {
+      return labels[key];
+    }
+    if (this.isHashId(name)) {
+      return name;
+    }
+    return String(name || "process");
+  },
+
+  isHashId(value) {
+    return /^[0-9a-f]{2,}\/[0-9a-f]+$/i.test(String(value || ""));
+  },
+
+  parseNameAndTag(raw) {
+    const chunk = String(raw || "").trim();
+    const tagged = chunk.match(/^([A-Za-z_]\w*)(?:\s+\((.*)\))?$/);
+    if (tagged) {
+      return { name: tagged[1], tag: tagged[2] || "" };
+    }
+    const ident = chunk.match(/([A-Za-z_]\w*)/);
+    return { name: ident ? ident[1] : chunk, tag: "" };
+  },
+
   hintsSec: {
     envsetup: 240,
     testify: 45,
@@ -227,26 +270,31 @@ const BactflowProcessEta = {
     return { label: "hint", seconds: remaining, elapsed };
   },
 
+  elapsedSeconds(proc) {
+    if (proc.done && proc.frozenElapsed != null) {
+      return proc.frozenElapsed;
+    }
+    return (Date.now() - proc.startedAt) / 1000;
+  },
+
+  isWaiting(proc) {
+    return !proc.done && proc.phase !== "running";
+  },
+
   etaPrefix(proc) {
+    const runFor = this.formatDuration(this.elapsedSeconds(proc));
     if (proc.done) {
-      const took = proc.frozenElapsed != null
-        ? proc.frozenElapsed
-        : (Date.now() - proc.startedAt) / 1000;
-      return `done in ${this.formatDuration(took)}`;
+      return `done in ${runFor}`;
+    }
+    if (this.isWaiting(proc)) {
+      return `waiting · ${runFor}`;
     }
 
-    const { label, seconds, elapsed } = this.computeEta(proc);
-    const runFor = this.formatDuration(
-      elapsed != null ? elapsed : (Date.now() - proc.startedAt) / 1000
-    );
-
+    const { seconds } = this.computeEta(proc);
     if (seconds != null && seconds > 0) {
-      const left = this.formatDuration(seconds);
-      const clock = this.formatClockEta(seconds);
-      return `~${left} left @ ${clock} · ran ${runFor}`;
+      return `ETA ${this.formatClockEta(seconds)} (~${this.formatDuration(seconds)} left) · ran ${runFor}`;
     }
-
-    return `~… left · ran ${runFor}`;
+    return `running · ${runFor}`;
   },
 
   parse(line) {
@@ -257,44 +305,40 @@ const BactflowProcessEta = {
 
     this.parseWorkflow(t);
 
+    const progress = (hash, name, tag, percent, completed, total) => {
+      const resolved = (!this.isHashId(name) && name)
+        ? name
+        : (this.hashToName.get(hash) || name);
+      if (hash && resolved && !this.isHashId(resolved)) {
+        this.hashToName.set(hash, resolved);
+      }
+      return {
+        kind: "progress",
+        id: hash,
+        name: resolved,
+        tag: tag || "",
+        percent,
+        completed,
+        total,
+        done: percent >= 100 || (total > 0 && completed >= total) || /✔/.test(t),
+        cached: /cached/i.test(t)
+      };
+    };
+
     let m = t.match(
-      /^\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?\s+\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)(?:\s*✔)?/i
+      /^\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?\s+\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i
     );
     if (m) {
-      const percent = Number(m[4]);
-      const completed = Number(m[5]);
-      const total = Number(m[6]);
-      this.hashToName.set(m[1], m[2]);
-      return {
-        kind: "progress",
-        id: m[1],
-        name: m[2],
-        tag: m[3] || "",
-        percent,
-        completed,
-        total,
-        done: percent >= 100 || (total > 0 && completed >= total) || /✔/.test(t),
-        cached: /cached/i.test(t)
-      };
+      return progress(m[1], m[2], m[3], Number(m[4]), Number(m[5]), Number(m[6]));
     }
 
-    m = t.match(/^\[([0-9a-f/]+)\].*\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
+    m = t.match(
+      /^\[([0-9a-f/]+)\]\s+(.+?)\s+\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i
+    );
     if (m) {
-      const name = this.hashToName.get(m[1]) || m[1];
-      const percent = Number(m[2]);
-      const completed = Number(m[3]);
-      const total = Number(m[4]);
-      return {
-        kind: "progress",
-        id: m[1],
-        name,
-        tag: "",
-        percent,
-        completed,
-        total,
-        done: percent >= 100 || (total > 0 && completed >= total) || /✔/.test(t),
-        cached: /cached/i.test(t)
-      };
+      const middle = m[2].trim().replace(/^process\s*>\s*/i, "");
+      const { name, tag } = this.parseNameAndTag(middle);
+      return progress(m[1], name, tag, Number(m[3]), Number(m[4]), Number(m[5]));
     }
 
     m = t.match(/^\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
@@ -328,13 +372,27 @@ const BactflowProcessEta = {
       };
     }
 
-    m = t.match(/^\[-+\s*\]\s+process\s+>\s+(\S+)/i);
+    m = t.match(/^\[-+\s*\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?/i);
     if (m) {
       return {
         kind: "queued",
         id: null,
         name: m[1],
-        tag: "",
+        tag: m[2] || "",
+        percent: 0,
+        completed: 0,
+        total: 0,
+        done: false
+      };
+    }
+
+    m = t.match(/^\[-+\s*\]\s+([A-Za-z_]\w*)(?:\s+\(([^)]*)\))?(?:\s+-+\s*)?$/);
+    if (m && !/^executor$/i.test(m[1])) {
+      return {
+        kind: "queued",
+        id: null,
+        name: m[1],
+        tag: m[2] || "",
         percent: 0,
         completed: 0,
         total: 0,
@@ -356,6 +414,31 @@ const BactflowProcessEta = {
       };
     }
 
+    m = t.match(/^running\s+(circlator|spades|unicycler|flye)\b/i);
+    if (m) {
+      const tool = m[1].toLowerCase();
+      let name = tool;
+      if (tool === "spades") {
+        name = "assembly_spades";
+      } else if (tool === "unicycler") {
+        name = "assembly_unicycler";
+      } else if (tool === "flye") {
+        name = /pacbio/i.test(t) ? "assembly_pacbio" : "assembly_flye1";
+      } else {
+        name = "circulator";
+      }
+      return {
+        kind: "started",
+        id: null,
+        name,
+        tag: "",
+        percent: 0,
+        completed: 0,
+        total: 0,
+        done: false
+      };
+    }
+
     return null;
   },
 
@@ -363,9 +446,25 @@ const BactflowProcessEta = {
     return this.normalizeName(name);
   },
 
+  displayName(proc) {
+    if (!proc || proc.id === "_executor") {
+      return "executor";
+    }
+    return this.prettyName(proc.name);
+  },
+
   upsert(parsed) {
+    if (this.isHashId(parsed.name) && parsed.id && this.hashToName.has(parsed.id)) {
+      parsed.name = this.hashToName.get(parsed.id);
+    }
+
+    let proc = (parsed.id && parsed.id !== "_executor")
+      ? this.hashToProc.get(parsed.id)
+      : null;
     const nameKey = this.procKey(parsed.name);
-    let proc = this.processes.get(nameKey);
+    if (!proc && !this.isHashId(parsed.name)) {
+      proc = this.processes.get(nameKey);
+    }
     if (!proc) {
       proc = {
         id: nameKey,
@@ -373,6 +472,8 @@ const BactflowProcessEta = {
         tag: "",
         cached: false,
         startedAt: Date.now(),
+        runningAt: null,
+        phase: "waiting",
         percent: 0,
         completed: 0,
         total: 0,
@@ -383,9 +484,21 @@ const BactflowProcessEta = {
       this.processes.set(nameKey, proc);
     }
 
+    if (parsed.name && !this.isHashId(parsed.name)) {
+      proc.name = parsed.name;
+      const betterKey = this.procKey(parsed.name);
+      if (proc.id !== betterKey) {
+        this.processes.delete(proc.id);
+        proc.id = betterKey;
+        this.processes.set(betterKey, proc);
+      }
+    }
+
     if (parsed.id && parsed.id !== "_executor") {
       this.hashToProc.set(parsed.id, proc);
-      this.hashToName.set(parsed.id, parsed.name);
+      if (!this.isHashId(parsed.name)) {
+        this.hashToName.set(parsed.id, parsed.name);
+      }
     }
 
     if (parsed.tag) {
@@ -403,6 +516,16 @@ const BactflowProcessEta = {
     if (parsed.completed > 0) {
       proc.completed = parsed.completed;
     }
+    if (parsed.kind === "started" || parsed.kind === "progress") {
+      proc.phase = "running";
+      if (!proc.runningAt) {
+        proc.runningAt = Date.now();
+      }
+    } else if (parsed.kind === "queued" || parsed.kind === "submitted") {
+      if (proc.phase !== "running") {
+        proc.phase = "waiting";
+      }
+    }
     if (parsed.done) {
       this.markDone(proc);
     }
@@ -414,34 +537,46 @@ const BactflowProcessEta = {
     if (proc.id === "_executor") {
       return `executor > ${proc.tag || "local"}`;
     }
+    const title = this.displayName(proc) + tag;
     if (proc.done) {
-      const cacheNote = proc.cached ? ", cached" : "";
-      return `process > ${proc.name}${tag} [100%] 1 of 1${cacheNote} ✔`;
+      const cacheNote = proc.cached ? " · cached" : "";
+      return `${title}${cacheNote} ✔`;
+    }
+    if (this.isWaiting(proc)) {
+      return `${title} · waiting`;
     }
     if (proc.percent > 0 || proc.total > 0) {
       const pct = String(proc.percent).padStart(3, " ");
-      return `process > ${proc.name}${tag} [${pct}%] ${proc.completed} of ${proc.total}`;
+      return `${title} [${pct}%] ${proc.completed} of ${proc.total}`;
     }
-    return `process > ${proc.name}${tag} · waiting`;
+    return `${title} · running`;
   },
 
   renderRow(proc, className) {
     if (!proc.row) {
       return;
     }
-    const eta = document.createElement("span");
-    eta.className = "log-eta" + (proc.done ? " is-done" : "");
+    const name = document.createElement("span");
+    name.className = "log-proc-name";
+    name.textContent = this.displayName(proc);
+
+    const meta = document.createElement("span");
+    meta.className = "log-eta" + (proc.done ? " is-done" : this.isWaiting(proc) ? " is-wait" : "");
     if (proc.id === "_executor") {
-      eta.textContent = "";
+      meta.textContent = proc.tag ? ` > ${proc.tag}` : "";
+    } else if (this.isWaiting(proc)) {
+      meta.textContent = ` ${this.etaPrefix(proc)}`;
+    } else if (proc.done) {
+      const cacheNote = proc.cached ? " · cached" : "";
+      meta.textContent = ` ${this.etaPrefix(proc)}${cacheNote} ✔`;
     } else {
-      eta.textContent = this.etaPrefix(proc);
+      const pctBit = (proc.percent > 0 || proc.total > 0)
+        ? ` [${String(proc.percent).padStart(3, " ")}%] ${proc.completed} of ${proc.total}`
+        : " · running";
+      meta.textContent = `${pctBit} · ${this.etaPrefix(proc)}`;
     }
 
-    const text = document.createElement("span");
-    text.className = "log-text";
-    text.textContent = this.formatDisplay(proc);
-
-    proc.row.replaceChildren(eta, document.createTextNode(eta.textContent ? " " : ""), text);
+    proc.row.replaceChildren(name, meta);
     proc.row.className = "log-line " + className;
   },
 
@@ -458,9 +593,10 @@ const BactflowProcessEta = {
 
   isProcessLine(line) {
     const t = String(line || "").trim();
-    return /^\[-+\s*\]\s+process\s+>/i.test(t) ||
-      /^\[[0-9a-f/]+\]\s+(?:Submitted|Cached\s+)?process\s+>/i.test(t) ||
-      /^executor\s*>/i.test(t);
+    return /^\[-+\s*\]\s+(?:process\s+>\s+)?[A-Za-z_]/i.test(t) ||
+      /^\[[0-9a-f/]+\]\s+(?:Submitted|Cached\s+)?(?:process\s+>\s+)?[A-Za-z_]/i.test(t) ||
+      /^executor\s*>/i.test(t) ||
+      /^running\s+(circlator|spades|unicycler|flye)\b/i.test(t);
   },
 
   handleLine(terminal, line, className) {
@@ -492,15 +628,18 @@ const BactflowProcessEta = {
     }
     terminal.logEl.scrollTop = terminal.logEl.scrollHeight;
 
+    const shown = this.displayName(proc);
     if (proc.id === "_executor") {
       terminal.setStatus(`executor > ${proc.tag}`, "run");
     } else if (proc.done) {
-      terminal.setStatus(`[${proc.name}] done in ${this.formatDuration(proc.frozenElapsed || 0)}`, "ok");
+      terminal.setStatus(`${shown} · done in ${this.formatDuration(proc.frozenElapsed || 0)}`, "ok");
       if (this.allDone()) {
         this.stopTick();
       }
+    } else if (this.isWaiting(proc)) {
+      terminal.setStatus(`${shown} · waiting · ${this.formatDuration(this.elapsedSeconds(proc))}`, "run");
     } else {
-      terminal.setStatus(`[${proc.name}] ${this.etaPrefix(proc)}`, "run");
+      terminal.setStatus(`${shown} · ${this.etaPrefix(proc)}`, "run");
     }
 
     return true;
@@ -669,4 +808,177 @@ const BactflowTerminal = {
   }
 };
 
-document.addEventListener("DOMContentLoaded", () => BactflowTerminal.init());
+const BactflowMeters = {
+  history: { cpu: [], ram: [] },
+  maxPoints: 40,
+  timer: null,
+
+  init() {
+    if (!document.getElementById("bf-meters")) {
+      return;
+    }
+    this.tick();
+    this.timer = setInterval(() => this.tick(), 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        return;
+      }
+      this.tick();
+    });
+  },
+
+  attachStream(eventSource) {
+    if (!eventSource || eventSource._bfMetersBound) {
+      return;
+    }
+    eventSource._bfMetersBound = true;
+    eventSource.addEventListener("stats", (ev) => {
+      try {
+        this.apply(JSON.parse(ev.data));
+      } catch (err) {
+        // ignore malformed stats frames
+      }
+    });
+  },
+
+  level(pct) {
+    if (pct >= 90) {
+      return "is-hot";
+    }
+    if (pct >= 75) {
+      return "is-warn";
+    }
+    return "";
+  },
+
+  push(kind, value) {
+    const series = this.history[kind];
+    series.push(Math.max(0, Math.min(100, Number(value) || 0)));
+    if (series.length > this.maxPoints) {
+      series.shift();
+    }
+  },
+
+  drawSpark(svg, values, color) {
+    if (!svg || values.length < 2) {
+      return;
+    }
+    const w = 120;
+    const h = 24;
+    const max = 100;
+    const pts = values.map((v, i) => {
+      const x = (i / Math.max(values.length - 1, 1)) * w;
+      const y = h - (v / max) * (h - 3) - 1.5;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const last = values[values.length - 1];
+    const lx = ((values.length - 1) / Math.max(values.length - 1, 1)) * w;
+    const ly = h - (last / max) * (h - 3) - 1.5;
+    svg.innerHTML =
+      `<polyline fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" points="${pts.join(" ")}"></polyline>` +
+      `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="1.8" fill="${color}"></circle>`;
+  },
+
+  setBar(fillEl, jobEl, percent, jobPercent) {
+    const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+    fillEl.style.width = pct.toFixed(1) + "%";
+    fillEl.className = "bf-meter-fill " + this.level(pct);
+    if (jobEl) {
+      const job = Math.max(0, Math.min(100, Number(jobPercent) || 0));
+      jobEl.style.width = job.toFixed(1) + "%";
+    }
+  },
+
+  apply(s) {
+    if (!s || s.ram_percent == null && s.cpu_percent == null) {
+      return false;
+    }
+    const cpuFill = document.getElementById("bf-cpu-fill");
+    const ramFill = document.getElementById("bf-ram-fill");
+    const cpuVal = document.getElementById("bf-cpu-val");
+    const ramVal = document.getElementById("bf-ram-val");
+    if (!cpuFill || !ramFill) {
+      return false;
+    }
+
+    this.push("cpu", s.cpu_percent);
+    this.push("ram", s.ram_percent);
+    this.setBar(cpuFill, document.getElementById("bf-cpu-job"), s.cpu_percent, s.job_cpu_percent);
+    this.setBar(
+      ramFill,
+      document.getElementById("bf-ram-job"),
+      s.ram_percent,
+      s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
+    );
+
+    if (cpuVal) {
+      cpuVal.classList.remove("is-missing");
+      const jobBit = s.running && s.job_cores != null
+        ? ` · <span class="job">job ${s.job_cores}/${s.cpu_count} cores</span>`
+        : "";
+      cpuVal.innerHTML = `${Number(s.cpu_percent || 0).toFixed(1)}%${jobBit}`;
+    }
+    if (ramVal) {
+      ramVal.classList.remove("is-missing");
+      const jobBit = s.running && s.job_rss_gb != null
+        ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
+        : "";
+      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
+    }
+    this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
+    this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
+    return true;
+  },
+
+  markWaiting(el, msg) {
+    if (!el) {
+      return;
+    }
+    el.classList.add("is-missing");
+    el.textContent = msg || "waiting…";
+  },
+
+  async tick() {
+    if (document.hidden) {
+      return;
+    }
+    const cpuVal = document.getElementById("bf-cpu-val");
+    const ramVal = document.getElementById("bf-ram-val");
+    try {
+      let payload = null;
+      const stamp = Date.now();
+      for (const url of [
+        "/sys_stats",
+        "/bactflow_status",
+        `/static/sys_stats.json?t=${stamp}`
+      ]) {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) {
+            continue;
+          }
+          const data = await res.json();
+          if (data && (data.cpu_percent != null || data.ram_percent != null)) {
+            payload = data;
+            break;
+          }
+        } catch (err) {
+          continue;
+        }
+      }
+      if (!this.apply(payload)) {
+        throw new Error("no stats fields");
+      }
+    } catch (err) {
+      this.markWaiting(cpuVal);
+      this.markWaiting(ramVal);
+    }
+  }
+};
+
+window.BactflowMeters = BactflowMeters;
+
+document.addEventListener("DOMContentLoaded", () => {
+  BactflowTerminal.init();
+  BactflowMeters.init();
+});

@@ -72,6 +72,103 @@
 .bf-status.is-error { color: #f14c4c; }
 .bf-status.is-run { color: #4fc1ff; }
 
+.bf-meters {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  padding: 8px 14px 9px;
+}
+
+.bf-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 7px;
+}
+
+.bf-meter:last-child {
+  margin-bottom: 0;
+}
+
+.bf-meter-label {
+  flex: 0 0 36px;
+  color: #9cdcfe;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.bf-meter-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 80px;
+  height: 10px;
+  background: #111;
+  border: 1px solid #3c3c3c;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bf-meter-fill,
+.bf-meter-job {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.35s ease, background-color 0.25s ease;
+}
+
+.bf-meter-fill { background: #4fc1ff; }
+.bf-meter[data-kind="ram"] .bf-meter-fill { background: #c586c0; }
+.bf-meter-fill.is-warn { background: #dcdcaa; }
+.bf-meter-fill.is-hot { background: #f14c4c; }
+
+.bf-meter-job {
+  background: repeating-linear-gradient(
+    -55deg,
+    rgba(255, 255, 255, 0.45),
+    rgba(255, 255, 255, 0.45) 3px,
+    rgba(255, 255, 255, 0.12) 3px,
+    rgba(255, 255, 255, 0.12) 6px
+  );
+}
+
+.bf-meter-val {
+  flex: 0 0 auto;
+  min-width: 140px;
+  color: #d4d4d4;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bf-meter-val.is-missing {
+  color: #f14c4c;
+}
+
+.bf-meter-val .job {
+  color: #e5c07b;
+}
+
+.bf-spark {
+  flex: 0 0 120px;
+  width: 120px;
+  height: 24px;
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .bf-spark {
+    display: none;
+  }
+}
+
 .bf-terminal-body {
   background: #1e1e1e !important;
   color: #d4d4d4 !important;
