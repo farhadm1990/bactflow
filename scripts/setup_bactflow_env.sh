@@ -19,6 +19,7 @@ else
 fi
 
 bash "${ROOT_DIR}/scripts/install_bactflow_hooks.sh" "${ENV_NAME}"
+bash "${ROOT_DIR}/scripts/install_bakta_deps.sh" "${ENV_NAME}" || true
 
 echo ""
 echo "Done. Use: conda activate ${ENV_NAME}"

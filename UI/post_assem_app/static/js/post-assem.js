@@ -34,6 +34,9 @@ function connectToStream(action){
   };
 
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
+  if (window.BactflowMeters) {
+    BactflowMeters.attachStream(eventSource);
+  }
   
   eventSource.onmessage = (event) =>{
     logBuffer.push(event.data);
@@ -45,11 +48,13 @@ function connectToStream(action){
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
     flushLog();
+    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
     BactflowTerminal.append("Stream disconnected.", true);
     BactflowTerminal.setStatus("Stream disconnected", "warn");
     eventSource.close();
     eventSource = null;
     updateButtonStates("stopped");
+    refreshCircularPlotButton();
   };
 }
 
@@ -195,30 +200,58 @@ function run_wf(action){
   }
 }
 
-document.getElementById("postForm").addEventListener("submit", (e) => {
- e.preventDefault();
- BactflowTerminal.clear();
+document.addEventListener("DOMContentLoaded", function () {
+  const postForm = document.getElementById("postForm");
+  if (!postForm) {
+    return;
+  }
 
-  const action = e.submitter.value;
+  postForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    BactflowTerminal.clear();
 
-  document.getElementById('run-bt').disabled = true;
-  document.getElementById('stop-bt').disabled = false; 
-  document.getElementById('help-bt').disabled = true;
+    const action = e.submitter.value;
 
-  run_wf(action);
+    document.getElementById("run-bt").disabled = true;
+    document.getElementById("stop-bt").disabled = false;
+    document.getElementById("help-bt").disabled = true;
+
+    run_wf(action);
+  });
+
+  restoreFormData(); //from local storage
+
+  postForm.addEventListener("input", () => {
+    saveFormData();
+  });
+
+  const outDirInput = document.getElementById("out_dir");
+  if (outDirInput) {
+    outDirInput.addEventListener("change", refreshCircularPlotButton);
+    outDirInput.addEventListener("blur", refreshCircularPlotButton);
+  }
+
+  const baktaSel = document.getElementById("bakta_annot");
+  if (baktaSel) {
+    baktaSel.addEventListener("change", updateBaktaUI);
+  }
+
+  updateBaktaUI();
 });
 
-// saving inputs in the local storage to prevent refereshing
 function restoreFormData(){
   let savedData = localStorage.getItem("bactflowFormData");
   if(savedData){
     let formData = JSON.parse(savedData);
     let form = document.getElementById("postForm");
-    
-    Array.from(form.elemnts).forEach(function (element){
+    if (!form) {
+      return;
+    }
+
+    Array.from(form.elements).forEach(function (element){
       if (element.name && formData[element.name] !== undefined ) {
-        if (elemnt.type === "checkbox" || elemnt.type === "radio"){
-          elemnt.checked = formData[element.name];
+        if (element.type === "checkbox" || element.type === "radio"){
+          element.checked = formData[element.name];
         } else {
           element.value = formData[element.name];
         }
@@ -227,15 +260,13 @@ function restoreFormData(){
   }
 }
 
-
-
 function saveFormData(){
   let form = document.getElementById("postForm");
   let formData = {};
 
-  Array.from(form.elemnts).forEach(function (element){
+  Array.from(form.elements).forEach(function (element){
     if (element.name) {
-      if(element.name === "checkbox" || element.type === "radio"){
+      if (element.type === "checkbox" || element.type === "radio"){
         formData[element.name] = element.checked;
       } else {
         formData[element.name] = element.value;
@@ -249,16 +280,121 @@ function clearFormData(){
   localStorage.removeItem("bactflowFormData");
 }
 
+function showChildPanel(childId, visible) {
+  const childDiv = document.getElementById(childId);
+  if (!childDiv) {
+    return;
+  }
+  if (childId === "genetype") {
+    childDiv.style.display = visible ? "flex" : "none";
+  } else {
+    childDiv.style.display = visible ? "block" : "none";
+  }
+}
 
+let baktaReadyPoll = null;
 
+function stopBaktaReadyPoll() {
+  if (baktaReadyPoll) {
+    clearInterval(baktaReadyPoll);
+    baktaReadyPoll = null;
+  }
+}
 
-document.addEventListener("DOMContentLoaded", function(){
-  restoreFormData(); //from local storage
+function startBaktaReadyPoll() {
+  stopBaktaReadyPoll();
+  baktaReadyPoll = setInterval(() => {
+    const baktaSel = document.getElementById("bakta_annot");
+    const circBtn = document.getElementById("circ-plot-bt");
+    if (!baktaSel || baktaSel.value !== "true") {
+      stopBaktaReadyPoll();
+      return;
+    }
+    if (circBtn && !circBtn.disabled) {
+      stopBaktaReadyPoll();
+      return;
+    }
+    refreshCircularPlotButton();
+  }, 5000);
+}
 
-  document.getElementById("postForm").addEventListener("input", () =>{
-    saveFormData();
-  });
-});
+function updateBaktaUI() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circularDiv = document.getElementById("circular-div");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!baktaSel) {
+    return;
+  }
+
+  const enabled = baktaSel.value === "true";
+  showChildPanel("bakta_dbDiv", enabled);
+  showChildPanel("genetype", enabled);
+  if (circularDiv) {
+    circularDiv.style.display = enabled ? "block" : "none";
+  }
+
+  if (!enabled) {
+    stopBaktaReadyPoll();
+    if (circBtn) {
+      circBtn.disabled = true;
+    }
+    if (circHint) {
+      circHint.textContent = "Enable Bakta annotation to use the circular plot.";
+    }
+    const circDiv = document.getElementById("circDiv");
+    if (circDiv) {
+      circDiv.style.display = "none";
+    }
+    return;
+  }
+
+  if (circBtn) {
+    circBtn.disabled = true;
+  }
+  if (circHint) {
+    circHint.textContent = "Run BactFlow with Bakta enabled. The button activates when .gbk files are ready.";
+  }
+  refreshCircularPlotButton();
+  startBaktaReadyPoll();
+}
+
+async function refreshCircularPlotButton() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!circBtn || !baktaSel || baktaSel.value !== "true") {
+    return;
+  }
+
+  circBtn.disabled = true;
+  if (circHint) {
+    circHint.textContent = "Checking for Bakta results…";
+  }
+
+  const form = document.getElementById("postForm");
+  const formData = new FormData(form);
+
+  try {
+    const res = await fetch("/check-bakta-ready", { method: "POST", body: formData });
+    const data = await res.json();
+    const ready = data.ready === true;
+    circBtn.disabled = !ready;
+    if (circHint) {
+      circHint.textContent = ready
+        ? `Bakta results found (${data.gbk_count || 0} .gbk file(s)). You can create the plot.`
+        : (data.message || "Run BactFlow with Bakta enabled first.");
+    }
+    if (ready) {
+      stopBaktaReadyPoll();
+    }
+  } catch (error) {
+    circBtn.disabled = true;
+    if (circHint) {
+      circHint.textContent = "Could not check Bakta results.";
+    }
+  }
+}
 
 // function to show quast
 
@@ -308,15 +444,13 @@ function showReport(){
         baktaDiv.style.display = "none";
       }
 
-      // circular genome
-      if(circPlt.plot){
+      refreshCircularPlotButton();
+
+      // circular genome (display only if already generated)
+      if (circPlt.plot) {
         circDiv.style.display = "block";
-        circSpin.style.display = 'block';
-        circReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.warn("⏳ Circular plot not available yet...");
-        circDiv.style.display = "none";
+        circSpin.style.display = "none";
+        document.getElementById("circularImg").src = circPlt.plot;
       }
 
       // taxonomy
@@ -468,6 +602,63 @@ async function baktaReport() {
   } catch (error) {
     console.error("❌ Error fetching Bakta report:", error);
     alert("An error occurred while fetching the Bakta report.");
+  }
+}
+
+async function createCircularPlot() {
+  const form = document.getElementById("postForm");
+  const formData = new FormData(form);
+  const circBtn = document.getElementById("circ-plot-bt");
+
+  if (circBtn && circBtn.disabled) {
+    await refreshCircularPlotButton();
+    if (circBtn.disabled) {
+      const hint = document.getElementById("circ-plot-hint");
+      alert(hint?.textContent || "Bakta annotation results are not available yet.");
+      return;
+    }
+  }
+
+  formData.append("generate", "true");
+
+  const circDiv = document.getElementById("circDiv");
+  const circSpin = document.getElementById("spin-circ");
+  const circImg = document.getElementById("circularImg");
+
+  circDiv.style.display = "block";
+  circSpin.style.display = "flex";
+  circImg.style.display = "none";
+  if (circBtn) {
+    circBtn.disabled = true;
+    circBtn.textContent = "Creating plot…";
+  }
+
+  try {
+    const circRes = await fetch("/circular", { method: "POST", body: formData });
+    if (!circRes.ok) {
+      throw new Error(`HTTP ${circRes.status}`);
+    }
+
+    const circData = await circRes.json();
+    circSpin.style.display = "none";
+
+    if (circData.plot) {
+      circImg.src = circData.plot;
+      circImg.style.display = "block";
+    } else if (circData.reason === "no_bakta_dir") {
+      alert("Bakta annotation output not found. Run BactFlow with Bakta enabled first.");
+    } else {
+      alert(circData.error || "Could not create the circular plot.");
+    }
+  } catch (error) {
+    circSpin.style.display = "none";
+    console.error("Error creating circular plot:", error);
+    alert("An error occurred while creating the circular plot.");
+  } finally {
+    if (circBtn) {
+      circBtn.disabled = false;
+      circBtn.textContent = "Create circular plot";
+    }
   }
 }
 
@@ -857,10 +1048,3 @@ toggler("tax_class", "gtdbtk_dbDiv")
 
 //checkm
 toggler("run_checkm", "checkm_dbDiv")
-
-//bakta 
-toggler("bakta_annot", childID = "bakta_dbDiv")
-
-//genetype 
-
-toggler("bakta_annot", "genetype")

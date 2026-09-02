@@ -198,7 +198,7 @@ case "${MODULE}" in
         IMAGE="bactflow/postassem:local"
         DOCKERFILE="${SCRIPT_DIR}/UI/post_assem_app/Dockerfile"
         BUILD_CONTEXT="${SCRIPT_DIR}/UI/post_assem_app"
-        FALLBACK_IMAGE="farhadm1990/bactflow_postassem:v0.01"
+        FALLBACK_IMAGE="farhadm1990/bactflow_postassem:v1.0"
         DEFAULT_CPUS="10"
         DEFAULT_MEMORY="16g"
         CONTAINER_PORT="5001"

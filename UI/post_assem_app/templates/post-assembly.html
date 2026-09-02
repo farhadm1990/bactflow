@@ -120,13 +120,13 @@
               </div>
 
               
-              <div class="mb-3" id="bakta_dbDiv">
+              <div class="mb-3" id="bakta_dbDiv" style="display: none;">
                 <label for="bakta_data_path" class="form-label">Database directory for BAKTA</label>
                 <div class="input-group">
                   <input
                   type="text"
                   class="form-control"
-                  id="filePicker"
+                  id="bakta_db_path"
                   name="bakta_data_path"
                   placeholder="/path/to/bakta_db"
                   webkitdirectory
@@ -136,7 +136,7 @@
                 </div>
               </div>
               <br>
-              <div id="genetype" style="flex-direction: column; width: 50%">
+              <div id="genetype" style="display: none; flex-direction: column; width: 50%">
                 <label for="geneTypeSelect">Select <strong>Gene Types</strong> for the count table</label>
                 <br>
                 <select class="form-select" multiple size="5" aria-label="Default select example" name="gene_type" style="background-color: rgb(255, 230, 0);" id="geneType">
@@ -152,7 +152,7 @@
               <br>
               <hr>
              
-              <div id="circular-div" style="background-color: rgb(231, 243, 252); padding: 6px; border-radius: 2px;">
+              <div id="circular-div" style="display: none; background-color: rgb(231, 243, 252); padding: 6px; border-radius: 2px;">
                 <h6>Tunning parameters for the cirular gemome plot</h6>
                 <br>
                 <label for="add_gc">Add GC content to the circular genome?</label>
@@ -179,7 +179,11 @@
                   <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c" title="Choose forward color">
                   <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3" title="Choose reverse color">
                 </div>
-                
+                <br>
+                <button type="button" class="btn btn-primary w-100" id="circ-plot-bt" onclick="createCircularPlot()" disabled>
+                  Create circular plot
+                </button>
+                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled to generate annotation files first.</p>
 
               </div>
               
@@ -729,8 +733,8 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=meters2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-post1"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=bakta-ui1"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

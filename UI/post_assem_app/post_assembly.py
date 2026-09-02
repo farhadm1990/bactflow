@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import sys, subprocess, importlib, os, shlex
+import pty
+import select
 from flask import Flask, render_template, request, redirect, Response, send_from_directory, stream_with_context, jsonify, render_template_string
 import json
 from datetime import datetime, timezone
@@ -37,7 +39,7 @@ echo "Using Java for Nextflow: $JAVA_CMD"
 "$JAVA_CMD" -version
 echo "Using Nextflow: $BACTFLOW_NEXTFLOW_BIN"
 "$BACTFLOW_NEXTFLOW_BIN" -version
-export NXF_ANSI_LOG=false
+export NXF_ANSI_LOG=true
 """
 
 
@@ -79,36 +81,136 @@ process_status = manager.dict({"pid": None, "running": False})
 output_queue = Queue()
 output_history = manager.list() # to store output history 
 
-def run_bact(command, process_status, output_queue, output_history):
+def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
+    """Forward completion lines from .nextflow.log (PTY stream often misses them)."""
+    log_path = os.path.join(work_root, ".nextflow.log")
+    pos = 0
+    skip_re = re.compile(
+        r"\[Task monitor\]|TaskPollingMonitor|\bDEBUG\b",
+        re.IGNORECASE,
+    )
+    done_re = re.compile(
+        r"✔|Executor finished|\[100%\].*of",
+        re.IGNORECASE,
+    )
+    while not stop_event.is_set():
+        if os.path.isfile(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                    handle.seek(pos)
+                    chunk = handle.read()
+                    pos = handle.tell()
+            except OSError:
+                chunk = ""
+            for raw in chunk.splitlines():
+                line = clean_log_line(raw)
+                if not line or line in seen_lines:
+                    continue
+                if skip_re.search(line):
+                    continue
+                if done_re.search(line) or (
+                    re.search(r"\[[0-9a-f/]+\]", line, re.I)
+                    and re.search(r"process\s+>", line, re.I)
+                    and re.search(r"\[\s*\d+%\]", line)
+                ):
+                    seen_lines.add(line)
+                    output_queue.put(line)
+        stop_event.wait(0.8)
+
+
+def run_bact(command, process_status, output_queue, output_history, work_root=None):
     """Function to run bactflow"""
 
-
-    process_status["running"]=True
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        executable="/bin/bash",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-    process_status["pid"]=process.pid
-    output_history[:] = []
+    process_status["running"] = True
     history_cap = 1500
-    for line in iter(process.stdout.readline, ""):
-        line = clean_log_line(line)
-        if not line:
-            continue
-        output_queue.put(line)
-        output_history.append(line)
-        if len(output_history) >= history_cap + 250:
-            del output_history[0:250]
+    output_history[:] = []
+    seen_lines = set()
+    stop_event = threading.Event()
+    log_thread = None
+    if work_root:
+        log_thread = threading.Thread(
+            target=_tail_nextflow_log,
+            args=(work_root, output_queue, stop_event, seen_lines),
+            daemon=True,
+        )
+        log_thread.start()
 
-    process.stdout.close()
-    process.wait()
+    master_fd, slave_fd = pty.openpty()
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            executable="/bin/bash",
+            stdout=slave_fd,
+            stderr=slave_fd,
+            stdin=slave_fd,
+            close_fds=True,
+        )
+    finally:
+        os.close(slave_fd)
+
+    process_status["pid"] = process.pid
+    buffer = ""
+
+    while True:
+        if process.poll() is not None:
+            try:
+                while True:
+                    chunk = os.read(master_fd, 4096).decode(errors="replace")
+                    if not chunk:
+                        break
+                    buffer += chunk
+            except OSError:
+                pass
+            break
+
+        ready, _, _ = select.select([master_fd], [], [], 0.2)
+        if master_fd in ready:
+            try:
+                chunk = os.read(master_fd, 4096).decode(errors="replace")
+            except OSError:
+                chunk = ""
+            if not chunk:
+                break
+            buffer += chunk
+
+        while buffer:
+            split_at = len(buffer)
+            for sep in ("\n", "\r"):
+                idx = buffer.find(sep)
+                if idx != -1:
+                    split_at = min(split_at, idx)
+            if split_at == len(buffer):
+                break
+            line = clean_log_line(buffer[:split_at])
+            buffer = buffer[split_at + 1 :]
+            if not line:
+                continue
+            output_queue.put(line)
+            output_history.append(line)
+            if len(output_history) >= history_cap + 250:
+                del output_history[0:250]
+
+    if buffer.strip():
+        line = clean_log_line(buffer)
+        if line:
+            output_queue.put(line)
+            output_history.append(line)
+
+    os.close(master_fd)
+    exit_code = process.wait()
+    stop_event.set()
+    if log_thread:
+        log_thread.join(timeout=2)
+
+    if exit_code == 0:
+        output_queue.put("BactFlow: Nextflow finished successfully.")
+    else:
+        output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
+
     process_status["running"] = False
-    process_status['pid'] = None
+    process_status["pid"] = None
+    return exit_code
 
 
 # run bactflow
@@ -143,42 +245,48 @@ def run_bactflow():
             bakta_db = request.form.get("bakta_data_path", "")
             command = None
 
-            command = f"""if [ ! -d {out_dir} ]; then mkdir -p {out_dir}; fi && 
-                    nextflow run {base_dir}/main.nf \
-                    --setup_only {setup_only} \
-                    --cpus {cpus} \
-                    --out_dir {out_dir} \
-                    --genome_extension {genome_extension} \
-                    --checkm_lineag_check {checkm_lineag_check} \
-                    --run_flye false \
-                    --circle_genome {circle_genome} \
-                    --tax_class {tax_class} \
-                    --run_checkm {run_checkm} \
-                    --checkm_db {checkm_db} \
-                    --bakta_annot {run_bakta} \
-                    --bakta_db {bakta_db} \
-                    --gtdbtk_data_path {gtdbtk_data_path} \
-                    --run_quast {run_quast} \
-                    --genome_dir {genome_dir} \
-                    -ansi-log false"""
+            command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
+                    nextflow run {base_dir}/main.nf \\
+                    --setup_only {setup_only} \\
+                    --cpus {cpus} \\
+                    --out_dir '{out_dir}' \\
+                    --genome_extension {genome_extension} \\
+                    --checkm_lineag_check {checkm_lineag_check} \\
+                    --run_flye false \\
+                    --circle_genome {circle_genome} \\
+                    --tax_class {tax_class} \\
+                    --run_checkm {run_checkm} \\
+                    --checkm_db '{checkm_db}' \\
+                    --bakta_annot {run_bakta} \\
+                    --bakta_db '{bakta_db}' \\
+                    --gtdbtk_data_path '{gtdbtk_data_path}' \\
+                    --run_quast {run_quast} \\
+                    --genome_dir '{genome_dir}' \\
+                    -ansi-log true"""
             if resume_run:
                 command = command + " -resume"
-            else:
-                command = command
             command = with_nextflow_java(command)
                 
             output_history[:] = []
             
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history))
+            back_process = Process(
+                target=run_bact,
+                args=(command, process_status, output_queue, output_history, base_dir),
+            )
             back_process.start()
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            command = with_nextflow_java(f"nextflow run {base_dir}/main.nf --help -ansi-log false")
+            command = with_nextflow_java(
+                f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
+            )
             output_history[:] = []
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history))
+            back_process = Process(
+                target=run_bact,
+                args=(command, process_status, output_queue, output_history, base_dir),
+            )
             back_process.start()
             
             command = None
@@ -473,10 +581,37 @@ def check_bakta():
     else:
         return jsonify({"exists": False, "error": "Bakta annotation directory doesn't exist!"}), 400
 
+@app.route("/check-bakta-ready", methods=["POST"])
+def check_bakta_ready():
+    """Lightweight check for circular-plot input (.gbk files in bakta_out)."""
+    out_dir = request.form.get("out_dir", "").strip()
+    if not out_dir:
+        return jsonify({
+            "ready": False,
+            "message": "Set an output directory first."
+        })
+
+    bakta_path = os.path.join(out_dir, "bakta_out")
+    if not os.path.isdir(bakta_path):
+        return jsonify({
+            "ready": False,
+            "message": "No Bakta output yet. Run BactFlow with Bakta enabled."
+        })
+
+    gbk_files = glob.glob(os.path.join(bakta_path, "**", "*.gbk"), recursive=True)
+    if gbk_files:
+        return jsonify({"ready": True, "gbk_count": len(gbk_files)})
+
+    return jsonify({
+        "ready": False,
+        "message": "Bakta output exists but no .gbk files were found. Check the Bakta run log for errors."
+    })
+
 # circular
 @app.route("/circular", methods=["POST"])
 def circular():
     out_dir = request.form.get("out_dir")
+    generate = str(request.form.get("generate", "false")).lower() == "true"
     gbk_dir = os.path.join(out_dir, "bakta_out")
     crc_plt = os.path.join(out_dir, "circular_plot.png")
     params_file = os.path.join(out_dir, "circular_plot_params.json")  
@@ -504,18 +639,15 @@ def circular():
         except (json.JSONDecodeError, IOError) as e:
             print(f"Error reading params file for the plot: {e}")
     
-    # if os.path.exists(params_file):
-    #     with open(params_file, "r") as f:
-    #         last_params = json.load(f)
-    # else:
-    #     last_params = {}
+    needs_regen = not os.path.exists(crc_plt) or params != last_params
 
+    if needs_regen and not generate:
+        return jsonify({"plot": False, "reason": "not_generated"}), 200
 
-
-    if not os.path.exists(crc_plt) or params != last_params:
+    if needs_regen:
         print("🔄 Parameters changed or plot missing. Regenerating plot...")
         if not os.path.isdir(gbk_dir):
-            return jsonify({"plot": False, "reason": "no_bakta_dir"}), 200  # keep polling
+            return jsonify({"plot": False, "reason": "no_bakta_dir"}), 200
         try:
             with open(params_file, "w") as f:
                 json.dump(params, f, indent=4)

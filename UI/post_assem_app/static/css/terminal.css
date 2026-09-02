@@ -190,6 +190,30 @@
   margin: 0;
 }
 
+.log-eta {
+  color: #e5c07b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.log-eta.is-done {
+  color: #89d185;
+}
+
+.log-eta.is-wait {
+  color: #9cdcfe;
+  font-weight: 500;
+}
+
+.log-proc-name {
+  color: #4fc1ff;
+  font-weight: 700;
+}
+
+.log-line .log-text {
+  color: inherit;
+}
+
 .log-error { color: #f14c4c; }
 .log-warn { color: #dcdcaa; }
 .log-ok { color: #89d185; }
