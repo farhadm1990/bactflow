@@ -5,7 +5,7 @@
 {% block title %} Pre-assembly  {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}?v=vis4">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -88,7 +88,16 @@
               <h6 class="mb-0">Raw Read Parameters</h6>
             </div>
             <div class="card-body">
-              
+
+              <div class="mb-3">
+                <label for="read_platform" class="form-label">Read type</label>
+                <select class="form-select" id="read_platform" name="read_platform">
+                  <option value="auto" selected>Auto-detect</option>
+                  <option value="ont">ONT (long reads)</option>
+                  <option value="illumina">Illumina (short reads)</option>
+                </select>
+              </div>
+
               <div class="mb-3">
                 <label for="fastq_dir" class="form-label">FASTQ Directory</label>
                 <div class="input-group">
@@ -101,16 +110,18 @@
                   webkitdirectory
                   directory
                   />
-               
                 </div>
               </div>
-              <div class="mb-3">
+
+              <div class="mb-3" id="concatReadsGroup">
                 <label for="concat_reads" class="form-label">Concat Reads</label>
                 <select class="form-select" id="concat_reads" name="concat_reads">
                   <option value="true" selected>True</option>
                   <option value="false">False</option>
                 </select>
+                <div class="form-text">Use this for ONT barcode folders that still need pooling.</div>
               </div>
+
               <div class="mb-3">
                 <label for="extension" class="form-label">Extension</label>
                 <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
@@ -125,6 +136,29 @@
                 <label for="out_dir" class="form-label">Output Directory</label>
                 <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out" value="./bactflow_out"/>
               </div>
+
+              <div id="illuminaFilterGroup" style="display: none;">
+                <hr>
+                <h6>Illumina length &amp; quality filter</h6>
+                <div class="mb-3">
+                  <label for="illumina_filter" class="form-label">Filter Illumina reads</label>
+                  <select class="form-select" id="illumina_filter" name="illumina_filter">
+                    <option value="false" selected>False</option>
+                    <option value="true">True</option>
+                  </select>
+                </div>
+                <div id="illuminaFilterParams" style="display: none;">
+                  <div class="mb-3">
+                    <label for="illumina_min_length" class="form-label">Minimum read length</label>
+                    <input type="number" class="form-control" id="illumina_min_length" name="illumina_min_length" value="50" min="1"/>
+                  </div>
+                  <div class="mb-3">
+                    <label for="illumina_min_quality" class="form-label">Minimum average quality</label>
+                    <input type="number" class="form-control" id="illumina_min_quality" name="illumina_min_quality" value="20" min="1" step="0.1"/>
+                  </div>
+                  <div class="form-text">Paired R1/R2 files are filtered together and unpaired reads are dropped.</div>
+                </div>
+              </div>
             </div>
           </div>
   
@@ -137,6 +171,7 @@
         <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
           <div class="btn-group" style="justify-content: center; display: flex;">
             <button type="button" class="btn btn-info" onclick="catFastq()" id="read-cat" name="action-assem" value="stats"><strong>Initiate read cat</strong></button>
+              <button type="button" class="btn btn-warning" onclick="filterIllumina()" id="illumina-filter-bt" name="action-assem" value="filter" style="display: none;"><strong>Filter Illumina reads</strong></button>
               <button type="button" class="btn btn-secondary" onclick="read_stat()" id="read-stat" name="action-assem" value="stats"><strong>Display read statistics</strong></button>
               <button type="button" class="btn btn-success" onclick="read_vis()" name="action-assem" value="vis" id="vis-bt"><strong>Visualize reads</strong></button>
               
@@ -199,9 +234,6 @@
         
         <div id="seq-div" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
           <br>
-          
-          
-
           <h4 class="text-left mb-3">Read statistics <strong>(SeqKit)</strong></h4>
           <div id="output-seqkit" style="border: 1px solid rgb(105, 105, 105);
                 padding: 10px;
@@ -212,23 +244,31 @@
                 white-space: pre-wrap;
                 background-color: #ffffff;
                 color: darkslategrey;">
-             
-          
           </div>
           <br>
-          
-          
-          <br>
-        
         </div>
         <div class="container mt-3" id="threhold-input" style="display: none;">
           <label for="customRange1" class="form-label">Choose read depth <strong>threshold</strong>: <span id="depth-value" style="font-weight: bold; color: brown;"><strong>1000</strong></span></label>
           <input type="range" class="form-range" id="depth-slider" min="0" max="10000000" step="1000" value="1000">
-    
         </div>
     
         <br>
-          <!-- plot output -->
+        <div id="vis-error" class="bf-plot-error" style="display: none;"></div>
+        <div id="spin-vis" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 80px;  align-items: center;">
+          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #9d4b3b;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <h3 style="color: rgb(43, 122, 226);">Visualization is in progress, please be patient...</h3>
+        </div>
+
+        <div class="bf-plot-bar" id="bar-qual-plot" style="display: none;">
+          <span class="bf-plot-bar-title">Read quality box plot</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPlot('qual-plot','read_quality_boxplot','png')">Download PNG</button>
+            <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-plot','read_quality_boxplot','svg')">Download SVG</button>
+          </div>
+        </div>
         <div id="qual-plot" style="border: 1px solid rgb(105, 105, 105);
                 padding: 10px;
                 margin: 10px;
@@ -240,19 +280,6 @@
                 white-space: pre-wrap;
                 background-color: #ffffff;
                 color: darkslategrey;">
-             
-
-        <div id="spin-vis" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
-        <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #9d4b3b;"> 
-        <span class="visually-hidden">Loading...</span>
-      </div>
-      <br>
-      <br>
-      <h3 style="color: rgb(43, 122, 226);">Visualization is in progress, please be patient...</h3>
-        </div>
-            
-             
-          
         </div>
         <br>
         <!-- sliders for first plot -->
@@ -280,6 +307,13 @@
       
           <br>
           <!-- heatmap column -->
+          <div class="bf-plot-bar" id="bar-qual-heat-plot" style="display: none;">
+            <span class="bf-plot-bar-title">Read length vs quality (per sample)</span>
+            <div class="bf-plot-bar-actions">
+              <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPlot('qual-heat-plot','read_length_quality_heatmap','png')">Download PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-heat-plot','read_length_quality_heatmap','svg')">Download SVG</button>
+            </div>
+          </div>
           <div id="qual-heat-plot" style="border: 1px solid rgb(105, 105, 105);
           padding: 10px;
           margin: 10px;
@@ -291,8 +325,6 @@
           white-space: pre-wrap;
           background-color: #ffffff;
           color: darkslategrey;">
-       
-    
           </div>
           <br>
 
@@ -320,7 +352,14 @@
       </div>
         <br>
 
-          <!-- heatmap column -->
+          <!-- heatmap pooled -->
+          <div class="bf-plot-bar" id="bar-qual-heat-pool-plot" style="display: none;">
+            <span class="bf-plot-bar-title">Read length vs quality (pooled)</span>
+            <div class="bf-plot-bar-actions">
+              <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPlot('qual-heat-pool-plot','read_length_quality_pooled','png')">Download PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-heat-pool-plot','read_length_quality_pooled','svg')">Download SVG</button>
+            </div>
+          </div>
           <div id="qual-heat-pool-plot" style="border: 1px solid rgb(105, 105, 105);
           padding: 10px;
           margin: 10px;
@@ -332,8 +371,6 @@
           white-space: pre-wrap;
           background-color: #ffffff;
           color: darkslategrey;">
-       
-    
           </div>
           <br>
           <!-- sliders for first plot -->
@@ -371,7 +408,7 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=vis4"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

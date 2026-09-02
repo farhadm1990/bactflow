@@ -5,6 +5,6 @@
 .git
 .gitignore
 *.md
-Dockerfile
-.dockerignore
+work
+**/.nextflow*
 illumina_pair_finder.sh

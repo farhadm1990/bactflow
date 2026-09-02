@@ -43,6 +43,8 @@ docker run hello-world
 
 ## Docker (recommended): `bactflow.sh`
 
+Images for **preassem** and **assem** are built locally from this repo (slim env + a conda stub so existing scripts keep working). The first run compiles the image; later runs reuse it unless you pass `--rebuild`.
+
 Provide a module name (`preassem`, `assem`, or `postassem`) and an **absolute** path to your working directory. Docker can only read and write inside that path, so your FASTQ folders, genome folders, databases (or symlinks to them), and `--out_dir` must all live under it.
 
 ```sh
@@ -51,11 +53,13 @@ Provide a module name (`preassem`, `assem`, or `postassem`) and an **absolute** 
 ./bactflow.sh postassem /home/user/work_dir
 ```
 
-Optional flags: `--cpus`, `--memory`, `--port`, `--no-browser`.
+Optional flags: `--cpus`, `--memory`, `--port`, `--no-browser`, `--rebuild`.
 
 ```sh
 ./bactflow.sh assem /home/user/work_dir --cpus 16 --memory 32g --port 5002
 ```
+
+The assembly image includes Flye, SPAdes, Unicycler, Circlator, and QUAST. Medaka polish, Bakta, GTDB-Tk, and CheckM stay in the local conda env / post-assembly module so the assembly image stays small.
 
 <div style="text-align: center; margin-top: 10;">
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>

@@ -1,0 +1,17 @@
+.git
+**/.git
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.nextflow
+**/.nextflow*
+**/work
+UI/assem_app/work
+UI/pre_assem_app/work
+UI/post_assem_app/work
+**/bactflow_out
+**/.bactflow-home
+*.md
+logo
+pix

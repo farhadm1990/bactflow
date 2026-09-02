@@ -27,6 +27,7 @@ import re
 
 
 base_dir = os.path.abspath(os.path.dirname(__file__))# we can have access to all files from everywhere
+IN_DOCKER = os.environ.get("BACTFLOW_IN_DOCKER") == "1" or os.path.exists("/.dockerenv")
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
@@ -578,5 +579,13 @@ def contig_report():
     return jsonify({"error": "QUAST contig viewer not found"}), 404
 
 if __name__ == '__main__':
-    Timer(1, open_browser).start()
-    app.run(debug = True, port = 5002, host = "0.0.0.0",  use_reloader = False, threaded=True)#set use_reloader to true during developement 
+    skip_browser = IN_DOCKER or os.environ.get("BACTFLOW_NO_BROWSER") == "1"
+    if not skip_browser:
+        Timer(1, open_browser).start()
+    app.run(
+        debug=not skip_browser,
+        port=5002,
+        host="0.0.0.0",
+        use_reloader=False,
+        threaded=True,
+    ) 

@@ -118,3 +118,63 @@ table.dataTable thead th {
 #read-fastq tr:hover {
     background-color: #ddd;
 }
+
+.bf-plot-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 98%;
+    margin: 10px 10px 0;
+    padding: 8px 12px;
+    background: #f4f6f7;
+    border: 1px solid #696969;
+    border-bottom: 0;
+    box-sizing: border-box;
+}
+
+.bf-plot-bar-title {
+    font-weight: 600;
+    color: #2f4f4f;
+}
+
+.bf-dl-png,
+.bf-dl-svg {
+    border: 0;
+    color: #fff;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+}
+
+.bf-dl-png {
+    background: #12b5a8;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.bf-dl-png:hover,
+.bf-dl-png:focus {
+    background: #0e968c;
+    color: #fff;
+}
+
+.bf-dl-svg {
+    background: #ee6c4d;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.bf-dl-svg:hover,
+.bf-dl-svg:focus {
+    background: #d45a3e;
+    color: #fff;
+}
+
+.bf-plot-error {
+    margin: 10px;
+    padding: 12px;
+    width: 98%;
+    box-sizing: border-box;
+    color: #8b1e1e;
+    background: #fdeeee;
+    border: 1px solid #e0a0a0;
+}

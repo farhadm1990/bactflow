@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Minimal conda CLI so BactFlow scripts keep working in Docker
+# (the runtime env is already on PATH; there is no full Conda install).
+set -euo pipefail
+
+CONDA_BASE="/opt/conda"
+CONDA_ENV="${CONDA_BASE}/envs/bactflow"
+
+cmd="${1:-}"
+shift || true
+
+case "${cmd}" in
+    info)
+        if [ "${1:-}" = "--base" ]; then
+            printf '%s\n' "${CONDA_BASE}"
+            exit 0
+        fi
+        printf 'conda stub (docker)\nbase env: %s\n' "${CONDA_ENV}"
+        ;;
+    activate|deactivate)
+        exit 0
+        ;;
+    config)
+        exit 0
+        ;;
+    env)
+        sub="${1:-}"
+        shift || true
+        if [ "${sub}" = "list" ]; then
+            if [ "${1:-}" = "--json" ] || [ "${2:-}" = "--json" ]; then
+                printf '{"envs":["%s"]}\n' "${CONDA_ENV}"
+            else
+                printf '# conda environments:\n'
+                printf 'bactflow              *  %s\n' "${CONDA_ENV}"
+            fi
+            exit 0
+        fi
+        exit 0
+        ;;
+    --version|-V)
+        printf 'conda 24.0.0 (docker stub)\n'
+        ;;
+    *)
+        exit 0
+        ;;
+esac

@@ -1105,24 +1105,39 @@ process circulator {
     conda activate bactflow
 
     echo "Running circlator"
+    python -c "import pkg_resources" 2>/dev/null || pip install --no-cache-dir "setuptools>=75,<81"
 
-    for i in "${fastas_fold}"/*.fasta
-    do  
-        prefix=\$(basename \$i | cut -f1 -d'.')
+    shopt -s nullglob
+    fasta_files=("${fastas_fold}"/*.fasta)
+    if [ \${#fasta_files[@]} -eq 0 ]
+    then
+        echo "No FASTA files found to circulate in ${fastas_fold}" >&2
+        ls -la "${fastas_fold}" >&2 || true
+        exit 1
+    fi
 
-        if [ ! -d circulatd_"\${prefix}" ]
-        then 
-            mkdir -p circulatd_"\${prefix}" 
-        fi 
+    mkdir -p circulated_fasta
 
-        if [ ! -d circulated_fasta ]
-        then 
-            mkdir -p circulated_fasta
-        fi 
+    for i in "\${fasta_files[@]}"
+    do
+        prefix=\$(basename "\$i")
+        prefix=\${prefix%.fasta}
+        outp="circfix_\${prefix}"
 
-        circlator fixstart \$i circulatd_"\${prefix}" 
+        echo "circlator fixstart \$i"
+        if ! circlator fixstart "\$i" "\$outp"
+        then
+            echo "circlator fixstart failed for \$i" >&2
+            exit 1
+        fi
 
-        cp circulatd_"\${prefix}".fasta circulated_fasta && rm -rf circulatd_*
+        if [ ! -f "\$outp".fasta ]
+        then
+            echo "circlator did not write \$outp.fasta" >&2
+            exit 1
+        fi
+        cp "\$outp".fasta circulated_fasta/"\${prefix}".fasta
+        rm -f "\$outp".*
     done
 
     ${poolFastas('circulated_fasta/*.fasta', circPoolDir())}
