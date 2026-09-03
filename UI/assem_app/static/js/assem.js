@@ -339,26 +339,28 @@ function run_wf(action){
     
     case "stop":
       {
-        document.getElementById('help-bt').disabled = false;
-        document.getElementById('run-bt').disabled = false;
-     
-
-
-    fetch(`/run_bactflow?action-assem=${action}`, { 
-      method: "POST"
-    })
-      .then((response) => response.text())
-      .then((message) => {
-        BactflowTerminal.clear();
-        BactflowTerminal.append(message, true);
-        BactflowTerminal.setStatus("Stopped", "warn");
-        
-        // disconnect
-        disconnectStream();
-        updateButtonStates('stopped')
-      });
-          break;
-        }
+        fetch(`/run_bactflow?action-assem=${action}`, {
+          method: "POST"
+        })
+          .then(async (response) => {
+            const message = await response.text();
+            if (!response.ok) {
+              BactflowTerminal.append(message || "Could not stop BactFlow.", true);
+              BactflowTerminal.setStatus("Stop failed", "error");
+              return;
+            }
+            BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+            BactflowTerminal.append(message || "Bactflow stopped successfully!", true);
+            BactflowTerminal.setStatus("Stopped", "warn");
+            disconnectStream();
+            updateButtonStates("stopped");
+          })
+          .catch((error) => {
+            BactflowTerminal.append("Failed to stop BactFlow: " + error.message, true);
+            BactflowTerminal.setStatus("Stop failed", "error");
+          });
+        break;
+      }
         
       case "help":
       {
@@ -401,9 +403,11 @@ function run_wf(action){
 
 document.getElementById("runForm").addEventListener("submit", (e) => {
  e.preventDefault();
- BactflowTerminal.clear();
 
   const action = e.submitter.value;
+  if (action !== "stop") {
+    BactflowTerminal.clear();
+  }
   const selectedAssembler = document.getElementById("assemblerDropdown").value;
   const longReads = document.getElementById("fastq_dir").value.trim();
   if (action === "run" && selectedAssembler === "unicycler") {
@@ -424,9 +428,11 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
     return;
   }
 
-  document.getElementById('run-bt').disabled = true;
-  document.getElementById('stop-bt').disabled = false; 
-  document.getElementById('help-bt').disabled = true;
+  if (action !== "stop") {
+    document.getElementById('run-bt').disabled = true;
+    document.getElementById('stop-bt').disabled = false; 
+    document.getElementById('help-bt').disabled = true;
+  }
 
   run_wf(action);
 });

@@ -20,9 +20,12 @@
   user-select: none;
 }
 
+.bf-meters-always {
+  margin-bottom: 12px !important;
+}
+
 .bf-dots {
-  display: inline-flex;
-  gap: 6px;
+  display: none;
 }
 
 .bf-dots span {

@@ -178,3 +178,134 @@ table.dataTable thead th {
 #prev-tab tr:hover {
     background-color: #ddd;
 }
+
+.bf-plot-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 98%;
+    margin: 10px 10px 0;
+    padding: 8px 12px;
+    background: #f4f6f7;
+    border: 1px solid #696969;
+    border-bottom: 0;
+    box-sizing: border-box;
+}
+
+.bf-plot-bar-title {
+    font-weight: 600;
+    color: #2f4f4f;
+}
+
+.bf-plot-bar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.bf-dl-png,
+.bf-dl-svg {
+    border: 0;
+    color: #fff;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+}
+
+.bf-dl-png {
+    background: #12b5a8;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.bf-dl-png:hover,
+.bf-dl-png:focus {
+    background: #0e968c;
+    color: #fff;
+}
+
+/* Side-by-side layout: menu left, results right (same idea as assembly app) */
+.bf-post-wrap {
+    max-width: 100%;
+}
+
+.bf-post-row {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+#input-side {
+    flex: 0 0 30%;
+    width: 30% !important;
+    max-width: 30% !important;
+    height: 100vh;
+    position: relative;
+    border-right: 1px solid #ddd;
+    background: #fff;
+    overflow: hidden;
+    z-index: 2;
+}
+
+#input-side .bf-side-scroll {
+    height: calc(100% - 78px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 10px;
+    padding-bottom: 24px;
+    margin-bottom: 10px;
+    box-sizing: border-box;
+}
+
+#input-side .bf-side-actions {
+    position: absolute;
+    bottom: 5px;
+    left: 5px;
+    right: 5px;
+    z-index: 5;
+    background: #f8f9fa;
+    border-top: 1px solid #ddd;
+}
+
+.bf-results-col {
+    flex: 0 0 70%;
+    width: 70% !important;
+    max-width: 70% !important;
+    min-width: 0;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 12px 24px;
+    box-sizing: border-box;
+    background: #fff;
+    z-index: 1;
+}
+
+.bf-results-col > div,
+.bf-results-col .col-md-7,
+.bf-results-col .col-md-9,
+#abundDiv,
+#abundImgDiv,
+#prevDiv,
+#prevImgDiv,
+#quastDiv,
+#baktaDiv,
+#circDiv,
+#taxa_class,
+#snpsDiv,
+#svs,
+#output-div {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    float: none !important;
+    clear: both;
+}
+
+.bf-results-col img {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+}

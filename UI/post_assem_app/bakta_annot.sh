@@ -123,7 +123,9 @@ require_bakta_tool() {
     local hint="$2"
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "ERROR: ${tool} not found. ${hint}" >&2
-        echo "       bash scripts/install_bakta_deps.sh bactflow" >&2
+        echo "       conda activate bactflow && conda install -c bioconda -c conda-forge \\" >&2
+        echo "         trnascan-se=2.0.12 aragorn=1.2.41 infernal=1.1.5 piler-cr=1.06 diamond=2.2.0 blast=2.14.0 ncbi-amrfinderplus=4.2.7" >&2
+        echo "       Or: bash scripts/setup_bactflow_env.sh" >&2
         exit 1
     fi
 }
@@ -132,17 +134,36 @@ require_bakta_tool "tRNAscan-SE" "Bakta requires tRNAscan-SE v2.0.12."
 if ! tRNAscan-SE -h 2>&1 | grep -qE 'tRNAscan-SE 2\.0\.(1[12]|[0-9]{2})'; then
     echo "ERROR: Wrong tRNAscan-SE version (Bakta needs v2.0.12)." >&2
     echo "       Found: $(tRNAscan-SE -h 2>&1 | head -1)" >&2
-    echo "       Fix: bash scripts/install_bakta_deps.sh bactflow" >&2
+    echo "       Fix: conda install -c bioconda 'trnascan-se=2.0.12'" >&2
     exit 1
 fi
 require_bakta_tool "cmscan" "Bakta requires Infernal cmscan v1.1.5."
 if ! cmscan -h 2>&1 | grep -qE 'INFERNAL 1\.1\.5'; then
     echo "ERROR: Wrong CMscan/Infernal version (Bakta needs v1.1.5)." >&2
     echo "       Found: $(cmscan -h 2>&1 | sed -n '2p')" >&2
-    echo "       Fix: bash scripts/install_bakta_deps.sh bactflow" >&2
+    echo "       Fix: conda install -c bioconda 'infernal=1.1.5'" >&2
     exit 1
 fi
 require_bakta_tool "aragorn" "Required by Bakta for tmRNA annotation."
+require_bakta_tool "pilercr" "Required by Bakta for CRISPR detection (piler-cr)."
+require_bakta_tool "diamond" "Required by Bakta for protein homology search."
+require_bakta_tool "blastn" "Required by Bakta (BLAST+)."
+require_bakta_tool "amrfinder" "Required by Bakta (ncbi-amrfinderplus)."
+
+# AMRFinderPlus 4.2.7+ needs DB >= 2025-09-22.2; older Bakta light DBs ship 2024-12-18.1.
+amr_db="${db_dir}/amrfinderplus-db"
+if [ -d "$amr_db" ]; then
+    amr_probe="$(amrfinder --database "${amr_db}/latest" 2>&1 || true)"
+    if echo "$amr_probe" | grep -q "Software requires database version"; then
+        echo "AMRFinderPlus database is too old for amrfinder $(amrfinder --version 2>/dev/null)."
+        echo "Updating: amrfinder_update --force_update --database ${amr_db}"
+        if ! amrfinder_update --force_update --database "$amr_db"; then
+            echo "ERROR: AMRFinderPlus DB update failed. Run manually:" >&2
+            echo "       amrfinder_update --force_update --database ${amr_db}" >&2
+            exit 1
+        fi
+    fi
+fi
 
 cpus=$(($cpus))
 shopt -s nullglob

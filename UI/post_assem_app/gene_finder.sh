@@ -56,13 +56,14 @@ else
     echo "$out_dir already exists and I proceed to the next step!"
 fi 
 
-files=$(find $gene_dir -type f -name "*.tsv")
+files=$(find "$gene_dir" -type f \( -name "*.tsv" -o -name "*.txt" \))
 
 for fold in $files
 do
     if [ -f $fold ]
     then 
-        name=$(basename $fold '.tsv')
+        name=$(basename "$fold")
+        name="${name%.*}"
         echo -e "$colname" > "${out_dir}"/$name.tsv
 
         grep -E "$(echo $genes | sed 's/,/|/g')"  $fold | awk '{print $7 "\t" $3 "\t" $4 "\t" $5}' >> "${out_dir}"/$name.tsv

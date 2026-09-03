@@ -84,15 +84,19 @@ output_queue = Queue()
 output_history = manager.list() # to store output history 
 
 def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
-    """Forward completion lines from .nextflow.log (PTY stream often misses them)."""
+    """Forward process status/completion lines from .nextflow.log (PTY often misses them)."""
     log_path = os.path.join(work_root, ".nextflow.log")
     pos = 0
     skip_re = re.compile(
         r"\[Task monitor\]|TaskPollingMonitor|\bDEBUG\b",
         re.IGNORECASE,
     )
+    status_re = re.compile(
+        r"(\[[0-9a-f/]+\]\s+(?:Submitted|Cached)\s+process\s+>\s+\S+(?:\s+\([^)]*\))?)",
+        re.IGNORECASE,
+    )
     done_re = re.compile(
-        r"✔|Executor finished|\[100%\].*of",
+        r"✔|Executor finished|Task completed|COMPLETED|\[100%\].*of",
         re.IGNORECASE,
     )
     while not stop_event.is_set():
@@ -110,14 +114,103 @@ def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
                     continue
                 if skip_re.search(line):
                     continue
-                if done_re.search(line) or (
+
+                forward = None
+                status_m = status_re.search(line)
+                if status_m:
+                    forward = status_m.group(1)
+                elif done_re.search(line) or (
                     re.search(r"\[[0-9a-f/]+\]", line, re.I)
                     and re.search(r"process\s+>", line, re.I)
                     and re.search(r"\[\s*\d+%\]", line)
                 ):
+                    hash_m = re.search(r"(\[[0-9a-f/]+\]\s+.*)$", line, re.I)
+                    forward = hash_m.group(1) if hash_m else line
+
+                if forward and forward not in seen_lines:
                     seen_lines.add(line)
-                    output_queue.put(line)
+                    seen_lines.add(forward)
+                    output_queue.put(forward)
         stop_event.wait(0.8)
+
+
+def _pipeline_alive(pid):
+    """Return True if the stored pipeline PID is still a live process."""
+    if not pid:
+        return False
+    try:
+        proc = psutil.Process(int(pid))
+        if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+            return False
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        return False
+
+
+def _clear_run_state():
+    process_status["running"] = False
+    process_status["pid"] = None
+
+
+def _kill_process_tree(pid):
+    """Force-stop a shell/Nextflow tree (SIGTERM then SIGKILL, including process group)."""
+    if not pid:
+        return False
+
+    try:
+        parent = psutil.Process(int(pid))
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        parent = None
+
+    targets = []
+    if parent is not None:
+        try:
+            targets = parent.children(recursive=True)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            targets = []
+        targets.append(parent)
+
+    try:
+        os.killpg(int(pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError, TypeError, ValueError):
+        pass
+
+    for proc in targets:
+        try:
+            proc.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    gone, alive = psutil.wait_procs(targets, timeout=1.5)
+    for proc in alive:
+        try:
+            proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    try:
+        os.killpg(int(pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError, TypeError, ValueError):
+        pass
+
+    leftovers = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if str(base_dir) in cmd and (
+                "nextflow" in cmd or "main.nf" in cmd or "bakta_annot.sh" in cmd
+            ):
+                leftovers.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    for proc in leftovers:
+        try:
+            proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    return True
 
 
 def run_bact(command, process_status, output_queue, output_history, work_root=None):
@@ -147,6 +240,7 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
             stderr=slave_fd,
             stdin=slave_fd,
             close_fds=True,
+            start_new_session=True,
         )
     finally:
         os.close(slave_fd)
@@ -155,6 +249,23 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
     buffer = ""
 
     while True:
+        still_marked_running = True
+        try:
+            still_marked_running = bool(process_status["running"])
+        except Exception:
+            still_marked_running = True
+
+        if (not still_marked_running) and process.poll() is None:
+            _kill_process_tree(process.pid)
+            try:
+                process.wait(timeout=2)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+            break
+
         if process.poll() is not None:
             try:
                 while True:
@@ -226,8 +337,11 @@ def run_bactflow():
         command = None
 
         if  action == "run":
-            if process_status["running"]:
-                return "Bactflow is already running!", 400
+            pid = process_status.get("pid")
+            if process_status.get("running") and _pipeline_alive(pid):
+                return "Bactflow is already running!\n", 400
+            if process_status.get("running") or pid:
+                _clear_run_state()
             
             
             setup_only = request.form.get("setup_only", 'false')
@@ -352,30 +466,33 @@ def run_bactflow():
             return "Bactflow started successfully!\n", 200
         
         if action == "stop":
-            if process_status["running"] and process_status["pid"]:
+            pid = process_status.get("pid")
+            was_running = bool(process_status.get("running")) or _pipeline_alive(pid)
+            _clear_run_state()
+            try:
+                if pid:
+                    _kill_process_tree(pid)
+                for proc in psutil.process_iter(["pid", "cmdline"]):
+                    try:
+                        cmd = " ".join(proc.info.get("cmdline") or [])
+                        if str(base_dir) in cmd and (
+                            "nextflow" in cmd or "main.nf" in cmd or "bakta_annot.sh" in cmd
+                        ):
+                            proc.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
                 try:
-                    parent = psutil.Process(process_status['pid'])
-                    for child in parent.children(recursive=True):#terminate child first
-                        child.terminate()
-                    parent.terminate()
-                    gone, still_alive = psutil.wait_procs([parent], timeout=5)
-                    for p in still_alive:
-                        p.kill()
-                    
-                
-
-                    # os.kill(process_status["pid"], signal.SIGTERM) 
-                    process_status["running"] = False
-                    process_status["pid"] = None
-                    
+                    output_queue.put("BactFlow: stopped by user.")
+                except Exception:
+                    pass
+                if was_running or pid:
                     return "Bactflow stopped successfully!\n", 200
-                except psutil.NoSuchProcess:
-                    
-                    return "Process not found!\n", 400
-                except Exception as e:
-                    return f"Error stopping process: {str(e)}\n", 500
-            else:
-                return "No running process to stop.\n", 400
+                return "No running process to stop.\n", 200
+            except Exception as e:
+                _clear_run_state()
+                return f"Error stopping process: {str(e)}\n", 500
+
+        return f"Unknown action: {action}\n", 400
 
 # a constant ouput
 @app.route('/bactflow_output', methods = ['GET'])

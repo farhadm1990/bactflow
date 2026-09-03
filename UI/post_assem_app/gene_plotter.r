@@ -2,17 +2,19 @@
 
 crans = c('optparse', 'tidyverse', 'readr', 'ape', 'BiocManager', 'pheatmap', 'glue')
 
-# for(pkg in crans){
-#     if(!(requireNamespace(pkg, quietly = TRUE))){
-#         options(repos = c(CRAN = "https://cloud.r-project.org/"))
-#         install.packages(pkg, quiet = TRUE, keep_outputs = F)
-#     }
-# }
+for(pkg in crans){
+    if(!(requireNamespace(pkg, quietly = TRUE))){
+        options(repos = c(CRAN = "https://cloud.r-project.org/"))
+        install.packages(pkg, quiet = TRUE)
+    }
+}
 
 
-# if(!(requireNamespace('MatrixGenerics', quietly = T))){
-#     BiocManager::install('MatrixGenerics', force = T)
-# }
+if(!(requireNamespace('MatrixGenerics', quietly = T))){
+    if (requireNamespace('BiocManager', quietly = TRUE)) {
+        BiocManager::install('MatrixGenerics', force = TRUE, ask = FALSE, update = FALSE)
+    }
+}
 
 for (pkgs in c(crans, 'MatrixGenerics')){
     suppressPackageStartupMessages(library(pkgs, character.only = TRUE, verbose = FALSE))

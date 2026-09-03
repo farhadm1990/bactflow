@@ -63,7 +63,8 @@ const BactflowProcessEta = {
     circulator: 300,
     quast: 240,
     quastcheck: 240,
-    bakta: 900,
+    bakta: 2400,
+    baktaannot: 2400,
     gtdbtk: 600,
     checkm: 600
   },
@@ -148,7 +149,7 @@ const BactflowProcessEta = {
     for (const hm of hashMatches) {
       const hash = hm[1];
       if (
-        /✔|COMPLETED|Task completed/i.test(t) ||
+        /✔|COMPLETED|Task completed|Executor finished/i.test(t) ||
         /\[\s*100%\]/i.test(t) ||
         (/process\s+>/i.test(t) && /\[\s*\d+%\]/i.test(t) && /\b1\s+of\s+1\b/i.test(t))
       ) {
@@ -157,6 +158,37 @@ const BactflowProcessEta = {
         }
       }
     }
+
+    const wf = t.match(/\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
+    if (wf && Number(wf[1]) >= 100 && Number(wf[2]) >= Number(wf[3])) {
+      this.processes.forEach((proc) => {
+        if (!proc.done && proc.id !== "_executor") {
+          this.markDone(proc);
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(proc.lastLine));
+          }
+          matched = true;
+        }
+      });
+    }
+
+    if (/ERROR:\s*Bakta failed|Bakta failed for|annotation summary|If you use this software in a publication/i.test(t)) {
+      this.processes.forEach((proc) => {
+        if (!proc.done && /bakta/i.test(proc.name || proc.id || "")) {
+          this.markDone(proc);
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(proc.lastLine));
+          }
+          matched = true;
+        }
+      });
+    }
+
+    if (/BactFlow:\s*Nextflow finished|BactFlow:\s*Nextflow exited/i.test(t)) {
+      this.finalizeAll(terminal, /finished successfully/i.test(t) ? "completed" : "stopped");
+      matched = true;
+    }
+
     return matched;
   },
 
@@ -238,7 +270,7 @@ const BactflowProcessEta = {
       return { label: "done", seconds: 0 };
     }
 
-    const elapsed = (Date.now() - proc.startedAt) / 1000;
+    const elapsed = this.elapsedSeconds(proc);
 
     if (proc.percent > 0 && proc.percent < 100) {
       return { label: "eta", seconds: elapsed * (100 - proc.percent) / proc.percent };
@@ -251,30 +283,30 @@ const BactflowProcessEta = {
     }
 
     const hint = this.hintFor(proc.name);
-    if (hint) {
-      const remaining = Math.max(8, hint - elapsed);
-      return { label: "hint", seconds: remaining, elapsed };
+    if (hint && elapsed < hint) {
+      return { label: "hint", seconds: hint - elapsed, elapsed };
+    }
+    if (hint && elapsed >= hint) {
+      // Past the prior estimate: do not freeze at "8s left". Add a shrinking extra window.
+      const extra = Math.max(20, elapsed * 0.2);
+      return { label: "overrun", seconds: extra, elapsed };
     }
 
     const wfEta = this.workflowEtaSeconds();
-    if (wfEta != null) {
-      const active = [...this.processes.values()].filter((p) => !p.done).length || 1;
+    if (wfEta != null && wfEta > 0) {
+      const active = [...this.processes.values()].filter((p) => !p.done && p.id !== "_executor").length || 1;
       return { label: "wf", seconds: wfEta / active, elapsed };
     }
 
-    if (elapsed < 5) {
-      return { label: "hint", seconds: hint, elapsed };
-    }
-
-    const remaining = Math.max(5, hint - elapsed);
-    return { label: "hint", seconds: remaining, elapsed };
+    return { label: "running", seconds: null, elapsed };
   },
 
   elapsedSeconds(proc) {
     if (proc.done && proc.frozenElapsed != null) {
       return proc.frozenElapsed;
     }
-    return (Date.now() - proc.startedAt) / 1000;
+    const start = proc.runningAt || proc.startedAt;
+    return (Date.now() - start) / 1000;
   },
 
   isWaiting(proc) {
@@ -290,9 +322,12 @@ const BactflowProcessEta = {
       return `waiting · ${runFor}`;
     }
 
-    const { seconds } = this.computeEta(proc);
-    if (seconds != null && seconds > 0) {
-      return `ETA ${this.formatClockEta(seconds)} (~${this.formatDuration(seconds)} left) · ran ${runFor}`;
+    const eta = this.computeEta(proc);
+    if (eta.label === "overrun") {
+      return `still running · ${runFor} (past estimate)`;
+    }
+    if (eta.seconds != null && eta.seconds > 0) {
+      return `ETA ${this.formatClockEta(eta.seconds)} (~${this.formatDuration(eta.seconds)} left) · ran ${runFor}`;
     }
     return `running · ${runFor}`;
   },
@@ -341,7 +376,7 @@ const BactflowProcessEta = {
       return progress(m[1], name, tag, Number(m[3]), Number(m[4]), Number(m[5]));
     }
 
-    m = t.match(/^\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
+    m = t.match(/\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
     if (m) {
       this.hashToName.set(m[1], m[3]);
       return {
@@ -357,7 +392,7 @@ const BactflowProcessEta = {
       };
     }
 
-    m = t.match(/^\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?/i);
+    m = t.match(/\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?/i);
     if (m) {
       this.hashToName.set(m[1], m[2]);
       return {
@@ -516,12 +551,12 @@ const BactflowProcessEta = {
     if (parsed.completed > 0) {
       proc.completed = parsed.completed;
     }
-    if (parsed.kind === "started" || parsed.kind === "progress") {
+    if (parsed.kind === "started" || parsed.kind === "progress" || parsed.kind === "submitted") {
       proc.phase = "running";
       if (!proc.runningAt) {
         proc.runningAt = Date.now();
       }
-    } else if (parsed.kind === "queued" || parsed.kind === "submitted") {
+    } else if (parsed.kind === "queued") {
       if (proc.phase !== "running") {
         proc.phase = "waiting";
       }
@@ -581,14 +616,76 @@ const BactflowProcessEta = {
   },
 
   refreshAll(terminal) {
+    if (this.workflow.percent >= 100 && this.workflow.total > 0 &&
+        this.workflow.completed >= this.workflow.total) {
+      this.processes.forEach((proc) => {
+        if (!proc.done && proc.id !== "_executor") {
+          this.markDone(proc);
+        }
+      });
+    }
     this.processes.forEach((proc) => {
-      if (proc.row && !proc.done) {
-        this.renderRow(proc, terminal.classify(proc.lastLine));
+      if (proc.row && (!proc.done || proc.frozenElapsed != null)) {
+        if (!proc.done || proc.row.dataset.bfSettled !== "1") {
+          this.renderRow(proc, terminal.classify(proc.lastLine));
+          if (proc.done) {
+            proc.row.dataset.bfSettled = "1";
+          }
+        }
       }
     });
     if (this.allDone()) {
       this.stopTick();
     }
+  },
+
+  baktaProc() {
+    for (const [key, proc] of this.processes) {
+      if (!proc.done && /bakta/i.test(key + " " + (proc.name || ""))) {
+        return proc;
+      }
+    }
+    return this.processes.get("baktaannot") || this.processes.get("bakta") || null;
+  },
+
+  applyBaktaStage(line, terminal) {
+    const proc = this.baktaProc();
+    if (!proc) {
+      return false;
+    }
+    const t = String(line || "");
+    const stages = [
+      [/tRNA/i, 12],
+      [/tmRNA/i, 18],
+      [/rRNA/i, 24],
+      [/ncRNA/i, 32],
+      [/CRISPR/i, 40],
+      [/\bgap/i, 46],
+      [/oriC|oriT|origin/i, 52],
+      [/CDS|Pyrodigal|prodigal/i, 64],
+      [/sORF/i, 72],
+      [/pseudo/i, 78],
+      [/PSCC|PSC|diamond|expert|amrfinder/i, 88],
+      [/plot|circular|export|gbff|gff3|summary/i, 96]
+    ];
+    let pct = proc.percent || 0;
+    for (const [re, value] of stages) {
+      if (re.test(t) && value > pct) {
+        pct = value;
+      }
+    }
+    if (pct > (proc.percent || 0)) {
+      proc.percent = pct;
+      proc.phase = "running";
+      if (!proc.runningAt) {
+        proc.runningAt = Date.now();
+      }
+      if (proc.row && terminal) {
+        this.renderRow(proc, terminal.classify(proc.lastLine || line));
+      }
+      return true;
+    }
+    return false;
   },
 
   isProcessLine(line) {
@@ -601,6 +698,7 @@ const BactflowProcessEta = {
 
   handleLine(terminal, line, className) {
     this.scanLineForCompletion(line, terminal);
+    this.applyBaktaStage(line, terminal);
 
     const parsed = this.parse(line);
     if (!parsed) {
@@ -753,6 +851,26 @@ const BactflowTerminal = {
     const line = this.stripAnsi(raw);
     const trimmed = line.trim();
 
+    // Always drop stop/kill noise — even if the user-stop flag was cleared.
+    if (/exited with code\s+-?\d+|Stream disconnected\.?$/i.test(trimmed)) {
+      if (window.__bactflowUserStopped || /exited with code\s+-\d+/i.test(trimmed)) {
+        return;
+      }
+    }
+    if (window.__bactflowUserStopped && /Process completed|Nextflow finished successfully/i.test(trimmed)) {
+      return;
+    }
+
+    if (/Bactflow has been stopped by the user/i.test(trimmed)) {
+      const row = document.createElement("div");
+      row.className = "log-line log-warn";
+      row.textContent = trimmed;
+      this.logEl.appendChild(row);
+      this.logEl.scrollTop = this.logEl.scrollHeight;
+      this.setStatus(trimmed, "warn");
+      return;
+    }
+
     if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
       BactflowProcessEta.finalizeAll(this, "completed");
       if (trimmed !== "Process completed") {
@@ -767,7 +885,7 @@ const BactflowTerminal = {
     BactflowProcessEta.scanLineForCompletion(line, this);
 
     const className = this.classify(line);
-    if (BactflowProcessEta.handleLine(this, line, className)) {
+    if (!force && BactflowProcessEta.handleLine(this, line, className)) {
       return;
     }
 

@@ -238,7 +238,7 @@ const BactflowProcessEta = {
       return { label: "done", seconds: 0 };
     }
 
-    const elapsed = (Date.now() - proc.startedAt) / 1000;
+    const elapsed = this.elapsedSeconds(proc);
 
     if (proc.percent > 0 && proc.percent < 100) {
       return { label: "eta", seconds: elapsed * (100 - proc.percent) / proc.percent };
@@ -251,30 +251,29 @@ const BactflowProcessEta = {
     }
 
     const hint = this.hintFor(proc.name);
-    if (hint) {
-      const remaining = Math.max(8, hint - elapsed);
-      return { label: "hint", seconds: remaining, elapsed };
+    if (hint && elapsed < hint) {
+      return { label: "hint", seconds: hint - elapsed, elapsed };
+    }
+    if (hint && elapsed >= hint) {
+      const extra = Math.max(20, elapsed * 0.2);
+      return { label: "overrun", seconds: extra, elapsed };
     }
 
     const wfEta = this.workflowEtaSeconds();
-    if (wfEta != null) {
-      const active = [...this.processes.values()].filter((p) => !p.done).length || 1;
+    if (wfEta != null && wfEta > 0) {
+      const active = [...this.processes.values()].filter((p) => !p.done && p.id !== "_executor").length || 1;
       return { label: "wf", seconds: wfEta / active, elapsed };
     }
 
-    if (elapsed < 5) {
-      return { label: "hint", seconds: hint, elapsed };
-    }
-
-    const remaining = Math.max(5, hint - elapsed);
-    return { label: "hint", seconds: remaining, elapsed };
+    return { label: "running", seconds: null, elapsed };
   },
 
   elapsedSeconds(proc) {
     if (proc.done && proc.frozenElapsed != null) {
       return proc.frozenElapsed;
     }
-    return (Date.now() - proc.startedAt) / 1000;
+    const start = proc.runningAt || proc.startedAt;
+    return (Date.now() - start) / 1000;
   },
 
   isWaiting(proc) {
@@ -290,9 +289,12 @@ const BactflowProcessEta = {
       return `waiting · ${runFor}`;
     }
 
-    const { seconds } = this.computeEta(proc);
-    if (seconds != null && seconds > 0) {
-      return `ETA ${this.formatClockEta(seconds)} (~${this.formatDuration(seconds)} left) · ran ${runFor}`;
+    const eta = this.computeEta(proc);
+    if (eta.label === "overrun") {
+      return `still running · ${runFor} (past estimate)`;
+    }
+    if (eta.seconds != null && eta.seconds > 0) {
+      return `ETA ${this.formatClockEta(eta.seconds)} (~${this.formatDuration(eta.seconds)} left) · ran ${runFor}`;
     }
     return `running · ${runFor}`;
   },
@@ -341,7 +343,7 @@ const BactflowProcessEta = {
       return progress(m[1], name, tag, Number(m[3]), Number(m[4]), Number(m[5]));
     }
 
-    m = t.match(/^\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
+    m = t.match(/\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
     if (m) {
       this.hashToName.set(m[1], m[3]);
       return {
@@ -357,7 +359,7 @@ const BactflowProcessEta = {
       };
     }
 
-    m = t.match(/^\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?/i);
+    m = t.match(/\[([0-9a-f/]+)\]\s+process\s+>\s+(\S+)(?:\s+\(([^)]*)\))?/i);
     if (m) {
       this.hashToName.set(m[1], m[2]);
       return {
@@ -516,12 +518,12 @@ const BactflowProcessEta = {
     if (parsed.completed > 0) {
       proc.completed = parsed.completed;
     }
-    if (parsed.kind === "started" || parsed.kind === "progress") {
+    if (parsed.kind === "started" || parsed.kind === "progress" || parsed.kind === "submitted") {
       proc.phase = "running";
       if (!proc.runningAt) {
         proc.runningAt = Date.now();
       }
-    } else if (parsed.kind === "queued" || parsed.kind === "submitted") {
+    } else if (parsed.kind === "queued") {
       if (proc.phase !== "running") {
         proc.phase = "waiting";
       }

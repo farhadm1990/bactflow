@@ -49,9 +49,21 @@ def with_nextflow_java(command):
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
 
-def clean_log_line(line):
-    line = ANSI_RE.sub("", line or "")
-    return line.replace("\r", "").strip()
+def _run_bash(script):
+    return subprocess.run(
+        ["bash", "-lc", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+
+def _selected_gene_types():
+    types = [t.strip() for t in request.form.getlist("gene_type") if t.strip()]
+    if not types:
+        single = (request.form.get("gene_type") or "cds").strip()
+        types = [single] if single else ["cds"]
+    return types
 
 
 
@@ -77,20 +89,28 @@ def open_browser():
 # define function for bactflow run in multiprocess for constant realtime steraming.
 
 manager = Manager()
-process_status = manager.dict({"pid": None, "running": False})
+process_status = manager.dict({"pid": None, "running": False, "epoch": 0, "stop_reason": None})
 output_queue = Queue()
-output_history = manager.list() # to store output history 
+output_history = manager.list() # to store output history
+_current_worker = None
+_worker_lock = threading.Lock()
+STOP_USER_MSG = "Bactflow has been stopped by the user!"
 
 def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
-    """Forward completion lines from .nextflow.log (PTY stream often misses them)."""
+    """Forward process status/completion lines from .nextflow.log (PTY often misses them)."""
     log_path = os.path.join(work_root, ".nextflow.log")
     pos = 0
     skip_re = re.compile(
         r"\[Task monitor\]|TaskPollingMonitor|\bDEBUG\b",
         re.IGNORECASE,
     )
+    # Prefer the compact Nextflow status fragment when the line is a full logger record.
+    status_re = re.compile(
+        r"(\[[0-9a-f/]+\]\s+(?:Submitted|Cached)\s+process\s+>\s+\S+(?:\s+\([^)]*\))?)",
+        re.IGNORECASE,
+    )
     done_re = re.compile(
-        r"✔|Executor finished|\[100%\].*of",
+        r"✔|Executor finished|Task completed|COMPLETED|\[100%\].*of",
         re.IGNORECASE,
     )
     while not stop_event.is_set():
@@ -108,18 +128,209 @@ def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
                     continue
                 if skip_re.search(line):
                     continue
-                if done_re.search(line) or (
+
+                forward = None
+                status_m = status_re.search(line)
+                if status_m:
+                    forward = status_m.group(1)
+                elif done_re.search(line) or (
                     re.search(r"\[[0-9a-f/]+\]", line, re.I)
                     and re.search(r"process\s+>", line, re.I)
                     and re.search(r"\[\s*\d+%\]", line)
                 ):
+                    # Strip logger prefix when present: "... INFO ... - [ab/cd] process > ..."
+                    hash_m = re.search(
+                        r"(\[[0-9a-f/]+\]\s+.*)$",
+                        line,
+                        re.I,
+                    )
+                    forward = hash_m.group(1) if hash_m else line
+
+                if forward and forward not in seen_lines:
                     seen_lines.add(line)
-                    output_queue.put(line)
+                    seen_lines.add(forward)
+                    output_queue.put(forward)
         stop_event.wait(0.8)
 
 
-def run_bact(command, process_status, output_queue, output_history, work_root=None):
+def _pipeline_alive(pid):
+    """Return True if the stored pipeline PID is still a live process."""
+    if not pid:
+        return False
+    try:
+        proc = psutil.Process(int(pid))
+        if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+            return False
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        return False
+
+
+def _clear_run_state():
+    process_status["running"] = False
+    process_status["pid"] = None
+
+
+def _drain_output_queue():
+    """Drop pending stream lines so Stop is not followed by stale exit noise."""
+    try:
+        while True:
+            output_queue.get_nowait()
+    except Exception:
+        pass
+
+
+def _bump_epoch():
+    """Invalidate any in-flight run_bact worker (Stop or Start takeover)."""
+    try:
+        epoch = int(process_status.get("epoch") or 0) + 1
+    except Exception:
+        epoch = 1
+    process_status["epoch"] = epoch
+    return epoch
+
+
+def _terminate_worker():
+    """Terminate the multiprocessing worker that runs run_bact."""
+    global _current_worker
+    with _worker_lock:
+        worker = _current_worker
+        _current_worker = None
+    if worker is None:
+        return
+    try:
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=1.0)
+        if worker.is_alive():
+            worker.kill()
+    except Exception:
+        pass
+
+
+def _is_post_pipeline_cmdline(cmd):
+    """True for Nextflow/Bakta/work tasks belonging to this post-assembly app."""
+    if not cmd:
+        return False
+    if "post_assembly.py" in cmd or "assembly.py" in cmd:
+        return False
+    root = str(base_dir)
+    if root not in cmd:
+        return False
+    # Java Nextflow one-jar always embeds main.nf path for this app.
+    if "nextflow" in cmd or "/main.nf" in cmd:
+        return True
+    if f"{root}/work/" in cmd or ".command." in cmd:
+        return True
+    return any(n in cmd for n in ("bakta_annot.sh", "circlator"))
+
+
+def _sweep_pipeline_leftovers():
+    """Kill leftover Nextflow/work/bakta processes for this app (all process groups)."""
+    victims = []
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == os.getpid():
+                continue
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if _is_post_pipeline_cmdline(cmd):
+                victims.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    for proc in victims:
+        try:
+            for child in proc.children(recursive=True):
+                try:
+                    child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    # Second pass — catch stragglers that re-parented during the first pass.
+    time.sleep(0.25)
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == os.getpid():
+                continue
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if _is_post_pipeline_cmdline(cmd):
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+
+def _kill_process_tree(pid):
+    """Force-kill a shell/Nextflow tree quickly (no long waits)."""
+    if pid:
+        try:
+            pid = int(pid)
+        except (TypeError, ValueError):
+            pid = None
+
+    if pid:
+        # Process-group kill first (started with start_new_session=True).
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+        try:
+            parent = psutil.Process(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            parent = None
+
+        if parent is not None:
+            try:
+                children = parent.children(recursive=True)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                children = []
+            for proc in children + [parent]:
+                try:
+                    proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+    _sweep_pipeline_leftovers()
+    return True
+
+
+def _stop_pipeline_async(pid):
+    """Kill pipeline off the request thread so Stop never blocks the UI."""
+    try:
+        _kill_process_tree(pid)
+        # Final sweep after orphans re-parent.
+        _sweep_pipeline_leftovers()
+    except Exception as exc:
+        print(f"async stop error: {exc}")
+
+
+def _full_user_stop_async(pid):
+    """Stop clicked: kill tree, then terminate worker, then sweep again."""
+    try:
+        _kill_process_tree(pid)
+        _terminate_worker()
+        _sweep_pipeline_leftovers()
+    except Exception as exc:
+        print(f"async user-stop error: {exc}")
+
+
+def _epoch_is_current(epoch):
+    try:
+        return int(process_status.get("epoch") or 0) == int(epoch)
+    except Exception:
+        return False
+
+
+def run_bact(command, process_status, output_queue, output_history, work_root=None, epoch=0):
     """Function to run bactflow"""
+
+    # Stop/Start may have invalidated this worker before it even started.
+    if not _epoch_is_current(epoch):
+        return 0
 
     process_status["running"] = True
     history_cap = 1500
@@ -135,6 +346,12 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
         )
         log_thread.start()
 
+    if not _epoch_is_current(epoch):
+        stop_event.set()
+        if log_thread:
+            log_thread.join(timeout=1)
+        return 0
+
     master_fd, slave_fd = pty.openpty()
     try:
         process = subprocess.Popen(
@@ -145,14 +362,66 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
             stderr=slave_fd,
             stdin=slave_fd,
             close_fds=True,
+            start_new_session=True,
         )
     finally:
         os.close(slave_fd)
+
+    if not _epoch_is_current(epoch):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
+        stop_event.set()
+        if log_thread:
+            log_thread.join(timeout=1)
+        return 0
 
     process_status["pid"] = process.pid
     buffer = ""
 
     while True:
+        if not _epoch_is_current(epoch):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+            try:
+                process.wait(timeout=1)
+            except Exception:
+                pass
+            break
+
+        still_marked_running = True
+        try:
+            still_marked_running = bool(process_status["running"])
+        except Exception:
+            still_marked_running = True
+
+        if (not still_marked_running) and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+            try:
+                process.wait(timeout=1)
+            except Exception:
+                pass
+            break
+
         if process.poll() is not None:
             try:
                 while True:
@@ -197,17 +466,57 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
             output_queue.put(line)
             output_history.append(line)
 
-    os.close(master_fd)
-    exit_code = process.wait()
+    try:
+        os.close(master_fd)
+    except Exception:
+        pass
+    try:
+        exit_code = process.wait(timeout=2)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+        exit_code = process.poll()
+        if exit_code is None:
+            exit_code = -9
+
     stop_event.set()
     if log_thread:
         log_thread.join(timeout=2)
+
+    # Decide whether this worker still owns the run lock.
+    silence_exit = False
+    try:
+        if process_status["stop_reason"] == "user":
+            silence_exit = True
+    except Exception:
+        pass
+    try:
+        if int(process_status["epoch"]) != int(epoch):
+            silence_exit = True
+    except Exception:
+        silence_exit = True
+    # SIGKILL / signal exits (e.g. -9) are from Stop — never show them.
+    try:
+        if exit_code is not None and int(exit_code) < 0:
+            silence_exit = True
+    except Exception:
+        silence_exit = True
+
+    if silence_exit:
+        try:
+            if int(process_status["epoch"]) == int(epoch):
+                process_status["running"] = False
+                process_status["pid"] = None
+        except Exception:
+            pass
+        return exit_code
 
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
-
     process_status["running"] = False
     process_status["pid"] = None
     return exit_code
@@ -218,14 +527,26 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 @app.route('/run_bactflow', methods=['POST', 'GET'])
 def run_bactflow():
     """Startp the BactFlow process"""
+    global _current_worker
     if request.method == "POST":
         action = request.args.get("action-assem")
         print("I am here")
         command = None
 
         if  action == "run":
-            if process_status["running"]:
-                return "Bactflow is already running!", 400
+            # Always take over: Stop may have cleared the lock while an old worker
+            # was still about to set running=True / pid — bump epoch so it cannot.
+            old_pid = process_status.get("pid")
+            epoch = _bump_epoch()
+            process_status["stop_reason"] = None
+            _clear_run_state()
+            _terminate_worker()
+            if old_pid:
+                threading.Thread(
+                    target=_stop_pipeline_async,
+                    args=(old_pid,),
+                    daemon=True,
+                ).start()
             
             
             setup_only = request.form.get("setup_only", 'false')
@@ -271,52 +592,66 @@ def run_bactflow():
             
             back_process = Process(
                 target=run_bact,
-                args=(command, process_status, output_queue, output_history, base_dir),
+                args=(command, process_status, output_queue, output_history, base_dir, epoch),
             )
+            with _worker_lock:
+                _current_worker = back_process
             back_process.start()
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
+            old_pid = process_status.get("pid")
+            epoch = _bump_epoch()
+            process_status["stop_reason"] = None
+            _clear_run_state()
+            _terminate_worker()
+            if old_pid:
+                threading.Thread(
+                    target=_stop_pipeline_async,
+                    args=(old_pid,),
+                    daemon=True,
+                ).start()
             command = with_nextflow_java(
                 f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
             output_history[:] = []
             back_process = Process(
                 target=run_bact,
-                args=(command, process_status, output_queue, output_history, base_dir),
+                args=(command, process_status, output_queue, output_history, base_dir, epoch),
             )
+            with _worker_lock:
+                _current_worker = back_process
             back_process.start()
             
             command = None
             return "Bactflow started successfully!\n", 200
         
         if action == "stop":
-            if process_status["running"] and process_status["pid"]:
-                try:
-                    parent = psutil.Process(process_status['pid'])
-                    for child in parent.children(recursive=True):#terminate child first
-                        child.terminate()
-                    parent.terminate()
-                    gone, still_alive = psutil.wait_procs([parent], timeout=5)
-                    for p in still_alive:
-                        p.kill()
-                    
-                
+            pid = process_status.get("pid")
+            # Mark user-stop BEFORE kill so the worker never emits "exited with code -9".
+            process_status["stop_reason"] = "user"
+            _bump_epoch()
+            _clear_run_state()
+            _drain_output_queue()
+            try:
+                output_history[:] = []
+                output_history.append(STOP_USER_MSG)
+            except Exception:
+                pass
+            threading.Thread(
+                target=_full_user_stop_async,
+                args=(pid,),
+                daemon=True,
+            ).start()
+            try:
+                output_queue.put(STOP_USER_MSG)
+            except Exception:
+                pass
+            return f"{STOP_USER_MSG}\n", 200
 
-                    # os.kill(process_status["pid"], signal.SIGTERM) 
-                    process_status["running"] = False
-                    process_status["pid"] = None
-                    
-                    return "Bactflow stopped successfully!\n", 200
-                except psutil.NoSuchProcess:
-                    
-                    return "Process not found!\n", 400
-                except Exception as e:
-                    return f"Error stopping process: {str(e)}\n", 500
-            else:
-                return "No running process to stop.\n", 400
+        return f"Unknown action: {action}\n", 400
 
 # a constant ouput
 @app.route('/bactflow_output', methods = ['GET'])
@@ -419,21 +754,35 @@ def stream_bactflow():
   
     def generate():
         # fitst show the history
-        for line in output_history:
+        for line in list(output_history):
             yield f"data: {line}\n\n"
 
         # now stream new output
-        while process_status['running']  or not output_queue.empty():
+        idle_rounds = 0
+        while True:
+            running = False
             try:
-                line = output_queue.get(timeout=0.5)# wait for output
+                running = bool(process_status["running"])
+            except Exception:
+                running = False
+
+            try:
+                line = output_queue.get(timeout=0.4)
+                idle_rounds = 0
                 yield f"data: {line.strip()}\n\n"
             except Exception:
-                if not process_status['running']:
+                idle_rounds += 1
+                if (not running) and idle_rounds >= 2:
                     break
                 continue
 
-        yield "data: Process completed\n\n"
- 
+        try:
+            if process_status.get("stop_reason") == "user":
+                yield f"data: {STOP_USER_MSG}\n\n"
+            else:
+                yield "data: Process completed\n\n"
+        except Exception:
+            yield "data: Process completed\n\n"
 
     return Response(generate(), content_type='text/event-stream')
 
@@ -581,30 +930,55 @@ def check_bakta():
     else:
         return jsonify({"exists": False, "error": "Bakta annotation directory doesn't exist!"}), 400
 
+def _find_suffix_files(root, suffixes):
+    found = []
+    if not root or not os.path.isdir(root):
+        return found
+    for dirpath, _dirnames, names in os.walk(root):
+        for name in names:
+            low = name.lower()
+            if any(low.endswith(sfx) for sfx in suffixes):
+                found.append(os.path.join(dirpath, name))
+    return found
+
+
 @app.route("/check-bakta-ready", methods=["POST"])
 def check_bakta_ready():
-    """Lightweight check for circular-plot input (.gbk files in bakta_out)."""
+    """Check Bakta outputs used by the circular plot (gbk/gbff/gff)."""
     out_dir = request.form.get("out_dir", "").strip()
     if not out_dir:
         return jsonify({
             "ready": False,
-            "message": "Set an output directory first."
+            "plot_ready": False,
+            "message": "Set an output directory first.",
+            "plot_message": "Set an output directory first.",
         })
 
     bakta_path = os.path.join(out_dir, "bakta_out")
     if not os.path.isdir(bakta_path):
+        msg = "No Bakta output yet. Run BactFlow with Bakta enabled."
         return jsonify({
             "ready": False,
-            "message": "No Bakta output yet. Run BactFlow with Bakta enabled."
+            "plot_ready": False,
+            "message": msg,
+            "plot_message": msg,
         })
 
-    gbk_files = glob.glob(os.path.join(bakta_path, "**", "*.gbk"), recursive=True)
-    if gbk_files:
-        return jsonify({"ready": True, "gbk_count": len(gbk_files)})
-
+    plot_files = _find_suffix_files(bakta_path, (".gbff", ".gbk", ".gb", ".gff3", ".gff"))
+    plot_ready = len(plot_files) > 0
+    kinds = sorted({os.path.splitext(p)[1].lower() for p in plot_files})
     return jsonify({
-        "ready": False,
-        "message": "Bakta output exists but no .gbk files were found. Check the Bakta run log for errors."
+        "ready": plot_ready,
+        "plot_ready": plot_ready,
+        "plot_count": len(plot_files),
+        "gbk_count": len(plot_files),
+        "plot_kinds": kinds,
+        "plot_message": None if plot_ready else (
+            "Bakta output exists but no .gbk/.gbff/.gff/.gff3 files were found."
+        ),
+        "message": None if plot_ready else (
+            "Bakta output exists but no .gbk/.gbff/.gff/.gff3 files were found."
+        ),
     })
 
 # circular
@@ -621,10 +995,11 @@ def circular():
         "add_gc": request.form.get("add_gc"),
         "add_skew": request.form.get("add_skew"),
         "dpi": int(request.form.get("dpi", 200)),
-        "figsize": int(request.form.get("figsize", 200)),
+        "figsize": int(request.form.get("figsize", 10)),
         "interval": int(request.form.get("interval", 3)),
         "f_color": request.form.get("f_color", "#1E90FF"),
         "r_color": request.form.get("r_color", "#FF7261"),
+        "feature_types": ",".join(_selected_gene_types()),
     }
 
     last_params = {}
@@ -639,7 +1014,19 @@ def circular():
         except (json.JSONDecodeError, IOError) as e:
             print(f"Error reading params file for the plot: {e}")
     
-    needs_regen = not os.path.exists(crc_plt) or params != last_params
+    needs_regen = (not os.path.exists(crc_plt)) or params != last_params or generate
+    if generate and os.path.exists(crc_plt):
+        try:
+            os.remove(crc_plt)
+        except OSError:
+            pass
+        json_old = os.path.join(out_dir, "circular_plot.json")
+        if os.path.exists(json_old):
+            try:
+                os.remove(json_old)
+            except OSError:
+                pass
+        needs_regen = True
 
     if needs_regen and not generate:
         return jsonify({"plot": False, "reason": "not_generated"}), 200
@@ -656,30 +1043,32 @@ def circular():
 
        
         command = f"""
-        bash -c "source $(conda info --base)/etc/profile.d/conda.sh && \
-        conda activate bactflow && \
-        python3 {base_dir}/circular_plotter.py -d {gbk_dir} -o {out_dir} \
-        {'--add_gc' if params['add_gc'] == 'True' else ''} \
-        {'--add_skew' if params['add_skew'] == 'True' else ''} \
-        --dpi {params['dpi']} \
-        --interval {params['interval']} \
-        --f_color '{params['f_color']}' \
-        --r_color '{params['r_color']}'"
-        """
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate bactflow
+python3 {shlex.quote(os.path.join(base_dir, "circular_plotter.py"))} -d {shlex.quote(gbk_dir)} -o {shlex.quote(out_dir)} \
+{"--add_gc" if params["add_gc"] == "True" else ""} \
+{"--add_skew" if params["add_skew"] == "True" else ""} \
+--dpi {params["dpi"]} \
+--figsize {params["figsize"]} \
+--interval {params["interval"]} \
+--f_color {shlex.quote(params["f_color"])} \
+--r_color {shlex.quote(params["r_color"])} \
+--feature_types {shlex.quote(params.get("feature_types") or "cds")}
+"""
 
         try:
-            subprocess.run(
-                command, shell=True, check=True, text=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            print(" am running the command ")
+            completed = _run_bash(command)
         except Exception as e:
             return jsonify({"plot": False, "error": str(e)}), 200
+        if completed.returncode != 0:
+            err = (completed.stderr or completed.stdout or "Circular plotter failed.").strip()
+            return jsonify({"plot": False, "error": err[-3000:]}), 200
 
     if os.path.exists(crc_plt):
         with open(crc_plt, "rb") as img_file:
             img_base = base64.b64encode(img_file.read()).decode("utf-8")
-        return jsonify({"plot": f"data:image/png;base64,{img_base}"})
+        payload = {"plot": f"data:image/png;base64,{img_base}"}
+        return jsonify(payload)
     else:
         return jsonify({"plot": False, "reason": "not_found_after_generation"}), 200
 
@@ -729,20 +1118,31 @@ def snp_finder():
     genomes = request.form.get("genome_dir")
     reference = request.form.get("ref_genome")
     cpus = request.form.get("cpus")
-    print(reference)
+    if not reference:
+        return jsonify({"exists": False, "error": "Select a reference (wild type) genome first."}), 400
+    if not genomes:
+        return jsonify({"exists": False, "error": "Genome directory is missing."}), 400
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+
     command = f"""
-    conda activate bactflow 
-    {base_dir}/variant_finder.sh  -r {reference} -g {genomes} -o {out_dir}/snps -t {cpus}
-    """
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate bactflow
+{shlex.quote(os.path.join(base_dir, "variant_finder.sh"))} -r {shlex.quote(reference)} -g {shlex.quote(genomes)} -o {shlex.quote(os.path.join(out_dir, "snps"))} -t {shlex.quote(str(cpus or 1))}
+"""
+    try:
+        completed = _run_bash(command)
+    except Exception as exc:
+        return jsonify({"exists": False, "error": str(exc)}), 500
 
-    subprocess.run(command, shell=True, check=True, text=True)
+    if completed.returncode != 0:
+        err = (completed.stderr or completed.stdout or "SNP finder command failed.").strip()
+        return jsonify({"exists": False, "error": err[-2000:]}), 500
 
-    snp_file = glob.glob(os.path.join(out_dir, "snp/*/*.vcf"))
-
-    if os.path.exists(snp_file):
+    snp_files = glob.glob(os.path.join(out_dir, "snps", "**", "*.vcf"), recursive=True)
+    if snp_files:
         return jsonify({"exists": True})
-    else:
-        return jsonify({"exists": False})
+    return jsonify({"exists": False, "error": "SNP finder finished but no VCF files were found."})
 
 @app.route("/svs-finder", methods = ["POST"])
 def svs_finder():
@@ -750,20 +1150,31 @@ def svs_finder():
     genomes = request.form.get("genome_dir")
     reference = request.form.get("ref_genome")
     cpus = request.form.get("cpus")
-  
+    if not reference:
+        return jsonify({"exists": False, "error": "Select a reference (wild type) genome first."}), 400
+    if not genomes:
+        return jsonify({"exists": False, "error": "Genome directory is missing."}), 400
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+
     command = f"""
-    conda activate bactflow 
-    {base_dir}/vc_medaka.sh  -r {reference} -g {genomes} -o {out_dir}/vcs -c {cpus}
-    """
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate bactflow
+{shlex.quote(os.path.join(base_dir, "vc_medaka.sh"))} -r {shlex.quote(reference)} -g {shlex.quote(genomes)} -o {shlex.quote(os.path.join(out_dir, "vcs"))} -c {shlex.quote(str(cpus or 1))}
+"""
+    try:
+        completed = _run_bash(command)
+    except Exception as exc:
+        return jsonify({"exists": False, "error": str(exc)}), 500
 
-    subprocess.run(command, shell=True, check=True, text=True)
+    if completed.returncode != 0:
+        err = (completed.stderr or completed.stdout or "Variant calling command failed.").strip()
+        return jsonify({"exists": False, "error": err[-2000:]}), 500
 
-    snp_file = glob.glob(os.path.join(out_dir, "vcs/*/*.vcf"))
-
-    if os.path.exists(snp_file):
+    vcf_files = glob.glob(os.path.join(out_dir, "vcs", "**", "*.vcf"), recursive=True)
+    if vcf_files:
         return jsonify({"exists": True})
-    else:
-        return jsonify({"exists": False})
+    return jsonify({"exists": False, "error": "Variant calling finished but no VCF files were found."})
 
 # abundance
 @app.route("/abund-run", methods = ["POST"])
@@ -771,23 +1182,36 @@ def abund_finder():
     out_dir = request.form.get("out_dir")
     gene_files = request.form.get("gene_files")
     prevalance = "false"
-    gene_type = request.form.get("gene_type").lower()
-    width = request.form.get("plot_width")
-    height = request.form.get('plot_height')
+    gene_type = ",".join(_selected_gene_types())
+    width = request.form.get("plot_width") or "10"
+    height = request.form.get("plot_height") or "10"
 
     
-    output = os.path.join(out_dir, "strain_finder")
     enzyme_file = request.form.get("enzyme_loc")
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+    if not gene_files:
+        return jsonify({"exists": False, "error": "Gene annotation directory is missing."}), 400
+    if not enzyme_file:
+        return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
+    output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "abundance.tsv")
     plot = os.path.join(output, "requested_genes_abundance.png")
     print(f"this is widht {width} and heigth {height}")
-    command = f"""
-    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f abundance -o {output} -e {enzyme_file}  -c false -p {prevalance} -w {width} -l {height}
+    command = (
+        f"{shlex.quote(os.path.join(base_dir, 'strain_finder.sh'))} "
+        f"-d {shlex.quote(gene_files or '')} -g {shlex.quote(gene_type)} "
+        f"-f abundance -o {shlex.quote(output)} -e {shlex.quote(enzyme_file or '')} "
+        f"-c false -p {prevalance} -w {shlex.quote(str(width))} -l {shlex.quote(str(height))}"
+    )
 
-    """
-    
-    
-    subprocess.run(command, shell=True, text=True, check=True)
+    try:
+        completed = subprocess.run(command, shell=True, text=True, check=False, capture_output=True)
+    except Exception as exc:
+        return jsonify({"exists": False, "error": str(exc)}), 500
+    if completed.returncode != 0:
+        err = (completed.stderr or completed.stdout or "Abundance strain finder failed.").strip()
+        return jsonify({"exists": False, "error": err[-3000:]}), 500
 
     if os.path.exists(count_tab) and os.path.exists(plot):
         df  = pd.read_csv(count_tab, sep = "\t")
@@ -826,22 +1250,32 @@ def prev_finder():
     out_dir = request.form.get("out_dir")
     gene_files = request.form.get("gene_files")
     prevalance = "true"
-    gene_type = request.form.get("gene_type").lower()
+    gene_type = ",".join(_selected_gene_types())
     
-    output = os.path.join(out_dir, "strain_finder")
     enzyme_file = request.form.get("enzyme_loc")
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+    if not gene_files:
+        return jsonify({"exists": False, "error": "Gene annotation directory is missing."}), 400
+    if not enzyme_file:
+        return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
+    output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "prevalance.tsv")
     plot = os.path.join(output, "requested_genes_prevalence.png")
-    width = request.form.get("plot_width")
-    height = request.form.get('plot_height')
+    width = request.form.get("plot_width") or "10"
+    height = request.form.get("plot_height") or "10"
 
-    command = f"""
-    
-    {base_dir}/strain_finder.sh -d {gene_files} -g {gene_type} -f prevalance -o {output} -e {enzyme_file}  -c false -p {prevalance} -w {width} -l {height}
+    command = (
+        f"{shlex.quote(os.path.join(base_dir, 'strain_finder.sh'))} "
+        f"-d {shlex.quote(gene_files or '')} -g {shlex.quote(gene_type)} "
+        f"-f prevalance -o {shlex.quote(output)} -e {shlex.quote(enzyme_file or '')} "
+        f"-c false -p {prevalance} -w {shlex.quote(str(width))} -l {shlex.quote(str(height))}"
+    )
 
-    """
-   
-    subprocess.run(command, shell=True, text=True, check=True)
+    completed = subprocess.run(command, shell=True, text=True, check=False, capture_output=True)
+    if completed.returncode != 0:
+        err = (completed.stderr or completed.stdout or "Prevalance strain finder failed.").strip()
+        return jsonify({"exists": False, "error": err[-3000:]}), 500
 
     if os.path.exists(count_tab) and os.path.exists(plot):
         df  = pd.read_csv(count_tab, sep = "\t")
@@ -877,4 +1311,4 @@ def prev_finder():
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
-    app.run(debug = True, port = 5001, host = "0.0.0.0",  use_reloader = False)#set use_reloader to true during developement 
+    app.run(debug=True, port=5001, host="0.0.0.0", use_reloader=False, threaded=True)#set use_reloader to true during developement 

@@ -6,8 +6,8 @@
  
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix6">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters-top1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -18,8 +18,6 @@
 
   {% block content %}
 
-  <body>
-
     <header style="color: rgb(255, 255, 255); background-color: rgb(66, 117, 107); padding: 5px; height: 100px; display: flex; justify-content: space-between; align-items: center;">
       <div style="margin-left: 5px;">
   
@@ -28,36 +26,24 @@
       </div>
   
       <div style="display: flex; justify-content: space-between;">
-  
-        <!-- <form class="d-flex" role="search" style=" display: flex; justify-content: center; align-items: center;">
-          <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
-          <button class="btn btn-outline-success" type="submit">Search</button>
-        </form> -->
         
         <a href="/"><img src="{{ url_for('static', filename = 'images/logo.png') }}" alt="BactFlow" style="width: 100px; height: 100px;"></a>
       </div>
      
     </header>
-
-
-    
-  </body>
   
 
 <form id="postForm">
 
 
-<div class="container-fluid mt-3">
-  <div class="row">
+<div class="container-fluid mt-3 bf-post-wrap">
+  <div class="row g-0 bf-post-row">
 
 
     <!-- Input Options Div -->
-    <div class="col-md-4" id="input-side" style="width: 30%;">
-        <div class="col-md-4" style="height: 100vh; position: relative; border-right: 1px solid #ddd; width: 100%;">
-        
-      
+    <div id="input-side">
 
-        <div style="height: calc(100% - 70px); overflow-y: auto; padding-right: 10px; margin-bottom: 10px; padding-bottom: 80px;">
+        <div class="bf-side-scroll">
         
           
 
@@ -137,7 +123,7 @@
               </div>
               <br>
               <div id="genetype" style="display: none; flex-direction: column; width: 50%">
-                <label for="geneTypeSelect">Select <strong>Gene Types</strong> for the count table</label>
+                <label for="geneTypeSelect">Select <strong>Gene Types</strong> for the count table and circular plot</label>
                 <br>
                 <select class="form-select" multiple size="5" aria-label="Default select example" name="gene_type" style="background-color: rgb(255, 230, 0);" id="geneType">
                   
@@ -183,7 +169,7 @@
                 <button type="button" class="btn btn-primary w-100" id="circ-plot-bt" onclick="createCircularPlot()" disabled>
                   Create circular plot
                 </button>
-                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled to generate annotation files first.</p>
+                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled. The button activates when .gbk/.gbff or .gff/.gff3 files are ready.</p>
 
               </div>
               
@@ -265,33 +251,8 @@
 
           <br>
 
-
-        
-        </div>
-
-        <!-- Fixed Buttons Section -->
-        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
-          <div class="btn-group" style="justify-content: center; display: flex;">
-            
-              <button type="submit" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
-              <button type="submit" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
-             
-                <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
-          
-              <button type="submit" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
-              
-            
-          </div>
-          
-          
-        </div> 
-        
-      </div>
-      <hr>
-      <br>
-
       <!-- Variant calling Parameters -->
-      <div class="card mb-3" style="width: 100%; height: 35vh;">
+      <div class="card mb-3" style="width: 100%;">
         <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(156, 187, 177); height: 100px;">
           <h4 class="mb-0">SNPS and Variant Calling <strong>(VCF)</strong></h4>
         </div>
@@ -313,28 +274,16 @@
             </div>
           </div>
 
-
-
-          <br>
-        </div>
-
-        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
-          <div class="btn-group" style="justify-content: center; display: flex;">
-            
-              <button type="button" class="btn btn text-white" style="background-color: rgb(175, 121, 226); font-weight: bold;" id="run-bt" onclick="runSNP()">Run SNP finder</button>
+          <div class="btn-group w-100" style="justify-content: center; display: flex;">
+              <button type="button" class="btn btn text-white" style="background-color: rgb(175, 121, 226); font-weight: bold;" id="snp-bt" onclick="runSNP()">Run SNP finder</button>
               <button type="button" onclick="runVCF()" style="border: solid 0.5px blue; color: red;" class="btn" id="vcf-bt">Run variant calling</button>
           </div>
-          <br>
-          
-          
-        </div> 
-        
-        
+        </div>
       </div>
       <hr>
       <br>
       <!-- Strain finder Parameters --> 
-      <div class="card mb-3" style="width: 100%;  top: 20px; bottom: 20px; padding: 10px; overflow-y: auto;">
+      <div class="card mb-3" style="width: 100%; padding: 10px;">
         <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(249, 138, 59); height: 100px;">
           <h4 class="mb-0">Strain finder <strong>(Genome clustering)</strong></h4>
         </div>
@@ -347,7 +296,7 @@
               <input
               type="text"
               class="form-control"
-              id="filePicker"
+              id="enzyme_loc"
               name="enzyme_loc"
               placeholder="enzymes.tsv"
               webkitdirectory
@@ -362,7 +311,7 @@
               <input
               type="text"
               class="form-control"
-              id="filePicker"
+              id="gene_files"
               name="gene_files"
               placeholder="genes"
               webkitdirectory
@@ -372,81 +321,81 @@
             </div>
           </div>
 
-
-
-          <br>
-               
-
-           
-
-        </div>
-        <br>
-        <div id="sliders" style="margin-bottom: 100px !important;">
-                <!-- adding slider for width -->
+        <div id="sliders" style="margin-bottom: 20px !important;">
               <label id="w-range" for="plot_width" class="form-label">Ajust the widht of the plot (cm):
               <span id="width-value" style="color: blueviolet;"><strong>10</strong></span> cm
               </label>
               <input type="range" name  ="plot_width" min="1" max="200" class="form-range" id="width-range">
 
-              <!-- adding slider for height -->
               <label id="h-range" for="plot_height" class="form-label">Ajust the height of the plot (cm):
                 <span id="height-value" style="color: blueviolet;"><strong >10</strong></span> cm
               </label>
               <input type="range" class="form-range" name ="plot_height" min="1" max="200"  id="height-range">
         </div>
-        <br>
 
+          <div class="btn-group w-100" style="justify-content: center; display: flex;">
+              <button type="button" class="btn btn text-white" style="background-color: rgb(38, 59, 49); font-weight: bold;" id="abund-bt" onclick="abundRun()" name="action-assem" value="run" disabled>Abundance-based</button>
+              <button type="button" onclick="prevRun()" style="border: solid 0.5px blue; color: rgb(255, 106, 0);" class="btn"  id="prev-bt" disabled>Prevalance-based</button>
+          </div>
+          <p id="strain-finder-hint" class="text-muted small mb-0 mt-2" style="text-align: center;">Fill both the enzyme file and the gene annotation directory to activate strain finder.</p>
+        </div>
+      </div>
 
-        <div class="bg-light py-3" style="position: absolute; bottom: 5px; left: 5px; right: 5px; z-index: 1000; border-top: 1px solid #ddd;">
+        </div>
+
+        <!-- Fixed Buttons Section -->
+        <div class="bg-light py-3 bf-side-actions">
           <div class="btn-group" style="justify-content: center; display: flex;">
             
-              <button type="button" class="btn btn text-white" style="background-color: rgb(38, 59, 49); font-weight: bold;" id="run-bt" onclick="abundRun()" name="action-assem" value="run">Abundance-based</button>
-              <button type="button" onclick="prevRun()" style="border: solid 0.5px blue; color: rgb(255, 106, 0);" class="btn"  id="prev-bt">Prevalance-based</button>
+              <button type="submit" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
+              <button type="submit" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
              
+                <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
+          
+              <button type="submit" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
               
             
           </div>
-          
-          
-          
         </div> 
         
-        
       </div>
-
-    </div>
     
 
 
        <!-- Bactflow Output Section -->
-       <div class="col-md-9" style="display: block; width: 70%; height: 200vh; overflow-y: auto;">
+       <div class="bf-results-col">
+
+        <div class="col-md-7 bf-terminal-wrap bf-meters-always" style="height: auto; overflow: hidden; display: block; width: 100%;">
+          <div class="bf-terminal-bar">
+            <span class="bf-terminal-title">CPU and memory</span>
+          </div>
+          <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
+            <div class="bf-meter" data-kind="cpu">
+              <span class="bf-meter-label">CPU</span>
+              <div class="bf-meter-track" title="Host CPU">
+                <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+                <div class="bf-meter-job" id="bf-cpu-job"></div>
+              </div>
+              <span class="bf-meter-val" id="bf-cpu-val">—</span>
+              <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <div class="bf-meter" data-kind="ram">
+              <span class="bf-meter-label">RAM</span>
+              <div class="bf-meter-track" title="Host memory">
+                <div class="bf-meter-fill" id="bf-ram-fill"></div>
+                <div class="bf-meter-job" id="bf-ram-job"></div>
+              </div>
+              <span class="bf-meter-val" id="bf-ram-val">—</span>
+              <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+          </div>
+        </div>
 
         <div id="output-div" class="col-md-7 bf-terminal-wrap" style="height: auto; overflow: hidden; display: none; width: 100%;">
 
         <div class="bf-terminal-bar">
-          <span class="bf-dots"><span class="r"></span><span class="y"></span><span class="g"></span></span>
           <span class="bf-terminal-title">BactFlow Terminal — post-assembly</span>
           <label class="bf-verbose"><input type="checkbox" id="logVerbose"> Verbose</label>
-        </div>
-        <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
-          <div class="bf-meter" data-kind="cpu">
-            <span class="bf-meter-label">CPU</span>
-            <div class="bf-meter-track" title="Host CPU">
-              <div class="bf-meter-fill" id="bf-cpu-fill"></div>
-              <div class="bf-meter-job" id="bf-cpu-job"></div>
-            </div>
-            <span class="bf-meter-val" id="bf-cpu-val">—</span>
-            <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
-          </div>
-          <div class="bf-meter" data-kind="ram">
-            <span class="bf-meter-label">RAM</span>
-            <div class="bf-meter-track" title="Host memory">
-              <div class="bf-meter-fill" id="bf-ram-fill"></div>
-              <div class="bf-meter-job" id="bf-ram-job"></div>
-            </div>
-            <span class="bf-meter-val" id="bf-ram-val">—</span>
-            <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
-          </div>
         </div>
         <div id="bf-status" class="bf-status">Ready</div>
         <div id="output-bactflow" class="bf-terminal-body"></div>
@@ -516,7 +465,14 @@
       </div>
 
       <div id="circDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Circulated plot of all genomes: <strong>(CDS)</strong></h4>
+        <h4 class="text-left mb-3">Circulated plot of all genomes: <strong id="circ-type-label">(selected gene types)</strong></h4>
+        <div id="circ-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="circ-plot-bar" style="display: none;">
+          <span class="bf-plot-bar-title">Circular genome plot</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadCircularPlot()">Download PNG</button>
+          </div>
+        </div>
          <div id="output-circ" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -568,6 +524,7 @@
 
       <div id="snpsDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Table of variants <strong>(SNPs)</strong></h4>
+        <div id="snp-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
          <div id="output-snp" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -578,14 +535,21 @@
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-   
-      
+          <div id="spin-snp" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 120px; align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <br>
+            <h3 style="color: blueviolet;">SNP finder is running...</h3>
+          </div>
+          <div id="snp-result"></div>
         </div>
         <br>
       </div>
 
       <div id="svs" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Table of structural variants <strong>(SVS)</strong></h4>
+        <div id="svs-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
          <div id="output-svs" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -596,16 +560,28 @@
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-          
-
-          
-      
+          <div id="spin-svs" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 120px; align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #9d4b3b;">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <br>
+            <h3 style="color: blueviolet;">Variant calling is running...</h3>
+          </div>
+          <div id="svs-result"></div>
         </div>
         <br>
       </div>
 
       <div id="abundDiv" class="col-md-7" style="overflow-y: auto; overflow-x: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Abundance-based classification for genomes based on requested genes</h4>
+        <div id="abund-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+          <div id="spin-abund" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 40px;  align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <br>
+          <h3 style="color: blueviolet;">Report is being created...</h3>
+           </div>
          <div id="output-abund" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -616,25 +592,13 @@
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-          <div id="spin-abund" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
-            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <br>
-          <br>
-          <h3 style="color: blueviolet;">Report is being created...</h3>
-           </div>
-           <br>
-          <div>
-            
-          
-      
         </div>
         <br>
       </div>
       <br>
-      <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: auto; height: auto;">
+      <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%; height: auto;">
         <h4 class="text-left mb-3">Plot of abundance-based classification for genomes based on requested genes</h4>
+        <div id="abund-plot-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
          <div id="output-abund-img" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -645,7 +609,7 @@
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-          <div id="spin-abund" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+          <div id="spin-abund-img" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
             <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
             <span class="visually-hidden">Loading...</span>
           </div>
@@ -663,12 +627,16 @@
         <br>
       </div>
 
-      
-
-    </div>  <!-- End of div for abundance -->
-
     <div id="prevDiv" class="col-md-7" style="overflow-y: auto; overflow-x: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
       <h4 class="text-left mb-3">Prevalance-based classification of genomes based on requested genes</h4>
+      <div id="prev-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div id="spin-prev" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 40px;  align-items: center;">
+          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <br>
+        <h3 style="color: blueviolet;">Report is being created...</h3>
+         </div>
        <div id="output-prev" style="border: 1px solid rgb(105, 105, 105);
             padding: 10px;
             margin: 10px;
@@ -679,19 +647,13 @@
             white-space: pre-wrap;
             background-color: #ffffff;
             color: darkslategrey;">
-        <div id="spin-prev" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
-          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
-          <span class="visually-hidden">Loading...</span>
-        </div>
-        <br>
-        <br>
-        <h3 style="color: blueviolet;">Report is being created...</h3>
-         </div>    
       </div>
       <br>
+    </div>
       
-       <div id="prevImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: auto; height: auto;">
+       <div id="prevImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%; height: auto;">
         <h4 class="text-left mb-3">Plot of prevalance-based classification of genomes based on requested genes</h4>
+        <div id="prev-plot-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
          <div id="output-prev-img" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -702,7 +664,7 @@
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-          <div id="spin-prev" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
+          <div id="spin-prev-img" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
             <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
             <span class="visually-hidden">Loading...</span>
           </div>
@@ -721,7 +683,7 @@
       </div>
 
     </div>
-    <!-- end of prev div -->
+    <!-- end of results column -->
       
     </div>
 </div>
@@ -733,8 +695,8 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-post1"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=bakta-ui1"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bakta1"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix13"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
