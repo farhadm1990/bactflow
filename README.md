@@ -1,4 +1,3 @@
-
 <div style="text-align: center; margin-top: 0;">
     <img src="https://github.com/farhadm1990/bactflow/blob/main/logo/logo.png" alt="BactFlow Logo" width="400" height="400"/>
     <p><strong>BactFlow</strong> logo was designed by DALL·E :)</p>
@@ -10,56 +9,148 @@
 
 ## Introduction
 
-BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single-isolate sequencing reads from Oxford Nanopore (ONT), Illumina, PacBio, and ONT+Illumina hybrid data. It is built with Nextflow DSL 2 and reads the usual outputs of Guppy and Dorado basecallers.
+BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single-isolate sequencing reads from **Oxford Nanopore (ONT)**, **Illumina**, **PacBio**, and **ONT+Illumina hybrid** data. It is built with Nextflow DSL 2 and reads the usual outputs of Guppy and Dorado basecallers.
 
 There are three modules:
 
 | Module | What it does | UI port |
 | --- | --- | --- |
 | **Pre-assembly** | Concatenate barcode folders, drop tiny files, seqkit stats, read plots | 5000 |
-| **Assembly** | Flye (ONT), SPAdes (Illumina), Unicycler (hybrid), Flye (PacBio), optional circulate / QUAST / Bakta / GTDB-Tk / CheckM | 5002 |
-| **Post-assembly** | QUAST, Bakta, GTDB-Tk, CheckM on already-assembled FASTA files | 5001 |
+| **Assembly** | Flye (ONT / PacBio), SPAdes (Illumina), Unicycler (hybrid), optional Medaka / circulate / QUAST / Bakta / GTDB-Tk / CheckM | 5002 |
+| **Post-assembly** | QUAST, Bakta, GTDB-Tk, CheckM, SNP finder, Medaka variant calling, circular plots, strain finder | 5001 |
 
 Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
 
 ## Requirements
 
-- [Nextflow](https://www.nextflow.io/docs/latest/index.html)
-- [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Docker](https://www.docker.com/)
+- [Docker](https://www.docker.com/) (**recommended** for the UI), **or**
+- [Conda](https://docs.conda.io/en/latest/miniconda.html) / Mamba + [Nextflow](https://www.nextflow.io/docs/latest/index.html) for a local install
 
-### NOTE: if you want to run the UI through Docker (recommended), remember to have Docker installed and your user in the `docker` group
+### Docker group (required once)
 
 ```sh
 sudo groupadd docker
 sudo usermod -aG docker $USER
 newgrp docker
-# test
 docker run hello-world
 ```
 
 ---
 
+# Quick start (recommended)
+
+This is the shortest path to open the UI successfully on a Linux desktop with Docker.
+
+```sh
+git clone https://github.com/farhadm1990/bactflow.git
+cd bactflow
+
+# Use an absolute work directory that can hold reads + outputs
+WORK_DIR="$(pwd)"
+mkdir -p "${WORK_DIR}/bactflow_out"
+
+# Optional but useful for raw `docker run` browser pop-ups
+./bactflow.sh --install-browser-hook
+
+# Pre-assembly UI (port 5000) — browser opens when ready
+./bactflow.sh preassem "${WORK_DIR}"
+
+# In another terminal: assembly UI (port 5002)
+./bactflow.sh assem "${WORK_DIR}" --cpus 10 --memory 16g
+
+# Post-assembly UI (port 5001)
+./bactflow.sh postassem "${WORK_DIR}" --cpus 10 --memory 16g
+```
+
+Point the UI forms at the bundled test reads under `${WORK_DIR}/test_reads/` (see below) and set **Output directory** to `${WORK_DIR}/bactflow_out` (or any absolute path **inside** `WORK_DIR`).
+
+**Important:** Docker only sees paths under `WORK_DIR`. FASTQ folders, genome folders, databases (or symlinks to them), and `--out_dir` must all live under that absolute path.
+
+---
+
+# Test reads (ONT, Illumina, PacBio)
+
+The repository includes small **demo FASTQs for three technologies** so you can try the UIs without your own data:
+
+```text
+test_reads/
+├── ont/                         # ONT (Flye / Unicycler long reads)
+│   ├── TL110_Native_R1041.fastq.gz
+│   ├── TL19_Native_R1041.fastq.gz
+│   └── TL29_Native_R1041.fastq.gz
+├── illumina/                    # Illumina paired-end (SPAdes / Unicycler short)
+│   ├── TL110_Illumina_R1.fastq.gz
+│   ├── TL110_Illumina_R2.fastq.gz
+│   ├── TL19_Illumina_R1.fastq.gz
+│   ├── TL19_Illumina_R2.fastq.gz
+│   ├── TL29_Illumina_R1.fastq.gz
+│   └── TL29_Illumina_R2.fastq.gz
+└── pacbio/                      # PacBio (Flye; HiFi or set pacbio-raw for subreads)
+    ├── TL110.fastq.gz
+    ├── TL19.fastq.gz
+    └── TL29.fastq.gz
+```
+
+Sample IDs (`TL110`, `TL19`, `TL29`) match across technologies so hybrid Unicycler can pair ONT + Illumina.
+
+| Module | Suggested test path (absolute) |
+| --- | --- |
+| Pre-assembly / Assembly ONT | `…/bactflow/test_reads/ont` |
+| Assembly Illumina | `…/bactflow/test_reads/illumina` |
+| Assembly PacBio | `…/bactflow/test_reads/pacbio` |
+| Hybrid Unicycler | long: `…/test_reads/ont`, short: `…/test_reads/illumina` |
+
+---
+
 # Running the UI
 
-## Docker (recommended): `bactflow.sh`
+## Docker: `bactflow.sh`
 
-Images for **preassem** and **assem** are built locally from this repo (slim env + a conda stub so existing scripts keep working). The first run compiles the image; later runs reuse it unless you pass `--rebuild`.
-
-Provide a module name (`preassem`, `assem`, or `postassem`) and an **absolute** path to your working directory. Docker can only read and write inside that path, so your FASTQ folders, genome folders, databases (or symlinks to them), and `--out_dir` must all live under it.
+By default `bactflow.sh` **pulls the latest tag** from Docker Hub (`farhadm1990/bactflow_preassem`, `bactflow_assem`, `bactflow_postassem`). Use `--local` / `--rebuild` to build from this repo instead.
 
 ```sh
 ./bactflow.sh preassem /home/user/work_dir
-./bactflow.sh assem /home/user/work_dir
+./bactflow.sh assem /home/user/work_dir --cpus 16 --memory 32g
 ./bactflow.sh postassem /home/user/work_dir
 ```
 
-Optional flags: `--cpus`, `--memory`, `--port`, `--no-browser`, `--rebuild`.
+Useful flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--cpus N` / `--memory SIZE` | Resource limits (defaults: auto for preassem; 10 CPUs / 16g for assem & postassem) |
+| `--port PORT` | Host port (defaults 5000 / 5002 / 5001) |
+| `--no-browser` | Do not open a browser tab |
+| `--install-browser-hook` | Install/start host helper so raw `docker run` can open the browser |
+| `--local` | Use a local image build |
+| `--rebuild` | Rebuild local image (implies `--local`) |
+| `--tag TAG` | Pin a Hub tag (e.g. `v1.0`) |
+| `--pull` | Force a Hub refresh |
 
 ```sh
 ./bactflow.sh assem /home/user/work_dir --cpus 16 --memory 32g --port 5002
+./bactflow.sh preassem /home/user/work_dir --local --rebuild
 ```
 
-The assembly image includes Flye, SPAdes, Unicycler, Circlator, and QUAST. Medaka polish, Bakta, GTDB-Tk, and CheckM stay in the local conda env / post-assembly module so the assembly image stays small.
+The assembly image includes Flye, SPAdes, Unicycler, Circlator, and QUAST. Large taxonomy DBs and some polish/annotation tools are configured from the UI / post-assembly module.
+
+### Raw `docker run` (optional)
+
+Prefer `./bactflow.sh` when possible. If you run containers yourself:
+
+1. Install the browser hook once: `./bactflow.sh --install-browser-hook`
+2. Map a **fixed** host port (`-p 5000:5000`, not bare `-p 5000`)
+3. Mount your home or work tree so the hook can see drop files if needed
+
+```sh
+docker run --rm --cpus=10 --memory=28g \
+  --add-host=host.docker.internal:host-gateway \
+  -p 5000:5000 \
+  -v /home/user:/home \
+  -v /home/user/work_dir:/home/user/work_dir \
+  -e BACTFLOW_HOST_PORT=5000 \
+  farhadm1990/bactflow_preassem:v1.0
+```
 
 <div style="text-align: center; margin-top: 10;">
     <img src="https://github.com/farhadm1990/bactflow/blob/main/pix/preassem.png" alt="preassem" style="max-width: 100%; height: auto;"/>
@@ -84,11 +175,14 @@ After the conda environment is installed (see [Installation](#installation-local
 
 ```sh
 conda activate bactflow
+cd /path/to/bactflow
 
 python3 UI/pre_assem_app/pre_assembly.py      # http://127.0.0.1:5000
 python3 UI/assem_app/assembly.py              # http://127.0.0.1:5002
 python3 UI/post_assem_app/post_assembly.py    # http://127.0.0.1:5001
 ```
+
+Use absolute paths to `test_reads/…` and your output directory in the forms.
 
 ---
 
@@ -125,13 +219,13 @@ Use **absolute paths**. One file (or one Illumina pair) per sample.
 
 ### ONT (Flye or Unicycler long reads)
 
-Already one FASTQ per sample (`--concat_reads false`):
+Already one FASTQ per sample (`--concat_reads false`) — matches `test_reads/ont`:
 
 ```text
 ont_reads/
-├── TL110.fastq.gz
-├── TL19.fastq.gz
-└── TL29.fastq.gz
+├── TL110_Native_R1041.fastq.gz
+├── TL19_Native_R1041.fastq.gz
+└── TL29_Native_R1041.fastq.gz
 ```
 
 Guppy/Dorado barcode folders, not yet pooled (`--concat_reads true`). Each subdirectory is one sample; chunks are concatenated into `ont_reads/pooled/`:
@@ -149,8 +243,8 @@ R1/R2 names must match. Accepted patterns include `*_R1.fastq.gz` / `*_R2.fastq.
 
 ```text
 illumina/
-├── TL110_R1.fastq.gz
-├── TL110_R2.fastq.gz
+├── TL110_Illumina_R1.fastq.gz
+├── TL110_Illumina_R2.fastq.gz
 ├── TL19_Illumina_R1.fastq.gz
 └── TL19_Illumina_R2.fastq.gz
 ```
@@ -162,8 +256,11 @@ For hybrid Unicycler, the ONT filename is peeled down to a sample id (`TL110`) a
 ```text
 pacbio/
 ├── TL110.fastq.gz
-└── TL19.fastq.gz
+├── TL19.fastq.gz
+└── TL29.fastq.gz
 ```
+
+Assembly detects **HiFi vs subread**-style PacBio inputs. Use `--pacbio_read_type pacbio-hifi` (default) for HiFi; if the check reports **subreads**, set **`pacbio-raw`** in the UI / CLI (BactFlow does not convert subreads→HiFi with CCS).
 
 ---
 
@@ -206,6 +303,8 @@ seqkit stats /home/user/work_dir/ont_reads/pooled/*.fastq -a -e -j 8 > bactflow_
 
 Run **one** assembler per command. Reuse `bactflow_out` if you assemble the same samples with more than one tool; FASTA names are tagged (`_flye`, `_spades`, `_unicycler`, `_pacbio`) so they are not overwritten.
 
+Paths below use the repo’s `test_reads/` — replace with your own absolute paths as needed.
+
 ### ONT — Flye
 
 Raw ONT (default `--ont_read_type nano-raw`). Use `nano-hq` for Q20+/Dorado HAC/SUP, or `nano-corr` for already-corrected reads.
@@ -216,7 +315,7 @@ nextflow run UI/assem_app/main.nf \
   --run_spades false \
   --run_unicycler false \
   --run_pacbio false \
-  --fastq_dir /home/user/work_dir/ont_reads \
+  --fastq_dir "$(pwd)/test_reads/ont" \
   --concat_reads false \
   --ont_read_type nano-raw \
   --nanofilter true \
@@ -225,7 +324,7 @@ nextflow run UI/assem_app/main.nf \
   --circle_genome true \
   --run_quast true \
   --cpus 10 \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   -resume
 ```
 
@@ -234,7 +333,7 @@ Optional Medaka polish (needs the basecaller model that matches the reads):
 ```sh
 nextflow run UI/assem_app/main.nf \
   --run_flye true \
-  --fastq_dir /home/user/work_dir/ont_reads \
+  --fastq_dir "$(pwd)/test_reads/ont" \
   --concat_reads false \
   --ont_read_type nano-hq \
   --medaka_polish true \
@@ -242,7 +341,7 @@ nextflow run UI/assem_app/main.nf \
   --circle_genome true \
   --run_quast true \
   --cpus 10 \
-  --out_dir bactflow_out
+  --out_dir "$(pwd)/bactflow_out"
 ```
 
 Coverage downsample before Flye:
@@ -250,12 +349,12 @@ Coverage downsample before Flye:
 ```sh
 nextflow run UI/assem_app/main.nf \
   --run_flye true \
-  --fastq_dir /home/user/work_dir/ont_reads \
+  --fastq_dir "$(pwd)/test_reads/ont" \
   --concat_reads false \
   --coverage_filter true \
   --coverage 50 \
   --genome_size 6 \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   --cpus 10
 ```
 
@@ -269,17 +368,17 @@ nextflow run UI/assem_app/main.nf \
   --run_spades true \
   --run_unicycler false \
   --run_pacbio false \
-  --fastq_dir /home/user/work_dir/illumina \
+  --fastq_dir "$(pwd)/test_reads/illumina" \
   --circle_genome true \
   --run_quast true \
   --cpus 10 \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   -resume
 ```
 
 ### Hybrid ONT + Illumina — Unicycler
 
-Long reads in `--fastq_dir`, short-read pairs in `--short_read_dir`. Sample prefixes must match (for example ONT `TL110_Native_R1041.fastq` with Illumina `TL110_Illumina_R1.fastq.gz`).
+Long reads in `--fastq_dir`, short-read pairs in `--short_read_dir`. Sample prefixes must match (for example ONT `TL110_Native_R1041.fastq.gz` with Illumina `TL110_Illumina_R1.fastq.gz`).
 
 ```sh
 nextflow run UI/assem_app/main.nf \
@@ -287,13 +386,13 @@ nextflow run UI/assem_app/main.nf \
   --run_spades false \
   --run_unicycler true \
   --run_pacbio false \
-  --fastq_dir /home/user/work_dir/ont_reads \
-  --short_read_dir /home/user/work_dir/illumina \
+  --fastq_dir "$(pwd)/test_reads/ont" \
+  --short_read_dir "$(pwd)/test_reads/illumina" \
   --concat_reads false \
   --circle_genome true \
   --run_quast true \
   --cpus 10 \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   -resume
 ```
 
@@ -307,13 +406,13 @@ nextflow run UI/assem_app/main.nf \
   --run_spades false \
   --run_unicycler false \
   --run_pacbio true \
-  --fastq_dir /home/user/work_dir/pacbio \
+  --fastq_dir "$(pwd)/test_reads/pacbio" \
   --concat_reads false \
   --pacbio_read_type pacbio-hifi \
   --circle_genome true \
   --run_quast true \
   --cpus 10 \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   -resume
 ```
 
@@ -324,7 +423,7 @@ Point databases at absolute paths (or at symlinks under the Docker work director
 ```sh
 nextflow run UI/assem_app/main.nf \
   --run_flye true \
-  --fastq_dir /home/user/work_dir/ont_reads \
+  --fastq_dir "$(pwd)/test_reads/ont" \
   --concat_reads false \
   --circle_genome true \
   --run_quast true \
@@ -335,7 +434,7 @@ nextflow run UI/assem_app/main.nf \
   --run_checkm true \
   --checkm_db /home/user/work_dir/checkm_db \
   --cpus 10 \
-  --out_dir bactflow_out
+  --out_dir "$(pwd)/bactflow_out"
 ```
 
 ## 3. Post-assembly (already have FASTA files)
@@ -345,9 +444,9 @@ Skip assemblers and score genomes in `--genome_dir` (usually `bactflow_out/asm_o
 ```sh
 nextflow run UI/post_assem_app/main.nf \
   --run_flye false \
-  --genome_dir /home/user/work_dir/bactflow_out/asm_out_dir/fastas \
+  --genome_dir "$(pwd)/bactflow_out/asm_out_dir/fastas" \
   --genome_extension fasta \
-  --out_dir bactflow_out \
+  --out_dir "$(pwd)/bactflow_out" \
   --run_quast true \
   --bakta_annot true \
   --bakta_db /home/user/work_dir/bakta_db \
@@ -358,6 +457,15 @@ nextflow run UI/post_assem_app/main.nf \
   --cpus 10 \
   -resume
 ```
+
+### Post-assembly UI extras
+
+From the post-assembly web UI (port **5001**) you can also:
+
+- **SNP finder** — BWA + bcftools; interactive VCF tables per genome under `out_dir/snps/`
+- **Variant calling (Medaka)** — tables from each genome’s **`medaka.vcf`** under `out_dir/vcs/`
+- **Circular plot** — from Bakta GBK/GFF outputs
+- **Strain finder** — abundance / prevalence tables and plots from enzyme + annotation inputs
 
 ---
 
@@ -410,11 +518,23 @@ bactflow_out/
 ├── gtdbtk_out/                               # --tax_class true (optional)
 │   └── ...                                   # GTDB-Tk classify_wf results
 │
-└── checkm_out/                               # --run_checkm true (optional)
-    ├── checkm_lineage.txt
-    ├── taxon_tree.newick
-    ├── genome_tree.newick
-    └── genome_tree.tree
+├── checkm_out/                               # --run_checkm true (optional)
+│   ├── checkm_lineage.txt
+│   ├── taxon_tree.newick
+│   ├── genome_tree.newick
+│   └── genome_tree.tree
+│
+├── snps/                                     # post-assembly SNP finder (optional)
+│   └── <genome>/… .vcf
+│
+├── vcs/                                      # post-assembly Medaka VC (optional)
+│   └── <genome>_vs_<ref>/medaka.vcf
+│
+└── strain_finder/                            # post-assembly strain finder (optional)
+    ├── abundance.tsv
+    ├── prevalance.tsv
+    ├── requested_genes_abundance.jpeg
+    └── requested_genes_prevalence.jpeg
 ```
 
 What to pick up first:
@@ -468,13 +588,23 @@ Set `--bakta_annot true` and `--bakta_db` to a Bakta database directory.
 
 ## Potential issues
 
+### Browser does not open (Docker)
+
+- Prefer `./bactflow.sh …` (opens the host browser after the UI is ready).
+- For raw `docker run`, run `./bactflow.sh --install-browser-hook` once and use `-p HOST:CONTAINER` (e.g. `-p 5000:5000`).
+- Rebuild local images after UI changes: `./bactflow.sh <module> <work_dir> --local --rebuild`.
+
+### Paths outside the Docker work directory
+
+Anything not under the absolute `work_dir` passed to `bactflow.sh` is invisible inside the container. Symlink large databases into that tree if needed.
+
+### Conda unbound variable on first Nextflow env setup
+
 On the first launch, process `envSetUP` creates a conda environment called `bactflow`. In some conda setups this error can appear:
 
 ```sh
 miniconda3/envs/bactflow/etc/conda/deactivate.d/libxml2_deactivate.sh: line 3: xml_catalog_files_libxml2: unbound variable
 ```
-
-### Solution
 
 Edit that file as follows and rerun BactFlow:
 

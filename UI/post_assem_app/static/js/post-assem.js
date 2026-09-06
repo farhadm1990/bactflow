@@ -1398,6 +1398,10 @@ async function abundRun(){
     if (abundData.plot_abund && abundImgOut) {
       abundImgOut.src = abundData.plot_abund;
       abundImgOut.style.display = "block";
+      if (abundImg) {
+        abundImg.style.display = "block";
+      }
+      jumpToSection("abundImgDiv");
     } else {
       showSectionError("abund-plot-error", "Abundance table was created but the plot file was not found.");
     }
@@ -1481,6 +1485,11 @@ async function prevRun(){
 
     if (prevData.plot_prev && prevImgOut) {
       prevImgOut.src = prevData.plot_prev;
+      prevImgOut.style.display = "block";
+      if (prevImg) {
+        prevImg.style.display = "block";
+      }
+      jumpToSection("prevImgDiv");
     } else {
       showSectionError("prev-plot-error", "Prevalance table was created but the plot file was not found.");
     }

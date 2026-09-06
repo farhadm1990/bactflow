@@ -90,6 +90,26 @@ def _run_bash(script):
     )
 
 
+def _first_existing(*paths):
+    for path in paths:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _image_data_uri(path):
+    with open(path, "rb") as img_file:
+        img_base = base64.b64encode(img_file.read()).decode("utf-8")
+    lower = path.lower()
+    if lower.endswith(".png"):
+        mime = "image/png"
+    elif lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        mime = "image/jpeg"
+    else:
+        mime = "application/octet-stream"
+    return f"data:{mime};base64,{img_base}"
+
+
 def _selected_gene_types():
     types = [t.strip() for t in request.form.getlist("gene_type") if t.strip()]
     if not types:
@@ -1516,7 +1536,11 @@ def abund_finder():
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "abundance.tsv")
-    plot = os.path.join(output, "requested_genes_abundance.jpeg")
+    plot = _first_existing(
+        os.path.join(output, "requested_genes_abundance.jpeg"),
+        os.path.join(output, "requested_genes_abundance.jpg"),
+        os.path.join(output, "requested_genes_abundance.png"),
+    )
     print(f"this is widht {width} and heigth {height}")
     command = (
         f"{shlex.quote(os.path.join(base_dir, 'strain_finder.sh'))} "
@@ -1533,7 +1557,13 @@ def abund_finder():
         err = (completed.stderr or completed.stdout or "Abundance strain finder failed.").strip()
         return jsonify({"exists": False, "error": err[-3000:]}), 500
 
-    if os.path.exists(count_tab) and os.path.exists(plot):
+    # Re-resolve plot after the run (jpeg and/or png may appear).
+    plot = _first_existing(
+        os.path.join(output, "requested_genes_abundance.jpeg"),
+        os.path.join(output, "requested_genes_abundance.jpg"),
+        os.path.join(output, "requested_genes_abundance.png"),
+    )
+    if os.path.exists(count_tab) and plot:
         df  = pd.read_csv(count_tab, sep = "\t")
         data = df.to_dict(orient = "records")
         table_html = """
@@ -1548,19 +1578,20 @@ def abund_finder():
                         </tbody>
                     </table>
                 """
-        
-        with open(plot, "rb") as img_file:
-            img_base = base64.b64encode(img_file.read()).decode("utf-8")
       
         return jsonify({
                 "exists": True, 
                  "abund_table": render_template_string(
                     table_html, id="abund-tab", tabnumber = "Table 3: Abundance table of requested genes.", table=data
                 ),
-                "plot_abund" : f"data:image/jpeg;base64,{img_base}"
+                "plot_abund" : _image_data_uri(plot)
                 })
-    else:
-        return jsonify({"exists": False, "error": "Missing expected table and plot"}), 400
+    missing = []
+    if not os.path.exists(count_tab):
+        missing.append("abundance.tsv")
+    if not plot:
+        missing.append("requested_genes_abundance.(jpeg|png)")
+    return jsonify({"exists": False, "error": f"Missing expected outputs: {', '.join(missing)}"}), 400
 
 
 
@@ -1581,7 +1612,6 @@ def prev_finder():
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "prevalance.tsv")
-    plot = os.path.join(output, "requested_genes_prevalence.jpeg")
     width = request.form.get("plot_width") or "10"
     height = request.form.get("plot_height") or "10"
 
@@ -1597,7 +1627,12 @@ def prev_finder():
         err = (completed.stderr or completed.stdout or "Prevalance strain finder failed.").strip()
         return jsonify({"exists": False, "error": err[-3000:]}), 500
 
-    if os.path.exists(count_tab) and os.path.exists(plot):
+    plot = _first_existing(
+        os.path.join(output, "requested_genes_prevalence.jpeg"),
+        os.path.join(output, "requested_genes_prevalence.jpg"),
+        os.path.join(output, "requested_genes_prevalence.png"),
+    )
+    if os.path.exists(count_tab) and plot:
         df  = pd.read_csv(count_tab, sep = "\t")
         data = df.to_dict(orient = "records")
         table_html = """
@@ -1612,19 +1647,20 @@ def prev_finder():
                         </tbody>
                     </table>
                 """
-        
-        with open(plot, "rb") as img_file:
-            img_base = base64.b64encode(img_file.read()).decode("utf-8")
       
         return jsonify({
                 "exists": True, 
                  "prev_table": render_template_string(
                     table_html, id="prev-tab", tabnumber = "Table 4: Prevalance table of requested genes.", table=data
                 ),
-                "plot_prev" : f"data:image/jpeg;base64,{img_base}"
+                "plot_prev" : _image_data_uri(plot)
                 })
-    else:
-        return jsonify({"exists": False, "error": "Missing expected table and plot"}), 400
+    missing = []
+    if not os.path.exists(count_tab):
+        missing.append("prevalance.tsv")
+    if not plot:
+        missing.append("requested_genes_prevalence.(jpeg|png)")
+    return jsonify({"exists": False, "error": f"Missing expected outputs: {', '.join(missing)}"}), 400
 
 
 

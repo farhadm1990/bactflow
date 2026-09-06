@@ -103,13 +103,19 @@ def parse_vcf(path: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
     return result
 
 
-def find_vcf_files(root: str) -> list[str]:
+def find_vcf_files(root: str, basename_only: str | None = None) -> list[str]:
     if not root or not os.path.isdir(root):
         return []
-    patterns = (
-        os.path.join(root, "**", "*.vcf"),
-        os.path.join(root, "**", "*.vcf.gz"),
-    )
+    if basename_only:
+        patterns = (
+            os.path.join(root, "**", basename_only),
+            os.path.join(root, "**", f"{basename_only}.gz"),
+        )
+    else:
+        patterns = (
+            os.path.join(root, "**", "*.vcf"),
+            os.path.join(root, "**", "*.vcf.gz"),
+        )
     found: list[str] = []
     for pattern in patterns:
         found.extend(glob.glob(pattern, recursive=True))
@@ -135,9 +141,13 @@ def collect_variant_tables(
     if kind in ("snp", "snps"):
         candidates = ["snps", "snp"]
         label = "SNP"
+        # All *.vcf under each genome folder
+        name_filter = None
     else:
         candidates = ["vcs", "vcf", "svs", "variants"]
         label = "variant call"
+        # Medaka VC: only the primary medaka.vcf (skip annotated/sorted)
+        name_filter = "medaka.vcf"
 
     roots = []
     for name in candidates:
@@ -161,13 +171,14 @@ def collect_variant_tables(
 
     genomes = []
     for root in roots:
-        for vcf_path in find_vcf_files(root):
+        for vcf_path in find_vcf_files(root, basename_only=name_filter):
             parsed = parse_vcf(vcf_path, max_rows=max_rows)
             genomes.append(parsed)
 
     if not genomes:
+        wanted = name_filter or "*.vcf"
         payload["error"] = (
-            f"{label} folder exists ({', '.join(roots)}) but no .vcf files were found."
+            f"{label} folder exists ({', '.join(roots)}) but no {wanted} files were found."
         )
         return payload
 
