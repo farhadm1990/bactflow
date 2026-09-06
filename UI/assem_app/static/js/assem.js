@@ -270,6 +270,29 @@ function updateAssemblerUI() {
   }
 }
 
+function jumpToSection(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) {
+    return;
+  }
+  const pane =
+    document.getElementById("assem-results-pane") ||
+    el.closest(".col-md-9") ||
+    null;
+  requestAnimationFrame(() => {
+    if (pane && pane.scrollHeight > pane.clientHeight) {
+      const top =
+        el.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        pane.scrollTop -
+        12;
+      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
 // Run BactFlow
 function run_wf(action){
 
@@ -283,7 +306,8 @@ function run_wf(action){
   const el = document.getElementById("output-div");
   if(el.style.display ==="none" || el.style.display === ""){
     el.style.display = "block";
-  }; 
+  };
+  jumpToSection("output-div");
   // switch actions
   switch (action ){
     case "run":
@@ -297,12 +321,14 @@ function run_wf(action){
           BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
+          jumpToSection("output-div");
           return;
         };
         
 
         BactflowTerminal.append("Bactflow started :)", true);
         BactflowTerminal.setStatus("Running...", "run");
+        jumpToSection("output-div");
 
         // getting value of the setup only field
         let setOnly = document.getElementById("setup_only").value;
@@ -332,6 +358,7 @@ function run_wf(action){
     .catch((error) => {
       BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
       BactflowTerminal.setStatus("Failed to start", "error");
+      jumpToSection("output-div");
       
     });
         break;
@@ -339,6 +366,7 @@ function run_wf(action){
     
     case "stop":
       {
+        jumpToSection("output-div");
         fetch(`/run_bactflow?action-assem=${action}`, {
           method: "POST"
         })
@@ -347,6 +375,7 @@ function run_wf(action){
             if (!response.ok) {
               BactflowTerminal.append(message || "Could not stop BactFlow.", true);
               BactflowTerminal.setStatus("Stop failed", "error");
+              jumpToSection("output-div");
               return;
             }
             BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
@@ -354,10 +383,12 @@ function run_wf(action){
             BactflowTerminal.setStatus("Stopped", "warn");
             disconnectStream();
             updateButtonStates("stopped");
+            jumpToSection("output-div");
           })
           .catch((error) => {
             BactflowTerminal.append("Failed to stop BactFlow: " + error.message, true);
             BactflowTerminal.setStatus("Stop failed", "error");
+            jumpToSection("output-div");
           });
         break;
       }
@@ -371,6 +402,7 @@ function run_wf(action){
         // hide quast
         const quastDiv = document.getElementById("quastDiv");
         quastDiv.style.display = "none";
+        jumpToSection("output-div");
 
       fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
       .then((response) => {
@@ -378,10 +410,12 @@ function run_wf(action){
           BactflowTerminal.append("Error showing help for BactFlow. It might already be running?!", true);
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
+          jumpToSection("output-div");
           return;
         };
         BactflowTerminal.clear();
         BactflowTerminal.append("Bactflow's help menu", true);
+        jumpToSection("output-div");
 
         // const action = "help";
         updateButtonStates("running");
@@ -392,6 +426,7 @@ function run_wf(action){
       .catch((error) => {
         BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
         runButton.disabled = false;
+        jumpToSection("output-div");
         
       });
         break;
@@ -413,7 +448,12 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
   if (action === "run" && selectedAssembler === "unicycler") {
     const shortReads = document.getElementById("short_read_dir").value.trim();
     if (!longReads || !shortReads) {
+      const out = document.getElementById("output-div");
+      if (out) {
+        out.style.display = "block";
+      }
       BactflowTerminal.append("Unicycler hybrid assembly needs both a long-read path and a short-read path.", true);
+      jumpToSection("output-div");
       document.getElementById('run-bt').disabled = false;
       document.getElementById('stop-bt').disabled = true;
       document.getElementById('help-bt').disabled = false;
@@ -421,7 +461,12 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
     }
   }
   if (action === "run" && selectedAssembler === "spades" && !longReads) {
+    const out = document.getElementById("output-div");
+    if (out) {
+      out.style.display = "block";
+    }
     BactflowTerminal.append("SPAdes needs an Illumina paired-end FASTQ directory (sample_R1 / sample_R2).", true);
+    jumpToSection("output-div");
     document.getElementById('run-bt').disabled = false;
     document.getElementById('stop-bt').disabled = true;
     document.getElementById('help-bt').disabled = false;
@@ -505,7 +550,8 @@ function checkForQuastReport(){
         
         let quastDiv = document.getElementById("quastDiv");
         quastDiv.style.display = "block";
-        quastReport();
+        jumpToSection("quastDiv");
+        quastReport().then(() => jumpToSection("quastDiv"));
         clearInterval(quastCheckInterval);
       } else {
         console.log("⏳ Waiting for Quast report...");
@@ -542,6 +588,7 @@ async function quastReport() {
     let contigOutputDiv = document.getElementById("contig-quast");
     contigOutputDiv.innerHTML = ""; 
     contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+    jumpToSection("quastDiv");
     
   } catch (error) {
     console.error("Error:", error);

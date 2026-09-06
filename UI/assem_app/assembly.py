@@ -67,7 +67,8 @@ def assembly():
 
 
 def open_browser():
-    webbrowser.open(url="http://127.0.0.1:5002/", new = 2, autoraise=True) # new 2 opens tab while new 1 opens window
+    from bactflow_open_browser import open_bactflow_browser
+    open_bactflow_browser(port=5002)
 
 
 ########################################################
@@ -81,7 +82,35 @@ def open_browser():
 manager = Manager()
 process_status = manager.dict({"pid": None, "running": False})
 output_queue = Queue()
-output_history = manager.list() # to store output history 
+output_history = manager.list() # to store output history
+
+
+def _repair_stdio_for_fork():
+    """Process.start() flushes stdout/stderr; a closed pipe raises BrokenPipeError."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except (BrokenPipeError, OSError):
+            try:
+                setattr(
+                    sys,
+                    name,
+                    open(os.devnull, "w", encoding="utf-8", errors="replace"),
+                )
+            except OSError:
+                pass
+
+
+def _start_worker_process(proc):
+    _repair_stdio_for_fork()
+    try:
+        proc.start()
+    except BrokenPipeError:
+        _repair_stdio_for_fork()
+        proc.start()
 
 def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
     """Forward process status/completion lines from .nextflow.log (PTY often misses them)."""
@@ -399,13 +428,30 @@ def run_bactflow():
                 return "Unicycler hybrid assembly requires a long-read FASTQ directory.\n", 400
             if str(run_spades).lower() == "true" and not str(fastq_dir).strip():
                 return "SPAdes requires an Illumina paired-end FASTQ directory.\n", 400
+            if str(run_pacbio).lower() == "true" and not str(fastq_dir).strip():
+                return "PacBio Flye assembly requires a PacBio FASTQ directory.\n", 400
+            if str(run_flye).lower() == "true" and not str(fastq_dir).strip():
+                return "Flye assembly requires a FASTQ directory.\n", 400
+
+            # Empty optional paths must be quoted empty strings — bare --genome_dir becomes boolean true in Nextflow.
+            genome_dir = (genome_dir or "").strip()
+            bakta_db = (bakta_db or "").strip()
+            checkm_db = (checkm_db or "").strip()
+            gtdbtk_data_path = (gtdbtk_data_path or "").strip()
+            short_read_dir = (short_read_dir or "").strip()
+            extension = (extension or "").strip() or ".fastq.gz"
+            coverage = coverage if str(coverage).strip() not in ("", "None") else "40"
+            genome_size = genome_size if str(genome_size).strip() not in ("", "None") else "5"
+            min_length = min_length if str(min_length).strip() not in ("", "None") else "1000"
+            min_quality = min_quality if str(min_quality).strip() not in ("", "None") else "10"
+            tensor_batch = tensor_batch if str(tensor_batch).strip() not in ("", "None") else "200"
              
             command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
                     --setup_only {setup_only} \\
-                    --fastq_dir '{fastq_dir}' \\
+                    --fastq_dir '{fastq_dir or ""}' \\
                     --concat_reads {concat_reads} \\
-                    --extension {extension}\\
+                    --extension '{extension}' \\
                     --cpus {cpus} \\
                     --coverage_filter {coverage_filter} \\
                     --coverage {coverage} \\
@@ -429,12 +475,12 @@ def run_bactflow():
                     --pacbio_read_type {pacbio_read_type} \\
                     --tax_class {tax_class} \\
                     --bakta_annot {bakta_annot} \\
-                    --bakta_db {bakta_db} \\
+                    --bakta_db '{bakta_db}' \\
                     --run_checkm {run_checkm} \\
-                    --checkm_db {checkm_db} \\
-                    --gtdbtk_data_path {gtdbtk_data_path} \\
+                    --checkm_db '{checkm_db}' \\
+                    --gtdbtk_data_path '{gtdbtk_data_path}' \\
                     --run_quast {run_quast} \\
-                    --genome_dir {genome_dir} \\
+                    --genome_dir '{genome_dir}' \\
                     -ansi-log true"""
             if resume_run:
                 command = command + " -resume"
@@ -451,7 +497,7 @@ def run_bactflow():
             output_history[:] = []
             
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
-            back_process.start()
+            _start_worker_process(back_process)
         
             command = None
             return "Bactflow started successfully!\n", 200
@@ -460,7 +506,7 @@ def run_bactflow():
             command = with_nextflow_java(f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true")
             output_history[:] = []
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
-            back_process.start()
+            _start_worker_process(back_process)
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -552,15 +598,134 @@ def _job_resource_stats(pid):
     }
 
 
+def _cgroup_memory_bases():
+    bases = []
+    try:
+        with open("/proc/self/cgroup", "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith("0::"):
+                    rel = line.split("::", 1)[1]
+                    bases.append("/sys/fs/cgroup" + (rel if rel.startswith("/") else "/" + rel))
+                elif ":memory:" in line:
+                    rel = line.split(":")[-1]
+                    bases.append("/sys/fs/cgroup/memory" + (rel if rel.startswith("/") else "/" + rel))
+    except OSError:
+        pass
+    bases.extend(["/sys/fs/cgroup", "/sys/fs/cgroup/memory"])
+    seen = set()
+    out = []
+    for base in bases:
+        base = base.rstrip("/") or "/"
+        if base not in seen:
+            seen.add(base)
+            out.append(base)
+    return out
+
+
+def _parse_memory_size(text):
+    if text is None:
+        return None
+    raw = str(text).strip().lower()
+    if not raw or raw.startswith("auto") or raw in ("max", "unlimited", "inf"):
+        return None
+    mult = 1
+    if raw[-1] in "bkmgt":
+        unit = raw[-1]
+        num = raw[:-1]
+        mult = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}[unit]
+    elif raw.endswith(("kb", "mb", "gb", "tb", "ki", "mi", "gi", "ti")):
+        unit = raw[-2:]
+        num = raw[:-2]
+        mult = {
+            "kb": 1000, "mb": 1000 ** 2, "gb": 1000 ** 3, "tb": 1000 ** 4,
+            "ki": 1024, "mi": 1024 ** 2, "gi": 1024 ** 3, "ti": 1024 ** 4,
+        }[unit]
+    else:
+        num = raw
+    try:
+        return int(float(num) * mult)
+    except ValueError:
+        return None
+
+
+def _env_docker_memory_limit():
+    for key in ("BACTFLOW_DOCKER_MEMORY", "BACTFLOW_MEMORY"):
+        limit = _parse_memory_size(os.environ.get(key))
+        if limit and limit > 0:
+            return limit
+    return None
+
+
+def _cgroup_memory_bytes():
+    host_total = None
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("MemTotal:"):
+                    host_total = int(line.split()[1]) * 1024
+                    break
+    except (OSError, ValueError):
+        pass
+
+    for base in _cgroup_memory_bases():
+        for used_name, lim_name in (
+            ("memory.current", "memory.max"),
+            ("memory.usage_in_bytes", "memory.limit_in_bytes"),
+        ):
+            used_path = os.path.join(base, used_name)
+            lim_path = os.path.join(base, lim_name)
+            try:
+                with open(used_path, "r", encoding="utf-8") as handle:
+                    used = int(handle.read().strip())
+                with open(lim_path, "r", encoding="utf-8") as handle:
+                    raw = handle.read().strip()
+                if raw in ("max", ""):
+                    continue
+                limit = int(raw)
+                if limit <= 0 or limit >= (1 << 62):
+                    continue
+                if host_total and limit >= host_total * 0.98:
+                    continue
+                return used, limit
+            except (OSError, ValueError):
+                continue
+    return None, None
+
+
+def _docker_aware_memory(fallback_used, fallback_total, fallback_percent):
+    used_b, limit_b = _cgroup_memory_bytes()
+    env_limit = _env_docker_memory_limit()
+    if limit_b is None and env_limit:
+        limit_b = env_limit
+        if used_b is None:
+            used_b = min(int(fallback_used * (1024 ** 3)), limit_b) if fallback_total else 0
+    if used_b is not None and limit_b is not None and limit_b > 0:
+        return (
+            round(used_b / (1024 ** 3), 2),
+            round(limit_b / (1024 ** 3), 2),
+            round(min(100.0, used_b / limit_b * 100.0), 1),
+            "docker",
+        )
+    return fallback_used, fallback_total, fallback_percent, "host"
+
+
 def _build_sys_stats():
     vm = psutil.virtual_memory()
     ncpu = psutil.cpu_count(logical=True) or 1
+    ram_percent = round(vm.percent, 1)
+    ram_used_gb = round(vm.used / (1024 ** 3), 2)
+    ram_total_gb = round(vm.total / (1024 ** 3), 2)
+    ram_used_gb, ram_total_gb, ram_percent, mem_src = _docker_aware_memory(
+        ram_used_gb, ram_total_gb, ram_percent
+    )
     payload = {
         "cpu_percent": round(psutil.cpu_percent(interval=None), 1),
         "cpu_count": ncpu,
-        "ram_percent": round(vm.percent, 1),
-        "ram_used_gb": round(vm.used / (1024 ** 3), 2),
-        "ram_total_gb": round(vm.total / (1024 ** 3), 2),
+        "ram_percent": ram_percent,
+        "ram_used_gb": ram_used_gb,
+        "ram_total_gb": ram_total_gb,
+        "ram_scope": mem_src,
         "running": bool(_manager_get("running", False)),
         "job_cores": None,
         "job_cpu_percent": None,
@@ -696,13 +861,19 @@ def contig_report():
     return jsonify({"error": "QUAST contig viewer not found"}), 404
 
 if __name__ == '__main__':
-    skip_browser = IN_DOCKER or os.environ.get("BACTFLOW_NO_BROWSER") == "1"
-    if not skip_browser:
+    # Docker: open via host browser hook. Local: webbrowser/xdg-open.
+    # bactflow.sh sets BACTFLOW_NO_BROWSER=1 and opens the tab itself.
+    want_browser = (
+        os.environ.get("BACTFLOW_NO_BROWSER") != "1"
+        or os.environ.get("BACTFLOW_FORCE_BROWSER") == "1"
+    )
+    if want_browser:
         Timer(1, open_browser).start()
+    flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
     app.run(
-        debug=not skip_browser,
+        debug=flask_debug,
         port=5002,
         host="0.0.0.0",
         use_reloader=False,
         threaded=True,
-    ) 
+    )

@@ -147,6 +147,30 @@ function trimList(){
   });
 };
 
+function jumpToSection(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) {
+    return;
+  }
+  // Results live in a fixed-height overflow column — scroll that pane, not only the window.
+  const pane =
+    document.getElementById("pre-results-pane") ||
+    el.closest(".col-md-9") ||
+    null;
+  requestAnimationFrame(() => {
+    if (pane && pane.scrollHeight > pane.clientHeight) {
+      const top =
+        el.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        pane.scrollTop -
+        12;
+      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
 // initiate concatenation
 function catFastq(){
   const lsfq = document.getElementById("fastq-ls");
@@ -154,7 +178,8 @@ function catFastq(){
   const form = document.getElementById('preForm');
   const spinFastqLs = document.getElementById("spin-fastq-list");
   const formData = preFormData();
-  spinFastqLs.style.display = "block";
+  spinFastqLs.style.display = "flex";
+  jumpToSection("spin-fastq-list");
   fetch("/ls-fastq", {
     method: "POST",
     body: formData
@@ -173,6 +198,7 @@ function catFastq(){
       spinFastqLs.style.display = "none";
       lsDiv.style.display = "block";
       lsfq.innerHTML = data.html_table;
+      jumpToSection("fastq-ls-div");
       setTimeout(() => {
         if ($.fn.DataTable) {
           console.log("✅ DataTables is loaded, initializing table...");
@@ -189,6 +215,8 @@ function catFastq(){
       }, 20); 
     } else {
       lsfq.innerHTML = `<p>Error: ${data.error}</p>`;
+      lsDiv.style.display = "block";
+      jumpToSection("fastq-ls-div");
     }
 
     document.getElementById("size-slider").addEventListener("input", function() {
@@ -216,6 +244,7 @@ function catFastq(){
     spinFastqLs.style.display = "none";
     lsDiv.style.display = "block";
     lsfq.innerHTML = `<p style="color:#b00020;"><strong>Could not list FASTQ files.</strong><br>${error.message}</p>`;
+    jumpToSection("fastq-ls-div");
   });
 }
 
@@ -326,15 +355,30 @@ function selectedPlatform() {
   return ((document.getElementById("read_platform") || {}).value || "auto").toLowerCase();
 }
 
+function selectedPacbioKind() {
+  return ((document.getElementById("pacbio_read_kind") || {}).value || "hifi").toLowerCase();
+}
+
+function resolvePlotPlatform(declared) {
+  const p = (declared || selectedPlatform() || "auto").toLowerCase();
+  if (p === "illumina") {
+    return "illumina";
+  }
+  // PacBio uses the exact same plot chrome as ONT
+  return "ont";
+}
+
 function updatePlatformUI() {
   const platform = selectedPlatform();
   const illumina = platform === "illumina";
+  const pacbio = platform === "pacbio";
   const concatGroup = document.getElementById("concatReadsGroup");
   const concatSel = document.getElementById("concat_reads");
   const catBtn = document.getElementById("read-cat");
   const filterBtn = document.getElementById("illumina-filter-bt");
   const filterGroup = document.getElementById("illuminaFilterGroup");
   const filterParams = document.getElementById("illuminaFilterParams");
+  const pacbioKindGroup = document.getElementById("pacbioKindGroup");
   const filterOn = (document.getElementById("illumina_filter") || {}).value === "true";
 
   if (concatGroup) {
@@ -358,9 +402,12 @@ function updatePlatformUI() {
   if (filterParams) {
     filterParams.style.display = illumina && filterOn ? "" : "none";
   }
+  if (pacbioKindGroup) {
+    pacbioKindGroup.style.display = pacbio ? "" : "none";
+  }
   if (lastReadPlatform !== null && lastReadPlatform !== platform) {
     clearResultsPane();
-    setPlotChrome(illumina ? "illumina" : "ont");
+    setPlotChrome(resolvePlotPlatform(platform));
   }
   lastReadPlatform = platform;
 }
@@ -456,17 +503,22 @@ function downloadPlot(plotId, filename, format) {
   });
 }
 
-function setPlotChrome(platform) {
-  const illumina = platform === "illumina";
-  const specs = illumina ? [
-    ["bar-qual-plot", "qual-plot", "Illumina per-cycle quality", "illumina_per_cycle_quality"],
-    ["bar-qual-heat-plot", "qual-heat-plot", "Illumina mean quality distribution", "illumina_quality_histogram"],
-    ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "Illumina per-cycle nucleotide content", "illumina_base_composition"]
-  ] : [
-    ["bar-qual-plot", "qual-plot", "ONT read quality box plot", "ont_read_quality_boxplot"],
-    ["bar-qual-heat-plot", "qual-heat-plot", "ONT read length vs quality (per sample)", "ont_length_quality_heatmap"],
-    ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "ONT read length vs quality (pooled)", "ont_length_quality_pooled"]
-  ];
+function setPlotChrome(platform, pacbioKind, pacbioVizMode) {
+  const p = resolvePlotPlatform(platform);
+  let specs;
+  if (p === "illumina") {
+    specs = [
+      ["bar-qual-plot", "qual-plot", "Illumina per-cycle quality", "illumina_per_cycle_quality"],
+      ["bar-qual-heat-plot", "qual-heat-plot", "Illumina mean quality distribution", "illumina_quality_histogram"],
+      ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "Illumina per-cycle nucleotide content", "illumina_base_composition"]
+    ];
+  } else {
+    specs = [
+      ["bar-qual-plot", "qual-plot", "ONT read quality box plot", "ont_read_quality_boxplot"],
+      ["bar-qual-heat-plot", "qual-heat-plot", "ONT read length vs quality (per sample)", "ont_length_quality_heatmap"],
+      ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "ONT read length vs quality (pooled)", "ont_length_quality_pooled"]
+    ];
+  }
   specs.forEach(([barId, plotId, title, fname]) => {
     const bar = document.getElementById(barId);
     if (!bar) {
@@ -489,6 +541,7 @@ function setPlotChrome(platform) {
 function read_stat(){
   const spinSeq = document.getElementById("spin-seqkit");
   spinSeq.style.display = "flex";
+  jumpToSection("spin-seqkit");
   const form = document.getElementById('preForm');
   const formData = preFormData();
   fetch("/reads-stat", {
@@ -507,6 +560,7 @@ function read_stat(){
       seqDiv.style.display = "block";
       threshIn.style.display = "block";
       outputDiv.innerHTML = data.html_output;
+      jumpToSection("seq-div");
 
       let columnIndex = -1;
       document.querySelectorAll("#stats-table thead th").forEach((th, index) => {
@@ -544,11 +598,13 @@ function read_stat(){
             "responsive": true
           });
         }
+        jumpToSection("seq-div");
       }, 20);
     })
     .catch(error => {
       console.error("Error fetching read-stat:", error);
       showSeqError(error.message || String(error));
+      jumpToSection("seq-div");
     });
 }
 
@@ -573,13 +629,14 @@ function read_vis(){
   ];
 
   clearPlots();
-  setPlotChrome(selectedPlatform() === "illumina" ? "illumina" : "ont");
+  setPlotChrome(resolvePlotPlatform(selectedPlatform()), selectedPacbioKind());
   if (visError) {
     visError.style.display = "none";
     visError.textContent = "";
     visError.innerHTML = "";
   }
   spinVis.style.display = "flex";
+  jumpToSection("spin-vis");
 
   fetch("/plot-qual", {method: "POST", body: formData})
   .then(parseJsonResponse)
@@ -590,7 +647,16 @@ function read_vis(){
     if(!data.graph){
       throw new Error("No plot data returned");
     }
-    setPlotChrome(data.platform || (selectedPlatform() === "illumina" ? "illumina" : "ont"));
+    setPlotChrome(
+      data.platform || resolvePlotPlatform(selectedPlatform()),
+      data.pacbio_read_kind || selectedPacbioKind(),
+      data.pacbio_viz_mode
+    );
+    if (data.note) {
+      const note = String(data.note);
+      const isSub = /subread|CLR|not HiFi/i.test(note);
+      showNotice(note, isSub);
+    }
     spinVis.style.display = "none";
     qualDiv.style.display = "block";
     qualHeatDiv.style.display = "block";
@@ -657,6 +723,8 @@ function read_vis(){
     Plotly.newPlot(qualDiv, plotData1.data, plotData1.layout);
     Plotly.newPlot(qualHeatDiv, plotData2.data, plotData2.layout);
     Plotly.newPlot(qualHeatDivPool, plotData3.data, plotData3.layout);
+    const noteVisible = visError && visError.style.display !== "none" && visError.innerHTML;
+    jumpToSection(noteVisible ? "vis-error" : "bar-qual-plot");
   })
   .catch(error => {
     console.error("Error fetching plot", error);
@@ -664,6 +732,7 @@ function read_vis(){
     if (visError) {
       visError.style.display = "block";
       visError.innerHTML = `<strong>Could not create plots.</strong><br>${error.message || error}`;
+      jumpToSection("vis-error");
     }
   });
 }
@@ -741,11 +810,19 @@ document.addEventListener("DOMContentLoaded", function(){
   updatePlatformUI();
   const platform = document.getElementById("read_platform");
   const illuminaFilter = document.getElementById("illumina_filter");
+  const pacbioKind = document.getElementById("pacbio_read_kind");
   if (platform) {
     platform.addEventListener("change", updatePlatformUI);
   }
   if (illuminaFilter) {
     illuminaFilter.addEventListener("change", updatePlatformUI);
+  }
+  if (pacbioKind) {
+    pacbioKind.addEventListener("change", () => {
+      if (selectedPlatform() === "pacbio") {
+        setPlotChrome("ont");
+      }
+    });
   }
 
   document.getElementById("preForm").addEventListener("input", () =>{

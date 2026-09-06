@@ -17,9 +17,14 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 // connect to stream when on assembly
 function connectToStream(action){
+  // Always (re)connect — a stale EventSource left "Running..." with no lines.
   if (eventSource){
-    console.log("Stream already connected");
-    return;
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    } catch (e) { /* ignore */ }
+    eventSource = null;
   }
 
   window.__bactflowUserStopped = false;
@@ -68,6 +73,7 @@ function connectToStream(action){
       clearTimeout(flushTimer);
       flushTimer = null;
     }
+    flushLog();
     logBuffer = [];
     try {
       eventSource.onmessage = null;
@@ -146,7 +152,8 @@ function run_wf(action){
   const el = document.getElementById("output-div");
   if(el.style.display ==="none" || el.style.display === ""){
     el.style.display = "block";
-  }; 
+  };
+  jumpToSection("output-div");
   // switch actions
   switch (action){
     case "run":
@@ -160,7 +167,13 @@ function run_wf(action){
           const message = await response.text();
           BactflowTerminal.clear();
           if (!response.ok) {
-            BactflowTerminal.append(message || "Error starting BactFlow.", true);
+            const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
+            BactflowTerminal.append(
+              looksHtml
+                ? "Error starting BactFlow (server error). Restart the post-assembly app and try again."
+                : (message || "Error starting BactFlow."),
+              true
+            );
             BactflowTerminal.setStatus("Failed to start", "error");
             document.getElementById('run-bt').disabled = false;
             document.getElementById('stop-bt').disabled = true;
@@ -220,10 +233,17 @@ function run_wf(action){
         const quastDiv = document.getElementById("quastDiv");
         quastDiv.style.display = "none";
 
-      fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
-      .then((response) => {
+      fetch(`/run_bactflow?action-assem=help`, { method: "POST" })
+      .then(async (response) => {
+        const message = await response.text();
         if(!response.ok) {
-          BactflowTerminal.append("Error showing help for BactFlow. It might already be running?!", true);
+          const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
+          BactflowTerminal.append(
+            looksHtml
+              ? "Error showing help (server error). Restart the post-assembly app and try again."
+              : (message || "Error showing help for BactFlow."),
+            true
+          );
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
@@ -233,13 +253,14 @@ function run_wf(action){
 
         // const action = "help";
         updateButtonStates("running");
-        connectToStream(action);
+        connectToStream("help");
         
         
       })
       .catch((error) => {
         BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
-        runButton.disabled = false;
+        document.getElementById('run-bt').disabled = false;
+        document.getElementById('help-bt').disabled = false;
         
       });
         break;
@@ -259,7 +280,10 @@ document.addEventListener("DOMContentLoaded", function () {
     e.preventDefault();
     e.stopPropagation();
 
-    const action = (e.submitter && e.submitter.value) || new FormData(postForm).get("action-assem");
+    const action =
+      (e.submitter && e.submitter.value) ||
+      (e.submitter && e.submitter.getAttribute("value")) ||
+      null;
     if (!action) {
       return;
     }
@@ -274,6 +298,21 @@ document.addEventListener("DOMContentLoaded", function () {
     run_wf(action);
   });
 
+  // Direct clicks — avoid mis-detecting action when submitter is missing.
+  const runBt = document.getElementById("run-bt");
+  if (runBt) {
+    runBt.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.__bactflowUserStopped = false;
+      BactflowTerminal.clear();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+      run_wf("run");
+    });
+  }
+
   // Direct Stop click — same strategy as assembly, guaranteed even if submitter is missing.
   const stopBt = document.getElementById("stop-bt");
   if (stopBt) {
@@ -281,6 +320,20 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault();
       e.stopPropagation();
       run_wf("stop");
+    });
+  }
+
+  const helpBt = document.getElementById("help-bt");
+  if (helpBt) {
+    helpBt.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.__bactflowUserStopped = false;
+      BactflowTerminal.clear();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+      run_wf("help");
     });
   }
 
@@ -751,10 +804,26 @@ function hideSectionError(id) {
 }
 
 function jumpToSection(id) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) {
+    return;
   }
+  const pane =
+    document.querySelector(".bf-results-col") ||
+    el.closest(".bf-results-col") ||
+    null;
+  requestAnimationFrame(() => {
+    if (pane && pane.scrollHeight > pane.clientHeight) {
+      const top =
+        el.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        pane.scrollTop -
+        12;
+      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
 }
 
 async function readJsonError(res, fallback) {
@@ -935,6 +1004,139 @@ function hideSnpError() {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderChromSummary(chromCounts) {
+  const entries = Object.entries(chromCounts || {});
+  if (!entries.length) {
+    return "";
+  }
+  const max = Math.max(...entries.map(([, n]) => Number(n) || 0), 1);
+  const bars = entries
+    .slice(0, 20)
+    .map(([chrom, n]) => {
+      const width = Math.max(4, Math.round((Number(n) / max) * 100));
+      return `<div class="vcf-chrom-row"><span class="vcf-chrom-name">${escapeHtml(chrom)}</span>
+        <span class="vcf-chrom-bar"><span style="width:${width}%"></span></span>
+        <span class="vcf-chrom-n">${escapeHtml(n)}</span></div>`;
+    })
+    .join("");
+  return `<div class="vcf-chrom-summary"><strong>Variants per contig</strong>${bars}</div>`;
+}
+
+function renderVcfGenomeBlock(genome, tableId) {
+  const name = escapeHtml(genome.genome || "genome");
+  const path = escapeHtml(genome.path || "");
+  const n = genome.n_variants ?? 0;
+  const shown = genome.n_shown ?? (genome.rows || []).length;
+  const truncated = genome.truncated
+    ? ` <span class="text-muted">(showing first ${shown} of ${n})</span>`
+    : "";
+
+  if (genome.error) {
+    return `<div class="vcf-genome-block">
+      <h5>${name}</h5>
+      <p class="text-danger">${escapeHtml(genome.error)}</p>
+      <p class="text-muted small">File: ${path}</p>
+    </div>`;
+  }
+
+  if (!n) {
+    return `<div class="vcf-genome-block">
+      <h5>${name}</h5>
+      <p>No variants in this VCF (header only).</p>
+      <p class="text-muted small">VCF file: <code>${path}</code></p>
+    </div>`;
+  }
+
+  const columns = genome.columns || ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"];
+  const thead = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+  const tbody = (genome.rows || [])
+    .map((row) => {
+      const cells = columns.map((c) => `<td>${escapeHtml(row[c] ?? "")}</td>`).join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  return `<div class="vcf-genome-block">
+    <h5>${name} <span class="badge bg-secondary">${n} variant${n === 1 ? "" : "s"}</span>${truncated}</h5>
+    <p class="text-muted small mb-2">VCF: <code>${path}</code></p>
+    ${renderChromSummary(genome.chrom_counts)}
+    <div class="table-responsive">
+      <table id="${escapeHtml(tableId)}" class="table table-sm table-striped table-bordered vcf-table" style="width:100%">
+        <thead><tr>${thead}</tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderVariantTables(container, data, idPrefix) {
+  if (!container) {
+    return;
+  }
+  const genomes = data.genomes || [];
+  if (!genomes.length) {
+    const roots = (data.roots || []).filter(Boolean).join(", ");
+    const msg = data.message || (
+      roots
+        ? `SNP / VCF files are in: ${roots}`
+        : "No parsed VCF tables were returned. Restart post-assembly and try again."
+    );
+    container.innerHTML = `<p>${escapeHtml(msg)}</p>`;
+    return;
+  }
+
+  container.innerHTML = genomes
+    .map((g, i) => renderVcfGenomeBlock(g, `${idPrefix}-tab-${i}`))
+    .join("<hr>");
+
+  setTimeout(() => {
+    if (!window.$ || !$.fn.DataTable) {
+      return;
+    }
+    genomes.forEach((_, i) => {
+      const sel = `#${idPrefix}-tab-${i}`;
+      if (!document.querySelector(sel)) {
+        return;
+      }
+      if ($.fn.DataTable.isDataTable(sel)) {
+        $(sel).DataTable().destroy();
+      }
+      $(sel).DataTable({
+        paging: true,
+        pageLength: 25,
+        searching: true,
+        ordering: true,
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+        scrollX: true,
+        order: [[1, "asc"]],
+      });
+    });
+  }, 200);
+}
+
+async function fetchVariantReport(endpoint, form) {
+  const fd = new FormData(form);
+  const res = await fetch(endpoint, { method: "POST", body: fd });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (e) {
+    data = { exists: false, error: "Invalid report response." };
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
 function runSNP(){
   let form = document.getElementById("postForm");
   let formData = new FormData(form);
@@ -954,46 +1156,76 @@ function runSNP(){
   if (snpBtn) {
     snpBtn.disabled = true;
   }
-  snpsDiv.scrollIntoView({ behavior: "smooth", block: "start" });
+  jumpToSection("snpsDiv");
 
-  fetch("/snp-finder", {method: "POST", body: formData})
-  .then(async (res) => {
-    let data = {};
-    try {
-      data = await res.json();
-    } catch (e) {
-      data = { exists: false, error: "SNP finder returned an invalid response." };
-    }
-    if (!res.ok) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
-    return data;
-  })
-  .then(data => {
+  const finishOk = (data) => {
     if (spin) {
       spin.style.display = "none";
     }
-    if (data.exists) {
-      hideSnpError();
-      if (snpsOUT) {
-        snpsOUT.innerHTML = "<p>✅ Your SNP files have been created successfully </p>";
+    hideSnpError();
+    renderVariantTables(snpsOUT, data, "snp");
+    jumpToSection("snpsDiv");
+  };
+
+  // Prefer existing VCFs (fast). Only re-run the pipeline if none are found.
+  fetchVariantReport("/snp-report", form)
+    .then((existing) => {
+      if (existing.exists && (existing.genomes || []).length) {
+        finishOk(existing);
+        return null;
       }
-    } else {
-      showSnpError(data.error || "Your SNP files were not created. Check the reference genome path and try again.");
-    }
-  })
-  .catch((error) => {
-    if (spin) {
-      spin.style.display = "none";
-    }
-    console.error("Error fetching SNPs report:", error);
-    showSnpError(error.message || "An error occurred while fetching the SNPs report.");
-  })
-  .finally(() => {
-    if (snpBtn) {
-      snpBtn.disabled = false;
-    }
-  });
+      return fetch("/snp-finder", { method: "POST", body: formData }).then(async (res) => {
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (e) {
+          data = { exists: false, error: "SNP finder returned an invalid response." };
+        }
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        return data;
+      });
+    })
+    .then(async (data) => {
+      if (data == null) {
+        return;
+      }
+      if (!data.exists) {
+        if (spin) {
+          spin.style.display = "none";
+        }
+        showSnpError(data.error || "Your SNP files were not created. Check the reference genome path and try again.");
+        return;
+      }
+      if ((data.genomes || []).length) {
+        finishOk(data);
+        return;
+      }
+      try {
+        const report = await fetchVariantReport("/snp-report", form);
+        finishOk(report);
+      } catch (err) {
+        const outDir = (formData.get("out_dir") || "").toString();
+        finishOk({
+          roots: outDir ? [`${outDir.replace(/\/$/, "")}/snps`] : [],
+          message: data.message || err.message,
+          genomes: [],
+        });
+      }
+    })
+    .catch((error) => {
+      if (spin) {
+        spin.style.display = "none";
+      }
+      console.error("Error fetching SNPs report:", error);
+      showSnpError(error.message || "An error occurred while fetching the SNPs report.");
+    })
+    .finally(() => {
+      if (snpBtn) {
+        snpBtn.disabled = false;
+      }
+    });
 }
 
 // SVS
@@ -1034,7 +1266,7 @@ function runVCF(){
   if (vcfBtn) {
     vcfBtn.disabled = true;
   }
-  svsDiv.scrollIntoView({ behavior: "smooth", block: "start" });
+  jumpToSection("svs");
 
   fetch("/svs-finder", {method: "POST", body: formData})
   .then(async (res) => {
@@ -1049,18 +1281,31 @@ function runVCF(){
     }
     return data;
   })
-  .then(data => {
+  .then(async (data) => {
     if (spin) {
       spin.style.display = "none";
     }
-    if (data.exists) {
-      hideSvsError();
-      if (svsOUT) {
-        svsOUT.innerHTML = "<p>Your variant calling files have been created successfully.</p>";
-      }
-    } else {
+    if (!data.exists) {
       showSvsError(data.error || "Variant calling files were not created. Check the reference genome path and try again.");
+      return;
     }
+    hideSvsError();
+    if ((data.genomes || []).length) {
+      renderVariantTables(svsOUT, data, "svs");
+    } else {
+      try {
+        const report = await fetchVariantReport("/svs-report", form);
+        renderVariantTables(svsOUT, report, "svs");
+      } catch (err) {
+        const outDir = (formData.get("out_dir") || "").toString();
+        renderVariantTables(svsOUT, {
+          roots: outDir ? [`${outDir.replace(/\/$/, "")}/vcs`] : [],
+          message: data.message || err.message,
+          genomes: [],
+        }, "svs");
+      }
+    }
+    jumpToSection("svs");
   })
   .catch((error) => {
     if (spin) {

@@ -2,7 +2,10 @@
 set -euo pipefail
 
 export BACTFLOW_IN_DOCKER=1
-export BACTFLOW_NO_BROWSER=1
+export BACTFLOW_MODULE="${BACTFLOW_MODULE:-postassem}"
+export BACTFLOW_HOST_PORT="${BACTFLOW_HOST_PORT:-5001}"
+# Do not force BACTFLOW_NO_BROWSER — let Flask ask the host browser hook
+# (or open locally). bactflow.sh may still set NO_BROWSER=1 itself.
 export PYTHONUNBUFFERED=1
 export CONDA_PREFIX="${CONDA_PREFIX:-/opt/conda/envs/bactflow}"
 export CONDA_DEFAULT_ENV="${CONDA_DEFAULT_ENV:-bactflow}"

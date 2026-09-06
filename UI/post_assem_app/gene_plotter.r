@@ -20,7 +20,7 @@ if (!(requireNamespace('MatrixGenerics', quietly = TRUE))) {
     BiocManager::install('MatrixGenerics', force = TRUE, ask = FALSE, update = FALSE)
 }
 
-for (pkg in c(needed, 'MatrixGenerics')) {
+for (pkg in c(needed, 'MatrixGenerics', 'grid')) {
     suppressPackageStartupMessages(library(pkg, character.only = TRUE, verbose = FALSE))
 }
 
@@ -191,13 +191,13 @@ mat_gen = mat1[matches, , drop = FALSE]
 storage.mode(mat_gen) <- "numeric"
 
 outname_table = "table_of_gene_abundance.tsv"
-outname_jpeg = "requested_genes_abundance.png"
+outname_jpeg = "requested_genes_abundance.jpeg"
 title_p = glue("Heat map of  {length(matches)} genes abundance in different {opt$name_organism} genomes")
 
 if (isTRUE(opt$prevalence)) {
     mat_gen[mat_gen > 0] <- 1
     outname_table = "table_of_gene_prevalence.tsv"
-    outname_jpeg = "requested_genes_prevalence.png"
+    outname_jpeg = "requested_genes_prevalence.jpeg"
     title_p = glue("Heat map of {length(matches)} genes prevalence (contingency) in {opt$name_organism} genomes")
 }
 
@@ -275,14 +275,20 @@ heat_p = do.call(pheatmap, heat_args)
 
 write.table(x = mat_ord, file = glue("{opt$output_dir}/{outname_table}"), sep = '\t', row.names = TRUE)
 
-ggsave(
-  plot = heat_p,
-  filename = glue("{opt$output_dir}/{outname_jpeg}"),
-  device = "png",
-  dpi = 300,
-  height = opt$height,
+# JPEG heatmap on an explicit white canvas (pheatmap gtable + grid).
+jpeg_path <- glue("{opt$output_dir}/{outname_jpeg}")
+jpeg(
+  filename = jpeg_path,
   width = opt$width,
-  limitsize = FALSE
+  height = opt$height,
+  units = "cm",
+  res = 300,
+  quality = 95,
+  bg = "white"
 )
+grid::grid.newpage()
+grid::grid.rect(gp = grid::gpar(fill = "white", col = NA))
+grid::grid.draw(heat_p$gtable)
+dev.off()
 
-message("Wrote ", glue("{opt$output_dir}/{outname_table}"), " and ", glue("{opt$output_dir}/{outname_jpeg}"))
+message("Wrote ", glue("{opt$output_dir}/{outname_table}"), " and ", jpeg_path)

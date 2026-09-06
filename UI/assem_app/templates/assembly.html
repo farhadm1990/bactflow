@@ -118,11 +118,14 @@
             <input type="hidden" id="run_flye" name="run_flye" value="false">
             <input type="hidden" id="run_unicycler" name="run_unicycler" value="false">
             <input type="hidden" id="run_spades" name="run_spades" value="false">
+            <input type="hidden" id="run_pacbio" name="run_pacbio" value="false">
             <div id="spadesHint" class="form-text mb-3" style="display: none;">
               SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_spades.fasta</code> and will not replace existing ONT or PacBio FASTAs in the same folder.
             </div>
             <div id="pacbioHint" class="form-text mb-3" style="display: none;">
-              PacBio assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_pacbio.fasta</code> beside any existing Illumina or ONT genomes.
+              PacBio assemblies write to <code>asm_out_dir/fastas/&lt;sample&gt;_pacbio.fasta</code>.
+              Reads are classified first (HiFi/CCS vs subreads/CLR).
+              If they are <strong>subreads/CLR</strong>, set PacBio read type to <code>pacbio-raw</code> (not pacbio-hifi).
             </div>
 
             <div id="unicyclerDiv" style="display: none;">
@@ -374,7 +377,7 @@
   
   
        <!-- Assembly Output Section -->
-       <div class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
+       <div id="assem-results-pane" class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
 
         <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
           <div class="bf-meter" data-kind="cpu">
@@ -496,7 +499,7 @@
 
     <!-- scripts -->
       <script src="{{ url_for('static', filename='js/terminal.js') }}?v=meters5"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=jump1"> </script>
   
       
 {% endblock %}

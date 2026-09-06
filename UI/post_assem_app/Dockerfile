@@ -38,6 +38,9 @@ ENV NXF_VER=24.10.2
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/conda/envs/bactflow/bin:${PATH}"
 ENV BACTFLOW_JAVA_HOME=/usr/lib/jvm/bactflow-java
+ENV BACTFLOW_MODULE=postassem
+ENV BACTFLOW_HOST_PORT=5001
+ENV BACTFLOW_IN_DOCKER=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \

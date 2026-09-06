@@ -34,6 +34,7 @@ Options:
     --run_spades            If true, it runs SPAdes isolate assembly on Illumina paired-end reads in --fastq_dir, default false.
     --run_pacbio           If true, it runs Flye on PacBio reads, default false.
     --pacbio_read_type      PacBio Flye read mode: pacbio-raw, pacbio-corr, or pacbio-hifi (default pacbio-hifi).
+                            Process pacbio_read_check classifies inputs; subreads/CLR require pacbio-raw.
     --tax_class             If true, it runs GTBtk taxonomic classification, default true.
     --bakta_annot           If true, it runs gene annotaiton by Bakta, default false. 
     --bakta_db              Directory to bakta database (required if bakta_annot is true)
@@ -134,8 +135,31 @@ workflow {
         def fastas_fold
         def quast_out
         def circ_fasta
-         // Get the concatenated fastq files
-        if (params.run_flye || params.run_unicycler || params.run_pacbio) {
+         // PacBio: classify (HiFi vs subread), then Flye (skip ONT dedup/nanofilter)
+        if (params.run_pacbio) {
+            // Brace globs like *.{fastq.gz,...} do NOT match .fastq.gz in Java PathMatcher.
+            def pacbio_inputs = Channel
+                .fromPath("${params.fastq_dir}/*.fastq.gz", checkIfExists: false)
+                .mix(Channel.fromPath("${params.fastq_dir}/*.fq.gz", checkIfExists: false))
+                .mix(Channel.fromPath("${params.fastq_dir}/*.fastq", checkIfExists: false))
+                .mix(Channel.fromPath("${params.fastq_dir}/*.fq", checkIfExists: false))
+                .mix(Channel.fromPath("${params.fastq_dir}/*.bam", checkIfExists: false))
+                .ifEmpty { error "No PacBio FASTQ/BAM files found in ${params.fastq_dir}" }
+                .collect()
+            pacbio_ready = pacbio_read_check(
+                env_check,
+                pacbio_inputs,
+                params.cpus
+            )
+            assembly_pacbio(
+                env_check,
+                pacbio_ready.ready_dir,
+                params.cpus,
+                params.pacbio_read_type
+            )
+            fastas_fold = assembly_pacbio.out.fastas_fold
+        // ONT / hybrid: concatenate, dedup, optional filters, then assemble
+        } else if (params.run_flye || params.run_unicycler) {
             if (params.concat_reads){
                 pooled_out = fastqConcater(
                 env_check,
@@ -221,21 +245,8 @@ workflow {
                     params.cpus
                 )
                 fastas_fold = assembly_unicycler.out.fastas_fold
-            } else if (params.run_pacbio) {
-                assembly_pacbio(
-                    env_check,
-                    asm_reads,
-                    params.cpus,
-                    params.pacbio_read_type
-                )
-                fastas_fold = assembly_pacbio.out.fastas_fold
             }
 
-            
-            
-
-     
-            
         } else if (params.run_spades) {
             assembly_spades(
                 env_check,
@@ -244,8 +255,16 @@ workflow {
             )
             fastas_fold = assembly_spades.out.fastas_fold
         } else {
-            fastas_fold = Channel.fromPath(params.genome_dir)
-                                    .collect() // 
+            def genomeDirVal = params.genome_dir
+            def genomeDirOk = genomeDirVal != null &&
+                !(genomeDirVal instanceof Boolean) &&
+                genomeDirVal.toString().trim() &&
+                genomeDirVal.toString().trim() != 'null'
+            if (!genomeDirOk) {
+                error "No assembler selected (Flye / Unicycler / SPAdes / PacBio) and --genome_dir is missing or invalid."
+            }
+            fastas_fold = Channel.fromPath(genomeDirVal.toString())
+                                    .collect()
         }
          
         // circulator
@@ -1027,17 +1046,81 @@ process assembly_unicycler {
     """
 }
 
-// PacBio Flye: same fasta naming as ONT Flye
-process assembly_pacbio {
+// Classify PacBio inputs (HiFi/CCS vs subreads/CLR); pass FASTQs through for Flye
+process pacbio_read_check {
     cpus params.cpus
     debug true
-    label 'Assemlby'
-    tag "PacBio assembling ${asm_reads}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    tag "PacBio read check"
+    // Publish only small classification reports into pacbio_check/ (not FASTQs).
+    // Flatten names so we do not overwrite a root-owned pacbio_ready/ from Docker runs.
+    publishDir path: "${params.out_dir}/pacbio_check", mode: 'copy', overwrite: true,
+        pattern: 'pacbio_ready/*.{txt,json}',
+        saveAs: { filename -> new File(filename.toString()).getName() }
 
     input:
     path env_check
     path asm_reads
+    val cpus
+
+    when:
+    params.run_pacbio
+
+    output:
+    path('pacbio_ready'), emit: ready_dir
+    path('pacbio_ready/pacbio_message.txt'), emit: message
+    path('pacbio_ready/pacbio_classification.json'), emit: classification
+    path('pacbio_ready/recommended_flye_mode.txt'), emit: recommended_mode
+
+    script:
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+
+    mkdir -p pacbio_inputs pacbio_ready
+    for f in ${asm_reads}
+    do
+        if [ -d "\$f" ]
+        then
+            find "\$f" -maxdepth 1 -type f \\( -name '*.fastq' -o -name '*.fastq.gz' -o -name '*.fq' -o -name '*.fq.gz' -o -name '*.bam' \\) -exec cp -n {} pacbio_inputs/ \\;
+        elif [ -f "\$f" ]
+        then
+            cp -n "\$f" pacbio_inputs/ || true
+        fi
+    done
+
+    n_in=\$(ls pacbio_inputs/*.{fastq,fq,fastq.gz,fq.gz,bam} 2>/dev/null | wc -l)
+    if [ "\$n_in" -eq 0 ]
+    then
+        echo "No PacBio inputs staged from ${params.fastq_dir}" >&2
+        ls -la pacbio_inputs >&2 || true
+        exit 1
+    fi
+
+    chmod +x "${baseDir}/pacbio_read_check.py"
+    python "${baseDir}/pacbio_read_check.py" prepare \\
+        -i pacbio_inputs \\
+        -o pacbio_ready \\
+        --requested-mode "${params.pacbio_read_type}"
+
+    echo "==== PacBio classification ===="
+    cat pacbio_ready/pacbio_message.txt
+    echo "Recommended Flye mode: \$(cat pacbio_ready/recommended_flye_mode.txt)"
+    echo "UI-selected Flye mode: ${params.pacbio_read_type}"
+    """
+}
+
+
+// PacBio Flye: uses user-selected --pacbio_read_type on classified FASTQs
+process assembly_pacbio {
+    cpus params.cpus
+    debug true
+    label 'Assemlby'
+    tag "PacBio assembling ${ready_dir}"
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+
+    input:
+    path env_check
+    path ready_dir
     val cpus
     val pacbio_read_type
 
@@ -1055,20 +1138,46 @@ process assembly_pacbio {
 
     mkdir -p asm_out_dir/fastas
 
-    for i in ${asm_reads}
+    if [ -f "${ready_dir}/pacbio_message.txt" ]
+    then
+        echo "==== PacBio classification ===="
+        cat "${ready_dir}/pacbio_message.txt"
+    fi
+
+    pb_mode="${pacbio_read_type}"
+    if [ -z "\$pb_mode" ]
+    then
+        pb_mode="pacbio-hifi"
+    fi
+    echo "PacBio Flye mode: \$pb_mode"
+
+    shopt -s nullglob
+    read_files=("${ready_dir}"/*.fastq.gz "${ready_dir}"/*.fq.gz "${ready_dir}"/*.fastq "${ready_dir}"/*.fq)
+    if [ \${#read_files[@]} -eq 0 ]
+    then
+        echo "No FASTQ files in ${ready_dir}" >&2
+        ls -la "${ready_dir}" >&2 || true
+        exit 1
+    fi
+
+    for i in "\${read_files[@]}"
     do
-        out_name=\$(basename \$i | cut -f 1 -d'.')
+        out_name=\$(basename "\$i")
+        out_name=\${out_name%.fastq.gz}
+        out_name=\${out_name%.fq.gz}
+        out_name=\${out_name%.fastq}
+        out_name=\${out_name%.fq}
         pb_dir=asm_out_dir/"\${out_name}"_pacbio
 
-        echo "running Flye on PacBio ${pacbio_read_type} reads for \${out_name}..."
-        if [ "${pacbio_read_type}" = "pacbio-hifi" ]
+        echo "running Flye (\$pb_mode) on PacBio reads for \${out_name}..."
+        if [ "\$pb_mode" = "pacbio-hifi" ]
         then
-            flye --pacbio-hifi \$i -t ${cpus} --out-dir "\$pb_dir"
-        elif [ "${pacbio_read_type}" = "pacbio-corr" ]
+            flye --pacbio-hifi "\$i" -t ${cpus} --out-dir "\$pb_dir"
+        elif [ "\$pb_mode" = "pacbio-corr" ]
         then
-            flye --pacbio-corr \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
+            flye --pacbio-corr "\$i" -t ${cpus} -i 2 --out-dir "\$pb_dir"
         else
-            flye --pacbio-raw \$i -t ${cpus} -i 2 --out-dir "\$pb_dir"
+            flye --pacbio-raw "\$i" -t ${cpus} -i 2 --out-dir "\$pb_dir"
         fi
 
         if [ ! -f "\$pb_dir"/assembly.fasta ]

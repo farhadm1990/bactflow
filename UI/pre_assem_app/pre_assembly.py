@@ -17,11 +17,21 @@ import sys
 from multiprocessing import Process, Manager, Queue
 import time
 import signal
+import threading
 from threading import Timer
 import webbrowser
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
+ASSEM_APP_DIR = os.path.abspath(os.path.join(base_dir, "..", "assem_app"))
+if ASSEM_APP_DIR not in sys.path:
+    sys.path.insert(0, ASSEM_APP_DIR)
+
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, 'static'))
@@ -61,8 +71,48 @@ def stats_error(message, status=400):
     return jsonify({"error": message, "message": message, "html_output": ""}), status
 
 
+def declared_platform(form):
+    return (form.get("read_platform") or "auto").strip().lower()
+
+
 def is_illumina_form(form):
-    return (form.get("read_platform") or "").strip().lower() == "illumina"
+    return declared_platform(form) == "illumina"
+
+
+def is_pacbio_form(form):
+    return declared_platform(form) == "pacbio"
+
+
+def pacbio_read_kind(form):
+    kind = (form.get("pacbio_read_kind") or "hifi").strip().lower()
+    if kind in ("hifi", "corr", "clr"):
+        return kind
+    return "hifi"
+
+
+def classify_pacbio_reads_message(fastq_files, num_records=5000):
+    """Classify PacBio FASTQs and return a user-facing HiFi vs subread message."""
+    try:
+        from pacbio_read_check import classify_path, user_facing_summary
+    except ImportError:
+        return (
+            "PacBio classifier unavailable. If mean quality is low (&lt;15), "
+            "these are likely subreads/CLR — use pacbio-raw in Assembly."
+        )
+    results = []
+    for path in fastq_files[:20]:
+        try:
+            results.append(classify_path(path, num_records=num_records))
+        except Exception as exc:
+            results.append({
+                "path": str(path),
+                "read_class": "unknown",
+                "message": f"{os.path.basename(path)}: classification failed ({exc})",
+                "reason": str(exc),
+            })
+    if not results:
+        return None
+    return user_facing_summary(results)
 
 
 def concat_enabled(form):
@@ -254,6 +304,35 @@ manager = Manager()
 process_status = manager.dict({"running": False})
 output_queue = Queue()
 
+
+def _repair_stdio_for_fork():
+    """Process.start() flushes stdout/stderr; a closed pipe raises BrokenPipeError."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except (BrokenPipeError, OSError):
+            try:
+                setattr(
+                    sys,
+                    name,
+                    open(os.devnull, "w", encoding="utf-8", errors="replace"),
+                )
+            except OSError:
+                pass
+
+
+def _start_worker_process(proc):
+    _repair_stdio_for_fork()
+    try:
+        proc.start()
+    except BrokenPipeError:
+        _repair_stdio_for_fork()
+        proc.start()
+
+
 def run_bact(command, process_status, output_queue):
     """To run bactflow in mutliprocess"""
     process_status["running"] = True
@@ -284,7 +363,8 @@ def preassembly():
     return render_template('pre-assembly.html')
 
 def open_browser():
-    webbrowser.open(url="http://127.0.0.1:5000/", new=2)
+    from bactflow_open_browser import open_bactflow_browser
+    open_bactflow_browser(port=5000)
 
 # First check if bactflow is installed
 
@@ -346,7 +426,7 @@ def install_bactflow():
         """)
     
         back_process = Process(target=run_bact, args=(command, process_status, output_queue))
-        back_process.start()
+        _start_worker_process(back_process)
       
         return jsonify({"message": "Installation started", "running": True}), 200
     elif request.method == 'GET':
@@ -565,28 +645,29 @@ def stat_reads():
 
 def genome_read_quality(fastq_file):
     mean_qualities = []
-    length = []
     basename = os.path.basename(fastq_file)
     file_name = os.path.splitext(basename)[0]
-    open_func = gzip.open if fastq_file.endswith(".gz") else open 
+    if file_name.endswith(".fastq") or file_name.endswith(".fq"):
+        file_name = os.path.splitext(file_name)[0]
+    open_func = gzip.open if fastq_file.endswith(".gz") else open
 
     with open_func(fastq_file, "rt") as fq:
         for rec in SeqIO.parse(fq, "fastq"):
-            #phred = np.mean(rec.letter_annotations["phred_quality"])
-            lengths  = len(rec.seq)
-            phred_all = np.fromiter(rec.letter_annotations["phred_quality"], dtype=int, count=len(rec.seq))
-            mean_err = np.mean(np.power(10, phred_all/-10))
-            
-            mean_qualities.append((file_name, lengths, -10*np.log10(mean_err)))
-            length.append(len(rec.seq))   
+            lengths = len(rec.seq)
+            phred_all = np.fromiter(
+                rec.letter_annotations["phred_quality"], dtype=float, count=len(rec.seq)
+            )
+            if lengths == 0 or phred_all.size == 0:
+                continue
+            mean_err = float(np.mean(np.power(10.0, phred_all / -10.0)))
+            mean_err = max(mean_err, 1e-16)
+            mean_qualities.append((file_name, lengths, -10.0 * np.log10(mean_err)))
     return mean_qualities
-# process fastq folder
 
-def process_fq_folder(fastq_folder, threads = 4):
-    """process all fastq files in a folder at once"""
+
+def process_fq_folder(fastq_folder, threads=4):
+    """Process all FASTQ files in a folder (ONT-style mean Phred quality)."""
     all_quality_data = []
-    
-
     fastq_files = list_fastq_files(fastq_folder)
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
         results = executor.map(genome_read_quality, fastq_files)
@@ -595,8 +676,301 @@ def process_fq_folder(fastq_folder, threads = 4):
     return pd.DataFrame(all_quality_data, columns=["file_name", "read_length", "read_quality"])
 
 
+_PACBIO_RQ_RE = re.compile(r"(?:^|\s|/)rq:([0-9]*\.?[0-9]+(?:[eE][-+]?\d+)?)", re.I)
+_PACBIO_NP_RE = re.compile(r"(?:^|\s|/)np:(\d+)", re.I)
+_PACBIO_EC_RE = re.compile(r"(?:^|\s|/)ec:([0-9]*\.?[0-9]+(?:[eE][-+]?\d+)?)", re.I)
+
+
+def _pacbio_header_qv(description):
+    """Convert PacBio predicted accuracy (rq in [0,1]) to Phred-like QV."""
+    match = _PACBIO_RQ_RE.search(description or "")
+    if not match:
+        return None
+    rq = float(match.group(1))
+    rq = min(max(rq, 0.0), 1.0 - 1e-12)
+    return float(-10.0 * np.log10(1.0 - rq))
+
+
+def genome_pacbio_metrics(fastq_file):
+    """Per-read PacBio metrics: length, QV (prefer rq tag), optional np/ec."""
+    rows = []
+    basename = os.path.basename(fastq_file)
+    file_name = os.path.splitext(basename)[0]
+    if file_name.endswith(".fastq") or file_name.endswith(".fq"):
+        file_name = os.path.splitext(file_name)[0]
+    open_func = gzip.open if fastq_file.endswith(".gz") else open
+
+    with open_func(fastq_file, "rt") as fq:
+        for rec in SeqIO.parse(fq, "fastq"):
+            length = len(rec.seq)
+            if length == 0:
+                continue
+            desc = f"{rec.id} {rec.description}"
+            qv = _pacbio_header_qv(desc)
+            q_source = "rq"
+            if qv is None:
+                phred_all = np.fromiter(
+                    rec.letter_annotations.get("phred_quality") or [],
+                    dtype=float,
+                    count=length,
+                )
+                if phred_all.size == 0:
+                    continue
+                mean_err = float(np.mean(np.power(10.0, phred_all / -10.0)))
+                mean_err = max(mean_err, 1e-16)
+                qv = float(-10.0 * np.log10(mean_err))
+                q_source = "phred"
+            np_match = _PACBIO_NP_RE.search(desc)
+            ec_match = _PACBIO_EC_RE.search(desc)
+            rows.append({
+                "file_name": file_name,
+                "read_length": length,
+                "read_quality": qv,
+                "quality_source": q_source,
+                "num_passes": int(np_match.group(1)) if np_match else np.nan,
+                "effective_coverage": float(ec_match.group(1)) if ec_match else np.nan,
+            })
+    return rows
+
+
+def process_pacbio_folder(fastq_folder, threads=4):
+    all_rows = []
+    fastq_files = list_fastq_files(fastq_folder)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        results = executor.map(genome_pacbio_metrics, fastq_files)
+    for res in results:
+        all_rows.extend(res)
+    if not all_rows:
+        return pd.DataFrame(
+            columns=[
+                "file_name",
+                "read_length",
+                "read_quality",
+                "quality_source",
+                "num_passes",
+                "effective_coverage",
+            ]
+        )
+    return pd.DataFrame(all_rows)
+
+
+def _read_n50(lengths):
+    lengths = np.sort(np.asarray(lengths, dtype=float))[::-1]
+    if lengths.size == 0:
+        return 0.0
+    total = lengths.sum()
+    cum = 0.0
+    for value in lengths:
+        cum += value
+        if cum >= total * 0.5:
+            return float(value)
+    return float(lengths[-1])
+
+
+def build_pacbio_figures(df, pacbio_kind="hifi"):
+    """NanoPlot-style PacBio QC (De Coster et al. / Galaxy long-read QC).
+
+    Always shows length AND quality together:
+      1) bivariate length vs mean quality (log length) — NanoPlot length×Qscore
+      2) read length histogram with N50
+      3) cumulative yield by length
+    Quality uses rq→QV when present, otherwise mean Phred from FASTQ QUAL.
+    """
+    kind = (pacbio_kind or "hifi").lower()
+    kind_label = {"hifi": "HiFi/CCS", "corr": "corrected", "clr": "CLR"}.get(kind, "PacBio")
+    q_src = "phred"
+    if "quality_source" in df.columns and len(df):
+        mode = df["quality_source"].dropna()
+        if len(mode):
+            q_src = str(mode.mode().iloc[0])
+    q_label = "Predicted QV (rq)" if q_src == "rq" else "Mean Phred quality"
+    label = f"PacBio ({kind_label})"
+
+    plot_df = df.copy()
+    plot_df["log10_length"] = np.log10(plot_df["read_length"].clip(lower=1))
+
+    # Downsample for scatter readability (NanoPlot --downsample style).
+    if len(plot_df) > 25000:
+        plot_df = plot_df.sample(n=25000, random_state=1)
+
+    fig_lq = px.density_heatmap(
+        data_frame=plot_df,
+        x="read_quality",
+        y="log10_length",
+        nbinsx=60,
+        nbinsy=60,
+        color_continuous_scale="Viridis",
+        title=f"{label} | read length vs quality (NanoPlot-style)",
+        labels={
+            "read_quality": q_label,
+            "log10_length": "log10(read length bp)",
+        },
+    )
+    fig_lq.update_layout(
+        autosize=True,
+        xaxis_title=q_label,
+        yaxis_title="log10(read length bp)",
+        coloraxis_colorbar_title="Reads",
+    )
+    # Tick labels as actual bp on a log axis of log10 values
+    tick_vals = [2, 3, 4, 5]
+    fig_lq.update_yaxes(
+        tickmode="array",
+        tickvals=tick_vals,
+        ticktext=[f"1e{v}" for v in tick_vals],
+    )
+    if kind in ("hifi", "corr") or q_src == "rq":
+        for q, color, text in ((20, "#f59e0b", "Q20"), (30, "#16a34a", "Q30")):
+            fig_lq.add_vline(
+                x=q,
+                line_dash="dash",
+                line_color=color,
+                annotation_text=text,
+                annotation_position="top",
+            )
+
+    # Length histogram + N50 (NanoPlot LengthHistogram)
+    n50 = _read_n50(df["read_length"])
+    median_len = float(np.median(df["read_length"]))
+    mean_q = float(np.mean(df["read_quality"]))
+    median_q = float(np.median(df["read_quality"]))
+    fig_hist = px.histogram(
+        data_frame=df,
+        x="read_length",
+        color="file_name",
+        nbins=80,
+        barmode="overlay",
+        opacity=0.65,
+        title=(
+            f"{label} | read length histogram  "
+            f"(N50={int(n50):,}  median={int(median_len):,}  "
+            f"meanQ={mean_q:.1f}  medianQ={median_q:.1f})"
+        ),
+        log_x=True,
+    )
+    fig_hist.update_layout(
+        autosize=True,
+        xaxis_title="Read length (bp, log scale)",
+        yaxis_title="Number of reads",
+        legend_title_text="FASTQ",
+    )
+    fig_hist.add_vline(
+        x=n50,
+        line_dash="dash",
+        line_color="#dc2626",
+        annotation_text=f"N50={int(n50)}",
+        annotation_position="top",
+    )
+
+    # Cumulative yield by length (NanoPlot YieldByLength)
+    yield_rows = []
+    for file_name, group in df.groupby("file_name"):
+        lengths = np.sort(group["read_length"].to_numpy(dtype=float))[::-1]
+        if lengths.size == 0:
+            continue
+        cum_gb = np.cumsum(lengths) / 1e9
+        if lengths.size > 5000:
+            idx = np.linspace(0, lengths.size - 1, 5000).astype(int)
+            lengths_p, cum_p = lengths[idx], cum_gb[idx]
+        else:
+            lengths_p, cum_p = lengths, cum_gb
+        for length, cum in zip(lengths_p, cum_p):
+            yield_rows.append({
+                "file_name": file_name,
+                "read_length": float(length),
+                "cumulative_gb": float(cum),
+            })
+    yield_df = pd.DataFrame(yield_rows)
+    fig_yield = px.line(
+        data_frame=yield_df,
+        x="read_length",
+        y="cumulative_gb",
+        color="file_name",
+        title=f"{label} | cumulative yield by length",
+        log_x=True,
+    )
+    fig_yield.update_layout(
+        autosize=True,
+        xaxis_title="Minimum read length (bp, log scale)",
+        yaxis_title="Cumulative yield (Gbp)",
+        legend_title_text="FASTQ",
+    )
+    fig_yield.add_vline(
+        x=n50,
+        line_dash="dot",
+        line_color="#dc2626",
+        annotation_text=f"N50={int(n50)}",
+        annotation_position="top",
+    )
+
+    note = (
+        f"NanoPlot-style PacBio QC using {q_label}. "
+        f"Reads={len(df):,}; N50={int(n50):,} bp; "
+        f"median length={int(median_len):,} bp; "
+        f"median Q={median_q:.1f}."
+    )
+    if q_src != "rq" and median_q < 15:
+        note += (
+            " Low mean Phred is expected for CLR/SRA FASTQs without rq tags; "
+            "HiFi BAM/FASTQ with rq: usually sits at Q≥20."
+        )
+    return fig_lq, fig_hist, fig_yield, "nanoplot", note
+
+
+def build_long_read_figures(df, platform="ont", pacbio_kind="hifi"):
+    """Length×quality plots (same figure set for ONT and PacBio)."""
+    fig = px.box(
+        data_frame=df,
+        x="file_name",
+        y="read_quality",
+        color="file_name",
+        title="ONT read quality box plot",
+    )
+    fig.update_layout(
+        autosize=True,
+        xaxis_title="FASTQ files",
+        yaxis_title="Read quality (mean Phred)",
+    )
+    fig_heat = px.density_heatmap(
+        data_frame=df,
+        x="read_quality",
+        y="read_length",
+        marginal_x="histogram",
+        marginal_y="histogram",
+        facet_col="file_name",
+        title="ONT read length vs quality | per sample",
+    )
+    fig_heat.update_layout(autosize=True, yaxis_title="Read length")
+    fig_heat_pool = px.density_heatmap(
+        data_frame=df,
+        x="read_quality",
+        y="read_length",
+        title="ONT read length vs quality | pooled",
+        marginal_x="histogram",
+        marginal_y="histogram",
+    )
+    fig_heat_pool.update_layout(
+        autosize=True,
+        xaxis_title="Read quality (mean Phred)",
+        yaxis_title="Read length",
+    )
+    return fig, fig_heat, fig_heat_pool
+
+
+def build_ont_figures(df):
+    return build_long_read_figures(df, platform="ont")
+
+
 ILLUMINA_NAME_RE = re.compile(
     r"(?:_R[12]|_r[12]|_[12])(?:_001)?\.(?:fastq|fq)(?:\.gz)?$|illumina",
+    re.IGNORECASE,
+)
+PACBIO_NAME_RE = re.compile(
+    r"(?:pacbio|pac.?bio|(?:^|[_\-./])hifi(?:[_\-./]|$)|(?:^|[_\-./])ccs(?:[_\-./]|$)|(?:^|[_\-./])clr(?:[_\-./]|$)|pb0|_pb_|\.pb\.)",
+    re.IGNORECASE,
+)
+ONT_NAME_RE = re.compile(
+    r"(?:\bont\b|nanopore|minknow|dorado|guppy|promethion|minion|gridion)",
     re.IGNORECASE,
 )
 ILLUMINA_MAX_READS = 120000
@@ -637,14 +1011,19 @@ def peek_median_length(fastq_file, n=80):
 
 def detect_read_platform(fastq_files, declared="auto"):
     declared = (declared or "auto").strip().lower()
-    if declared in ("ont", "illumina"):
+    if declared in ("ont", "illumina", "pacbio"):
         return declared
     names = [os.path.basename(path) for path in fastq_files]
+    if any(PACBIO_NAME_RE.search(name) for name in names):
+        return "pacbio"
     if any(ILLUMINA_NAME_RE.search(name) for name in names):
         return "illumina"
+    if any(ONT_NAME_RE.search(name) for name in names):
+        return "ont"
     median = peek_median_length(fastq_files[0])
     if median is not None and median <= 500:
         return "illumina"
+    # Long reads without a clear vendor tag default to ONT.
     return "ont"
 
 
@@ -821,45 +1200,6 @@ def build_illumina_figures(summaries):
     return fig_cycle, fig_hist, fig_base
 
 
-def build_ont_figures(df):
-    fig = px.box(
-        data_frame=df,
-        x="file_name",
-        y="read_quality",
-        color="file_name",
-        title="ONT read quality box plot",
-    )
-    fig.update_layout(
-        autosize=True,
-        xaxis_title="FASTQ files",
-        yaxis_title="Read quality",
-    )
-    fig_heat = px.density_heatmap(
-        data_frame=df,
-        x="read_quality",
-        y="read_length",
-        marginal_x="histogram",
-        marginal_y="histogram",
-        facet_col="file_name",
-        title="ONT read length vs quality | per sample",
-    )
-    fig_heat.update_layout(autosize=True, yaxis_title="Read length")
-    fig_heat_pool = px.density_heatmap(
-        data_frame=df,
-        x="read_quality",
-        y="read_length",
-        title="ONT read length vs quality | pooled",
-        marginal_x="histogram",
-        marginal_y="histogram",
-    )
-    fig_heat_pool.update_layout(
-        autosize=True,
-        xaxis_title="Read quality",
-        yaxis_title="Read length",
-    )
-    return fig, fig_heat, fig_heat_pool
-
-
 @app.route("/plot-qual", methods = ["POST", "GET"])
 def plot_qual():
     if request.method != "POST":
@@ -884,8 +1224,12 @@ def plot_qual():
 
     if is_illumina_form(request.form):
         declared = "illumina"
+    elif is_pacbio_form(request.form):
+        declared = "pacbio"
 
     platform = detect_read_platform(fastq_files, declared)
+    pb_kind = pacbio_read_kind(request.form) if platform == "pacbio" else "hifi"
+    viz_note = None
 
     try:
         if platform == "illumina":
@@ -909,43 +1253,335 @@ def plot_qual():
                 return jsonify({"error": "No Illumina reads could be parsed."}), 400
             fig, fig_heat, fig_heat_pool = build_illumina_figures(summaries)
         else:
+            # ONT and PacBio share the same length×quality plots
             fingerprint = _file_fingerprint(fastq_files)
-            ont_cache = os.path.join(out_dir, "ont_fastq_df.csv")
-            ont_meta = os.path.join(out_dir, "ont_fastq_df.meta.json")
+            cache_name = "pacbio_fastq_df.csv" if platform == "pacbio" else "ont_fastq_df.csv"
+            meta_name = "pacbio_fastq_df.meta.json" if platform == "pacbio" else "ont_fastq_df.meta.json"
+            lr_cache = os.path.join(out_dir, cache_name)
+            lr_meta = os.path.join(out_dir, meta_name)
             df = None
-            if os.path.isfile(ont_cache) and os.path.isfile(ont_meta):
+            if os.path.isfile(lr_cache) and os.path.isfile(lr_meta):
                 try:
-                    with open(ont_meta, "r", encoding="utf-8") as handle:
+                    with open(lr_meta, "r", encoding="utf-8") as handle:
                         meta = json.load(handle)
                     if meta.get("fingerprint") == fingerprint:
-                        df = pd.read_csv(ont_cache, sep="\t")
+                        df = pd.read_csv(lr_cache, sep="\t")
                 except (OSError, json.JSONDecodeError, ValueError, pd.errors.EmptyDataError):
                     df = None
             if df is None or df.empty:
                 df = process_fq_folder(fastq_folder=reads_dir, threads=cpus)
                 if df.empty:
                     return jsonify({"error": "No data available for visualization."}), 400
-                df.to_csv(ont_cache, sep="\t", index=False)
-                with open(ont_meta, "w", encoding="utf-8") as handle:
-                    json.dump({"fingerprint": fingerprint}, handle)
-            fig, fig_heat, fig_heat_pool = build_ont_figures(df)
+                df.to_csv(lr_cache, sep="\t", index=False)
+                with open(lr_meta, "w", encoding="utf-8") as handle:
+                    json.dump({"fingerprint": fingerprint, "platform": platform}, handle)
+            fig, fig_heat, fig_heat_pool = build_long_read_figures(df, platform="ont")
+            if platform == "pacbio":
+                viz_note = classify_pacbio_reads_message(fastq_files)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
     return jsonify({
         "platform": platform,
+        "pacbio_read_kind": pb_kind if platform == "pacbio" else None,
+        "pacbio_viz_mode": None,
+        "note": viz_note,
         "graph": json.dumps(fig, cls=py.utils.PlotlyJSONEncoder),
         "graph_heat": json.dumps(fig_heat, cls=py.utils.PlotlyJSONEncoder),
         "graph_heat2": json.dumps(fig_heat_pool, cls=py.utils.PlotlyJSONEncoder),
     })
 
 
+_SYS_STATS = {}
+_SYS_STATS_LOCK = threading.Lock()
+_SYS_STATS_JSON = os.path.join(base_dir, "static", "sys_stats.json")
+_CPU_SAMPLE = {"idle": None, "total": None}
+
+
+def _read_proc_cpu_times():
+    try:
+        with open("/proc/stat", "r", encoding="utf-8") as handle:
+            parts = handle.readline().split()
+        vals = [float(x) for x in parts[1:8]]
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0.0)
+        total = sum(vals)
+        return idle, total
+    except (OSError, ValueError, IndexError):
+        return None, None
+
+
+def _cpu_percent_fallback():
+    idle, total = _read_proc_cpu_times()
+    if idle is None:
+        return 0.0
+    prev_idle = _CPU_SAMPLE["idle"]
+    prev_total = _CPU_SAMPLE["total"]
+    _CPU_SAMPLE["idle"] = idle
+    _CPU_SAMPLE["total"] = total
+    if prev_idle is None or prev_total is None:
+        return 0.0
+    didle = idle - prev_idle
+    dtotal = total - prev_total
+    if dtotal <= 0:
+        return 0.0
+    return max(0.0, min(100.0, (1.0 - didle / dtotal) * 100.0))
+
+
+def _cgroup_memory_bases():
+    """Candidate cgroup dirs for this process (Docker / cgroup v1+v2)."""
+    bases = []
+    try:
+        with open("/proc/self/cgroup", "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith("0::"):
+                    rel = line.split("::", 1)[1]
+                    bases.append("/sys/fs/cgroup" + (rel if rel.startswith("/") else "/" + rel))
+                elif ":memory:" in line:
+                    rel = line.split(":")[-1]
+                    bases.append("/sys/fs/cgroup/memory" + (rel if rel.startswith("/") else "/" + rel))
+    except OSError:
+        pass
+    bases.extend(["/sys/fs/cgroup", "/sys/fs/cgroup/memory"])
+    seen = set()
+    out = []
+    for base in bases:
+        base = base.rstrip("/") or "/"
+        if base not in seen:
+            seen.add(base)
+            out.append(base)
+    return out
+
+
+def _parse_memory_size(text):
+    """Parse sizes like 32g, 32768m, 1024k, or raw bytes → int bytes."""
+    if text is None:
+        return None
+    raw = str(text).strip().lower()
+    if not raw or raw.startswith("auto") or raw in ("max", "unlimited", "inf"):
+        return None
+    mult = 1
+    if raw[-1] in "bkmgt":
+        unit = raw[-1]
+        num = raw[:-1]
+        mult = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}[unit]
+    elif raw.endswith(("kb", "mb", "gb", "tb", "ki", "mi", "gi", "ti")):
+        unit = raw[-2:]
+        num = raw[:-2]
+        mult = {
+            "kb": 1000, "mb": 1000 ** 2, "gb": 1000 ** 3, "tb": 1000 ** 4,
+            "ki": 1024, "mi": 1024 ** 2, "gi": 1024 ** 3, "ti": 1024 ** 4,
+        }[unit]
+    else:
+        num = raw
+    try:
+        return int(float(num) * mult)
+    except ValueError:
+        return None
+
+
+def _env_docker_memory_limit():
+    """Memory allotment passed by bactflow.sh (--memory / auto cap)."""
+    for key in ("BACTFLOW_DOCKER_MEMORY", "BACTFLOW_MEMORY"):
+        limit = _parse_memory_size(os.environ.get(key))
+        if limit and limit > 0:
+            return limit
+    return None
+
+
+def _cgroup_memory_bytes():
+    """Return (used, limit) for this container's memory cgroup when capped."""
+    host_total = None
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("MemTotal:"):
+                    host_total = int(line.split()[1]) * 1024
+                    break
+    except (OSError, ValueError):
+        pass
+
+    for base in _cgroup_memory_bases():
+        for used_name, lim_name in (
+            ("memory.current", "memory.max"),
+            ("memory.usage_in_bytes", "memory.limit_in_bytes"),
+        ):
+            used_path = os.path.join(base, used_name)
+            lim_path = os.path.join(base, lim_name)
+            try:
+                with open(used_path, "r", encoding="utf-8") as handle:
+                    used = int(handle.read().strip())
+                with open(lim_path, "r", encoding="utf-8") as handle:
+                    raw = handle.read().strip()
+                if raw in ("max", ""):
+                    continue
+                limit = int(raw)
+                # Unlimited / nonsense sentinels (cgroup v1 often uses ~2^63)
+                if limit <= 0 or limit >= (1 << 62):
+                    continue
+                # If "limit" is essentially the whole host, treat as uncapped
+                if host_total and limit >= host_total * 0.98:
+                    continue
+                return used, limit
+            except (OSError, ValueError):
+                continue
+    return None, None
+
+
+def _docker_aware_memory(fallback_used, fallback_total, fallback_percent):
+    """Prefer Docker cgroup / BACTFLOW_DOCKER_MEMORY allotment over host RAM."""
+    used_b, limit_b = _cgroup_memory_bytes()
+    env_limit = _env_docker_memory_limit()
+    if limit_b is None and env_limit:
+        limit_b = env_limit
+        if used_b is None:
+            # Approximate usage from host/process view, capped to allotment
+            used_b = min(int(fallback_used * (1024 ** 3)), limit_b) if fallback_total else 0
+    if used_b is not None and limit_b is not None and limit_b > 0:
+        return (
+            round(used_b / (1024 ** 3), 2),
+            round(limit_b / (1024 ** 3), 2),
+            round(min(100.0, used_b / limit_b * 100.0), 1),
+            "docker",
+        )
+    return fallback_used, fallback_total, fallback_percent, "host"
+
+
+def _build_sys_stats():
+    ncpu = 1
+    cpu = 0.0
+    ram_percent = 0.0
+    ram_used_gb = 0.0
+    ram_total_gb = 0.0
+    source = "fallback"
+
+    if psutil is not None:
+        try:
+            vm = psutil.virtual_memory()
+            ncpu = psutil.cpu_count(logical=True) or 1
+            cpu = float(psutil.cpu_percent(interval=None))
+            ram_percent = float(vm.percent)
+            ram_used_gb = round(vm.used / (1024 ** 3), 2)
+            ram_total_gb = round(vm.total / (1024 ** 3), 2)
+            source = "psutil"
+        except Exception:
+            cpu = _cpu_percent_fallback()
+            source = "proc"
+    else:
+        cpu = _cpu_percent_fallback()
+
+    if ram_total_gb <= 0 and psutil is None:
+        try:
+            meminfo = {}
+            with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    key, val = line.split(":")
+                    meminfo[key] = int(val.strip().split()[0]) * 1024
+            total = meminfo.get("MemTotal", 0)
+            avail = meminfo.get("MemAvailable", meminfo.get("MemFree", 0))
+            used = max(total - avail, 0)
+            ram_total_gb = round(total / (1024 ** 3), 2)
+            ram_used_gb = round(used / (1024 ** 3), 2)
+            ram_percent = round((used / total) * 100.0, 1) if total else 0.0
+        except (OSError, ValueError, ZeroDivisionError):
+            pass
+
+    ram_used_gb, ram_total_gb, ram_percent, mem_src = _docker_aware_memory(
+        ram_used_gb, ram_total_gb, ram_percent
+    )
+    if mem_src == "docker":
+        source = f"{source}+docker"
+
+    return {
+        "cpu_percent": round(cpu, 1),
+        "cpu_count": ncpu,
+        "ram_percent": round(ram_percent, 1),
+        "ram_used_gb": ram_used_gb,
+        "ram_total_gb": ram_total_gb,
+        "ram_scope": mem_src,
+        "running": False,
+        "job_cores": None,
+        "job_cpu_percent": None,
+        "job_rss_gb": None,
+        "job_procs": 0,
+        "source": source,
+    }
+
+
+def _write_sys_stats_file(payload):
+    try:
+        os.makedirs(os.path.dirname(_SYS_STATS_JSON), exist_ok=True)
+        tmp = _SYS_STATS_JSON + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, _SYS_STATS_JSON)
+    except OSError:
+        pass
+
+
+def current_sys_stats():
+    with _SYS_STATS_LOCK:
+        if _SYS_STATS:
+            return dict(_SYS_STATS)
+    try:
+        return _build_sys_stats()
+    except Exception as exc:
+        return {
+            "cpu_percent": 0,
+            "cpu_count": 1,
+            "ram_percent": 0,
+            "ram_used_gb": 0,
+            "ram_total_gb": 0,
+            "error": str(exc),
+        }
+
+
+def _sys_stats_loop():
+    if psutil is not None:
+        try:
+            psutil.cpu_percent(interval=None)
+        except Exception:
+            pass
+    _cpu_percent_fallback()
+    while True:
+        time.sleep(1)
+        try:
+            payload = _build_sys_stats()
+            with _SYS_STATS_LOCK:
+                _SYS_STATS.clear()
+                _SYS_STATS.update(payload)
+            _write_sys_stats_file(payload)
+        except Exception:
+            continue
+
+
+threading.Thread(target=_sys_stats_loop, daemon=True, name="sys-stats").start()
+
+
+@app.route("/sys_stats", methods=["GET"])
+def sys_stats():
+    return jsonify(current_sys_stats())
+
+
+@app.route("/bactflow_status", methods=["GET"])
+def bactflow_status():
+    payload = current_sys_stats()
+    payload["status"] = "ok"
+    return jsonify(payload)
+
+
 if __name__ == '__main__':
-    skip_browser = IN_DOCKER or os.environ.get("BACTFLOW_NO_BROWSER") == "1"
-    if not skip_browser:
+    # Docker: open via host browser hook. Local: webbrowser/xdg-open.
+    # bactflow.sh sets BACTFLOW_NO_BROWSER=1 and opens the tab itself.
+    want_browser = (
+        os.environ.get("BACTFLOW_NO_BROWSER") != "1"
+        or os.environ.get("BACTFLOW_FORCE_BROWSER") == "1"
+    )
+    if want_browser:
         Timer(1, open_browser).start()
+    flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
     app.run(
-        debug=not skip_browser,
+        debug=flask_debug,
         port=5000,
         host="0.0.0.0",
         use_reloader=False,

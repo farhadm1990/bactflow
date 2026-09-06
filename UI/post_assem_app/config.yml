@@ -13,7 +13,7 @@ dependencies:
   - nextflow=24.10.2
   - gsl=2.7
   - htslib=1.23.1
-  - bcftools=1.24
+  - bcftools=1.23.1
   - samtools=1.23.1
   - numpy=2.4.6
   - biopython=1.88
@@ -58,8 +58,10 @@ dependencies:
   - infernal=1.1.5
   - piler-cr=1.06
   - diamond=2.2.0
-  - blast=2.14.0
+  - blast=2.17.0
   - ncbi-amrfinderplus=4.2.7
+  - pbccs=6.4.0
+  - pbtk=3.1.1
   - r-base=4.4.3
   - r-ggplot2=4.0.3
   - r-dplyr=1.2.1

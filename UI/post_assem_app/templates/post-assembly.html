@@ -6,7 +6,7 @@
  
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix6">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix7">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters-top1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
@@ -160,7 +160,7 @@
                 <label for="interval" class="form-label">Segment width (thickness of each segment)</label>
                 <input type="number" class="form-control" id="interval" name="interval" placeholder="1"  value="1"/>
                 <br>
-                <label for="f_colorInput" class="form-label">Choose the for the CDS on forward and reverse strands</label>
+                <label for="f_colorInput" class="form-label">Choose the color for the features on forward and reverse strands</label>
                 <div style="display: flex; gap: 10px;">
                   <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c" title="Choose forward color">
                   <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3" title="Choose reverse color">
@@ -347,12 +347,12 @@
         <div class="bg-light py-3 bf-side-actions">
           <div class="btn-group" style="justify-content: center; display: flex;">
             
-              <button type="submit" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
-              <button type="submit" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
+              <button type="button" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
+              <button type="button" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
              
                 <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
           
-              <button type="submit" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
+              <button type="button" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
               
             
           </div>
@@ -696,7 +696,7 @@
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
 <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bakta1"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix13"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix17"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

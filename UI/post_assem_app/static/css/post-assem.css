@@ -309,3 +309,60 @@ table.dataTable thead th {
     height: auto !important;
     display: block;
 }
+
+.vcf-genome-block {
+    margin-bottom: 1.25rem;
+}
+
+.vcf-genome-block h5 {
+    margin-bottom: 0.35rem;
+}
+
+.vcf-chrom-summary {
+    margin: 0.5rem 0 1rem;
+    padding: 0.5rem 0.75rem;
+    background: #f1f5f3;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.vcf-chrom-row {
+    display: grid;
+    grid-template-columns: minmax(80px, 140px) 1fr 48px;
+    gap: 8px;
+    align-items: center;
+    margin: 3px 0;
+}
+
+.vcf-chrom-name {
+    font-family: ui-monospace, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vcf-chrom-bar {
+    display: block;
+    height: 10px;
+    background: #d9e2dd;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.vcf-chrom-bar > span {
+    display: block;
+    height: 100%;
+    background: #547c67;
+}
+
+.vcf-chrom-n {
+    text-align: right;
+    color: #445;
+}
+
+#output-snp,
+#output-svs {
+    height: auto !important;
+    min-height: 200px;
+    max-height: none;
+}

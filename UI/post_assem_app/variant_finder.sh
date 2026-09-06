@@ -77,6 +77,34 @@ is_fasta() {
     esac
 }
 
+bwa_index_complete() {
+    local ref="$1"
+    local ext
+    for ext in amb ann bwt pac sa; do
+        if [ ! -s "${ref}.${ext}" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+ensure_reference_index() {
+    local ref="$1"
+    # Keep BWA/samtools indexes under the SNP out dir — never beside the user's
+    # original FASTA (avoids races and "fail to locate the index files").
+    if bwa_index_complete "$ref" && [ -s "${ref}.fai" ]; then
+        return 0
+    fi
+    echo "Indexing reference for BWA/bcftools: $ref"
+    rm -f "${ref}.amb" "${ref}.ann" "${ref}.bwt" "${ref}.pac" "${ref}.sa" "${ref}.fai"
+    bwa index "$ref"
+    samtools faidx "$ref"
+    if ! bwa_index_complete "$ref"; then
+        echo "Failed to build BWA index for $ref" >&2
+        exit 1
+    fi
+}
+
 # Collect only real FASTA genomes; skip BWA/samtools index sidecars and the reference itself.
 mapfile -t genome_files < <(
     find "$genomes" -maxdepth 1 -type f \( -iname '*.fasta' -o -iname '*.fa' -o -iname '*.fna' \) | sort
@@ -88,8 +116,12 @@ then
     exit 1
 fi
 
-echo "Indexing the reference $reference"
-bwa index "$reference"
+# Local working copy/symlink of the reference inside the output tree.
+ref_work="${output_dir}/.ref_index"
+mkdir -p "$ref_work"
+ref_local="${ref_work}/reference.fasta"
+ln -sfn "$reference" "$ref_local"
+ensure_reference_index "$ref_local"
 
 processed=0
 for genome in "${genome_files[@]}"
@@ -112,6 +144,9 @@ do
 
     echo "Processing $genome ...."
 
+    # Re-check index each genome (another run may have wiped a shared index before).
+    ensure_reference_index "$ref_local"
+
     refbase=$(basename "$reference")
     refbase="${refbase%.*}"
     # Keep a short label from the reference name (last underscore token if present).
@@ -123,7 +158,7 @@ do
     fi
     out_name="${name}_vs_${refname}"
 
-    bwa mem -t "$cpus" -o "${output_dir}/${name}/${out_name}.sam" "$reference" "$genome"
+    bwa mem -t "$cpus" -o "${output_dir}/${name}/${out_name}.sam" "$ref_local" "$genome"
     samtools view -Sb "${output_dir}/${name}/${out_name}.sam" > "${output_dir}/${name}/${out_name}.bam"
     rm -f "${output_dir}/${name}/${out_name}.sam"
 
@@ -131,17 +166,12 @@ do
     rm -f "${output_dir}/${name}/${out_name}.bam"
     samtools index "${output_dir}/${name}/${out_name}_al.bam"
 
-    bcftools mpileup -Ou -f "$reference" "${output_dir}/${name}/${out_name}_al.bam" --threads "$cpus" \
+    bcftools mpileup -Ou -f "$ref_local" "${output_dir}/${name}/${out_name}_al.bam" --threads "$cpus" \
         | bcftools call -mv -Ov -o "${output_dir}/${name}/${out_name}.vcf"
 
     echo "Variant calls for $genome are ready at '${output_dir}/${name}'"
     processed=$((processed + 1))
 done
-
-# Clean BWA/samtools index files created beside the reference.
-rm -f \
-    "${reference}.amb" "${reference}.ann" "${reference}.bwt" \
-    "${reference}.pac" "${reference}.sa" "${reference}.fai"
 
 if [ "$processed" -eq 0 ]
 then

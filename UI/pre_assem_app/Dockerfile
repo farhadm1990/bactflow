@@ -25,7 +25,6 @@ RUN /bin/micromamba create -y -p /opt/conda/envs/bactflow -f /tmp/environment.ym
 FROM debian:bookworm-slim
 
 ENV BACTFLOW_IN_DOCKER=1 \
-    BACTFLOW_NO_BROWSER=1 \
     PYTHONUNBUFFERED=1 \
     CONDA_PREFIX=/opt/conda/envs/bactflow \
     CONDA_DEFAULT_ENV=bactflow \
@@ -66,6 +65,9 @@ RUN chmod 755 /opt/conda/bin/conda /usr/local/bin/bactflow-entrypoint \
 WORKDIR /app
 COPY . /app/
 RUN chmod +x /app/*.sh /usr/local/bin/bactflow-entrypoint /opt/conda/bin/conda 2>/dev/null || true
+
+ENV BACTFLOW_MODULE=preassem
+ENV BACTFLOW_HOST_PORT=5000
 
 EXPOSE 5000
 HEALTHCHECK --interval=20s --timeout=8s --start-period=40s --retries=8 \

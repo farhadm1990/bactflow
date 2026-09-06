@@ -26,9 +26,36 @@ import re
 
 
 base_dir = os.path.abspath(os.path.dirname(__file__))# we can have access to all files from everywhere
+IN_DOCKER = os.environ.get("BACTFLOW_IN_DOCKER") == "1" or os.path.exists("/.dockerenv")
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
+
+sys.path.insert(0, base_dir)
+
+
+def _load_collect_variant_tables():
+    try:
+        from vcf_viewer import collect_variant_tables as fn
+        return fn
+    except Exception:
+        pass
+    try:
+        import importlib.util
+
+        path = os.path.join(base_dir, "vcf_viewer.py")
+        spec = importlib.util.spec_from_file_location("bactflow_vcf_viewer", path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return getattr(mod, "collect_variant_tables", None)
+    except Exception:
+        return None
+
+
+collect_variant_tables = _load_collect_variant_tables()
+
 
 BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
 
@@ -47,6 +74,11 @@ def with_nextflow_java(command):
     return NF_JAVA_SETUP + "\n" + command
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def clean_log_line(line):
+    line = ANSI_RE.sub("", line or "")
+    return line.replace("\r", "").strip()
 
 
 def _run_bash(script):
@@ -77,7 +109,8 @@ def assembly():
 
 
 def open_browser():
-    webbrowser.open(url="http://127.17.0.2:5001/", new = 2, autoraise=True) # new 2 opens tab while new 1 opens window
+    from bactflow_open_browser import open_bactflow_browser
+    open_bactflow_browser(port=5001)
 
 
 ########################################################
@@ -95,6 +128,36 @@ output_history = manager.list() # to store output history
 _current_worker = None
 _worker_lock = threading.Lock()
 STOP_USER_MSG = "Bactflow has been stopped by the user!"
+
+
+def _repair_stdio_for_fork():
+    """Process.start() flushes stdout/stderr; a closed pipe raises BrokenPipeError."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except (BrokenPipeError, OSError):
+            try:
+                setattr(
+                    sys,
+                    name,
+                    open(os.devnull, "w", encoding="utf-8", errors="replace"),
+                )
+            except OSError:
+                pass
+
+
+def _start_worker_process(proc):
+    """Start a multiprocessing worker without dying on a broken stdout pipe."""
+    _repair_stdio_for_fork()
+    try:
+        proc.start()
+    except BrokenPipeError:
+        _repair_stdio_for_fork()
+        proc.start()
+
 
 def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
     """Forward process status/completion lines from .nextflow.log (PTY often misses them)."""
@@ -191,21 +254,45 @@ def _bump_epoch():
 
 
 def _terminate_worker():
-    """Terminate the multiprocessing worker that runs run_bact."""
+    """Stop the run_bact worker if it is a Process; threads rely on epoch + kill."""
     global _current_worker
     with _worker_lock:
         worker = _current_worker
         _current_worker = None
     if worker is None:
         return
+    # Threads cannot be force-killed; epoch bump + pipeline kill handles them.
+    if isinstance(worker, Process):
+        try:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=1.0)
+            if worker.is_alive():
+                worker.kill()
+        except Exception:
+            pass
+
+
+def _spawn_run_worker(command, epoch):
+    """Run Nextflow in a daemon thread (avoids multiprocessing fork BrokenPipeError)."""
+    global _current_worker
+    # Mark running BEFORE the client opens SSE — otherwise stream_bactflow can
+    # see running=False for two idle ticks and immediately emit "Process completed".
+    process_status["running"] = True
     try:
-        if worker.is_alive():
-            worker.terminate()
-            worker.join(timeout=1.0)
-        if worker.is_alive():
-            worker.kill()
+        output_queue.put("BactFlow: starting...")
     except Exception:
         pass
+    worker = threading.Thread(
+        target=run_bact,
+        args=(command, process_status, output_queue, output_history, base_dir, epoch),
+        daemon=True,
+        name="bactflow-post-worker",
+    )
+    with _worker_lock:
+        _current_worker = worker
+    worker.start()
+    return worker
 
 
 def _is_post_pipeline_cmdline(cmd):
@@ -530,7 +617,6 @@ def run_bactflow():
     global _current_worker
     if request.method == "POST":
         action = request.args.get("action-assem")
-        print("I am here")
         command = None
 
         if  action == "run":
@@ -589,14 +675,7 @@ def run_bactflow():
             command = with_nextflow_java(command)
                 
             output_history[:] = []
-            
-            back_process = Process(
-                target=run_bact,
-                args=(command, process_status, output_queue, output_history, base_dir, epoch),
-            )
-            with _worker_lock:
-                _current_worker = back_process
-            back_process.start()
+            _spawn_run_worker(command, epoch)
         
             command = None
             return "Bactflow started successfully!\n", 200
@@ -617,13 +696,7 @@ def run_bactflow():
                 f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
             output_history[:] = []
-            back_process = Process(
-                target=run_bact,
-                args=(command, process_status, output_queue, output_history, base_dir, epoch),
-            )
-            with _worker_lock:
-                _current_worker = back_process
-            back_process.start()
+            _spawn_run_worker(command, epoch)
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -664,10 +737,9 @@ def bactflow_output():
 # Bactflow running status
 @app.route('/bactflow_status', methods = ['GET'])
 def bactflow_status():
-
-    if process_status["running"]:
-        return {"status": "running"}, 200
-    return {"status": "stopped"}, 200
+    payload = current_sys_stats()
+    payload["status"] = "running" if payload.get("running") else "stopped"
+    return jsonify(payload), 200
 
 
 def _manager_get(key, default=None):
@@ -712,32 +784,173 @@ def _job_resource_stats(pid):
     }
 
 
-@app.route("/sys_stats", methods=["GET"])
-def sys_stats():
+def _cgroup_memory_bases():
+    bases = []
     try:
-        vm = psutil.virtual_memory()
-        ncpu = psutil.cpu_count(logical=True) or 1
-        cpu = round(psutil.cpu_percent(interval=0.15), 1)
-        payload = {
-            "cpu_percent": cpu,
-            "cpu_count": ncpu,
-            "ram_percent": round(vm.percent, 1),
-            "ram_used_gb": round(vm.used / (1024 ** 3), 2),
-            "ram_total_gb": round(vm.total / (1024 ** 3), 2),
-            "running": bool(_manager_get("running", False)),
-            "job_cores": None,
-            "job_cpu_percent": None,
-            "job_rss_gb": None,
-            "job_procs": 0,
-        }
-        pid = _manager_get("pid")
-        if payload["running"] and pid:
-            job = _job_resource_stats(pid)
-            if job:
-                payload.update(job)
-        return jsonify(payload)
+        with open("/proc/self/cgroup", "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith("0::"):
+                    rel = line.split("::", 1)[1]
+                    bases.append("/sys/fs/cgroup" + (rel if rel.startswith("/") else "/" + rel))
+                elif ":memory:" in line:
+                    rel = line.split(":")[-1]
+                    bases.append("/sys/fs/cgroup/memory" + (rel if rel.startswith("/") else "/" + rel))
+    except OSError:
+        pass
+    bases.extend(["/sys/fs/cgroup", "/sys/fs/cgroup/memory"])
+    seen = set()
+    out = []
+    for base in bases:
+        base = base.rstrip("/") or "/"
+        if base not in seen:
+            seen.add(base)
+            out.append(base)
+    return out
+
+
+def _parse_memory_size(text):
+    if text is None:
+        return None
+    raw = str(text).strip().lower()
+    if not raw or raw.startswith("auto") or raw in ("max", "unlimited", "inf"):
+        return None
+    mult = 1
+    if raw[-1] in "bkmgt":
+        unit = raw[-1]
+        num = raw[:-1]
+        mult = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}[unit]
+    elif raw.endswith(("kb", "mb", "gb", "tb", "ki", "mi", "gi", "ti")):
+        unit = raw[-2:]
+        num = raw[:-2]
+        mult = {
+            "kb": 1000, "mb": 1000 ** 2, "gb": 1000 ** 3, "tb": 1000 ** 4,
+            "ki": 1024, "mi": 1024 ** 2, "gi": 1024 ** 3, "ti": 1024 ** 4,
+        }[unit]
+    else:
+        num = raw
+    try:
+        return int(float(num) * mult)
+    except ValueError:
+        return None
+
+
+def _env_docker_memory_limit():
+    for key in ("BACTFLOW_DOCKER_MEMORY", "BACTFLOW_MEMORY"):
+        limit = _parse_memory_size(os.environ.get(key))
+        if limit and limit > 0:
+            return limit
+    return None
+
+
+def _cgroup_memory_bytes():
+    host_total = None
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("MemTotal:"):
+                    host_total = int(line.split()[1]) * 1024
+                    break
+    except (OSError, ValueError):
+        pass
+
+    for base in _cgroup_memory_bases():
+        for used_name, lim_name in (
+            ("memory.current", "memory.max"),
+            ("memory.usage_in_bytes", "memory.limit_in_bytes"),
+        ):
+            used_path = os.path.join(base, used_name)
+            lim_path = os.path.join(base, lim_name)
+            try:
+                with open(used_path, "r", encoding="utf-8") as handle:
+                    used = int(handle.read().strip())
+                with open(lim_path, "r", encoding="utf-8") as handle:
+                    raw = handle.read().strip()
+                if raw in ("max", ""):
+                    continue
+                limit = int(raw)
+                if limit <= 0 or limit >= (1 << 62):
+                    continue
+                if host_total and limit >= host_total * 0.98:
+                    continue
+                return used, limit
+            except (OSError, ValueError):
+                continue
+    return None, None
+
+
+def _docker_aware_memory(fallback_used, fallback_total, fallback_percent):
+    used_b, limit_b = _cgroup_memory_bytes()
+    env_limit = _env_docker_memory_limit()
+    if limit_b is None and env_limit:
+        limit_b = env_limit
+        if used_b is None:
+            used_b = min(int(fallback_used * (1024 ** 3)), limit_b) if fallback_total else 0
+    if used_b is not None and limit_b is not None and limit_b > 0:
+        return (
+            round(used_b / (1024 ** 3), 2),
+            round(limit_b / (1024 ** 3), 2),
+            round(min(100.0, used_b / limit_b * 100.0), 1),
+            "docker",
+        )
+    return fallback_used, fallback_total, fallback_percent, "host"
+
+
+def _build_sys_stats():
+    vm = psutil.virtual_memory()
+    ncpu = psutil.cpu_count(logical=True) or 1
+    cpu = round(psutil.cpu_percent(interval=0.05), 1)
+    ram_percent = round(vm.percent, 1)
+    ram_used_gb = round(vm.used / (1024 ** 3), 2)
+    ram_total_gb = round(vm.total / (1024 ** 3), 2)
+    ram_used_gb, ram_total_gb, ram_percent, mem_src = _docker_aware_memory(
+        ram_used_gb, ram_total_gb, ram_percent
+    )
+    payload = {
+        "cpu_percent": cpu,
+        "cpu_count": ncpu,
+        "ram_percent": ram_percent,
+        "ram_used_gb": ram_used_gb,
+        "ram_total_gb": ram_total_gb,
+        "ram_scope": mem_src,
+        "running": bool(_manager_get("running", False)),
+        "job_cores": None,
+        "job_cpu_percent": None,
+        "job_rss_gb": None,
+        "job_procs": 0,
+    }
+    pid = _manager_get("pid")
+    if payload["running"] and pid:
+        job = _job_resource_stats(pid)
+        if job:
+            payload.update(job)
+    return payload
+
+
+_SYS_STATS = {}
+_SYS_STATS_LOCK = threading.Lock()
+_SYS_STATS_JSON = os.path.join(base_dir, "static", "sys_stats.json")
+
+
+def _write_sys_stats_file(payload):
+    try:
+        os.makedirs(os.path.dirname(_SYS_STATS_JSON), exist_ok=True)
+        tmp = _SYS_STATS_JSON + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, _SYS_STATS_JSON)
+    except OSError:
+        pass
+
+
+def current_sys_stats():
+    with _SYS_STATS_LOCK:
+        if _SYS_STATS:
+            return dict(_SYS_STATS)
+    try:
+        return _build_sys_stats()
     except Exception as exc:
-        return jsonify({
+        return {
             "cpu_percent": 0,
             "cpu_count": 1,
             "ram_percent": 0,
@@ -745,7 +958,29 @@ def sys_stats():
             "ram_total_gb": 0,
             "running": False,
             "error": str(exc),
-        })
+        }
+
+
+def _sys_stats_loop():
+    psutil.cpu_percent(interval=None)
+    while True:
+        time.sleep(1)
+        try:
+            payload = _build_sys_stats()
+            with _SYS_STATS_LOCK:
+                _SYS_STATS.clear()
+                _SYS_STATS.update(payload)
+            _write_sys_stats_file(payload)
+        except Exception:
+            continue
+
+
+threading.Thread(target=_sys_stats_loop, daemon=True, name="sys-stats").start()
+
+
+@app.route("/sys_stats", methods=["GET"])
+def sys_stats():
+    return jsonify(current_sys_stats())
 
 #Stream    
 @app.route('/stream_bactflow', methods = ['POST', 'GET'])
@@ -754,8 +989,21 @@ def stream_bactflow():
   
     def generate():
         # fitst show the history
-        for line in list(output_history):
+        try:
+            history = list(output_history)
+        except Exception:
+            history = []
+        for line in history:
             yield f"data: {line}\n\n"
+
+        # Give the worker a moment to flip running=True after Start/Help.
+        for _ in range(30):
+            try:
+                if bool(process_status.get("running")) or process_status.get("pid"):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.1)
 
         # now stream new output
         idle_rounds = 0
@@ -769,10 +1017,12 @@ def stream_bactflow():
             try:
                 line = output_queue.get(timeout=0.4)
                 idle_rounds = 0
-                yield f"data: {line.strip()}\n\n"
+                text = (line or "").strip()
+                if text:
+                    yield f"data: {text}\n\n"
             except Exception:
                 idle_rounds += 1
-                if (not running) and idle_rounds >= 2:
+                if (not running) and idle_rounds >= 5:
                     break
                 continue
 
@@ -784,7 +1034,14 @@ def stream_bactflow():
         except Exception:
             yield "data: Process completed\n\n"
 
-    return Response(generate(), content_type='text/event-stream')
+    return Response(
+        stream_with_context(generate()),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 # progress bar
 prog = {"completed": 0}
@@ -1139,10 +1396,45 @@ conda activate bactflow
         err = (completed.stderr or completed.stdout or "SNP finder command failed.").strip()
         return jsonify({"exists": False, "error": err[-2000:]}), 500
 
-    snp_files = glob.glob(os.path.join(out_dir, "snps", "**", "*.vcf"), recursive=True)
-    if snp_files:
-        return jsonify({"exists": True})
-    return jsonify({"exists": False, "error": "SNP finder finished but no VCF files were found."})
+    collector = collect_variant_tables or _load_collect_variant_tables()
+    if collector is None:
+        snp_dir = os.path.join(out_dir, "snps")
+        snp_files = glob.glob(os.path.join(snp_dir, "**", "*.vcf"), recursive=True)
+        if snp_files:
+            return jsonify({
+                "exists": True,
+                "roots": [snp_dir],
+                "genomes": [],
+                "message": f"VCF files are in {snp_dir} ({len(snp_files)} file(s)). Restart post-assembly to enable table view.",
+            })
+        return jsonify({"exists": False, "error": "SNP finder finished but no VCF files were found."})
+
+    payload = collector(out_dir, kind="snps")
+    if not payload.get("exists"):
+        return jsonify({"exists": False, "error": payload.get("error") or "No SNP VCF files found."})
+    return jsonify(payload)
+
+
+@app.route("/snp-report", methods=["POST"])
+def snp_report():
+    """Load existing SNP VCFs from out_dir without re-running the finder."""
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+    collector = collect_variant_tables or _load_collect_variant_tables()
+    if collector is None:
+        snp_dir = os.path.join(out_dir, "snps")
+        return jsonify({
+            "exists": os.path.isdir(snp_dir),
+            "roots": [snp_dir] if os.path.isdir(snp_dir) else [],
+            "genomes": [],
+            "error": "vcf_viewer module is not available in this server process. Restart post-assembly.",
+        }), 500
+    payload = collector(out_dir, kind="snps")
+    if not payload.get("exists"):
+        return jsonify({"exists": False, "error": payload.get("error") or "No SNP VCF files found."})
+    return jsonify(payload)
+
 
 @app.route("/svs-finder", methods = ["POST"])
 def svs_finder():
@@ -1171,10 +1463,38 @@ conda activate bactflow
         err = (completed.stderr or completed.stdout or "Variant calling command failed.").strip()
         return jsonify({"exists": False, "error": err[-2000:]}), 500
 
-    vcf_files = glob.glob(os.path.join(out_dir, "vcs", "**", "*.vcf"), recursive=True)
-    if vcf_files:
-        return jsonify({"exists": True})
-    return jsonify({"exists": False, "error": "Variant calling finished but no VCF files were found."})
+    collector = collect_variant_tables or _load_collect_variant_tables()
+    if collector is None:
+        vcf_dir = os.path.join(out_dir, "vcs")
+        vcf_files = glob.glob(os.path.join(vcf_dir, "**", "*.vcf"), recursive=True)
+        if vcf_files:
+            return jsonify({
+                "exists": True,
+                "roots": [vcf_dir],
+                "genomes": [],
+                "message": f"VCF files are in {vcf_dir} ({len(vcf_files)} file(s)). Restart post-assembly to enable table view.",
+            })
+        return jsonify({"exists": False, "error": "Variant calling finished but no VCF files were found."})
+
+    payload = collector(out_dir, kind="vcs")
+    if not payload.get("exists"):
+        return jsonify({"exists": False, "error": payload.get("error") or "No variant-call VCF files found."})
+    return jsonify(payload)
+
+
+@app.route("/svs-report", methods=["POST"])
+def svs_report():
+    """Load existing variant-call VCFs from out_dir without re-running."""
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Output directory is missing."}), 400
+    collector = collect_variant_tables or _load_collect_variant_tables()
+    if collector is None:
+        return jsonify({"exists": False, "error": "vcf_viewer module is not available. Restart post-assembly."}), 500
+    payload = collector(out_dir, kind="vcs")
+    if not payload.get("exists"):
+        return jsonify({"exists": False, "error": payload.get("error") or "No variant-call VCF files found."})
+    return jsonify(payload)
 
 # abundance
 @app.route("/abund-run", methods = ["POST"])
@@ -1196,7 +1516,7 @@ def abund_finder():
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "abundance.tsv")
-    plot = os.path.join(output, "requested_genes_abundance.png")
+    plot = os.path.join(output, "requested_genes_abundance.jpeg")
     print(f"this is widht {width} and heigth {height}")
     command = (
         f"{shlex.quote(os.path.join(base_dir, 'strain_finder.sh'))} "
@@ -1237,7 +1557,7 @@ def abund_finder():
                  "abund_table": render_template_string(
                     table_html, id="abund-tab", tabnumber = "Table 3: Abundance table of requested genes.", table=data
                 ),
-                "plot_abund" : f"data:image/png;base64,{img_base}"
+                "plot_abund" : f"data:image/jpeg;base64,{img_base}"
                 })
     else:
         return jsonify({"exists": False, "error": "Missing expected table and plot"}), 400
@@ -1261,7 +1581,7 @@ def prev_finder():
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "prevalance.tsv")
-    plot = os.path.join(output, "requested_genes_prevalence.png")
+    plot = os.path.join(output, "requested_genes_prevalence.jpeg")
     width = request.form.get("plot_width") or "10"
     height = request.form.get("plot_height") or "10"
 
@@ -1301,7 +1621,7 @@ def prev_finder():
                  "prev_table": render_template_string(
                     table_html, id="prev-tab", tabnumber = "Table 4: Prevalance table of requested genes.", table=data
                 ),
-                "plot_prev" : f"data:image/png;base64,{img_base}"
+                "plot_prev" : f"data:image/jpeg;base64,{img_base}"
                 })
     else:
         return jsonify({"exists": False, "error": "Missing expected table and plot"}), 400
@@ -1310,5 +1630,21 @@ def prev_finder():
 
 
 if __name__ == '__main__':
-    Timer(1, open_browser).start()
-    app.run(debug=True, port=5001, host="0.0.0.0", use_reloader=False, threaded=True)#set use_reloader to true during developement 
+    # Docker: open via host browser hook. Local: webbrowser/xdg-open.
+    # bactflow.sh sets BACTFLOW_NO_BROWSER=1 and opens the tab itself.
+    want_browser = (
+        os.environ.get("BACTFLOW_NO_BROWSER") != "1"
+        or os.environ.get("BACTFLOW_FORCE_BROWSER") == "1"
+    )
+    if want_browser:
+        Timer(1, open_browser).start()
+    # Keep Werkzeug debugger off by default — debug + fork breaks Start BactFlow
+    # (BrokenPipeError on stdout flush) and returns HTML error pages to the UI.
+    flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
+    app.run(
+        debug=flask_debug,
+        port=5001,
+        host="0.0.0.0",
+        use_reloader=False,
+        threaded=True,
+    )

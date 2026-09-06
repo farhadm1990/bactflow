@@ -5,7 +5,8 @@
 {% block title %} Pre-assembly  {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}?v=vis4">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}?v=vis7">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/meters.css') }}?v=1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -94,8 +95,22 @@
                 <select class="form-select" id="read_platform" name="read_platform">
                   <option value="auto" selected>Auto-detect</option>
                   <option value="ont">ONT (long reads)</option>
+                  <option value="pacbio">PacBio (long reads)</option>
                   <option value="illumina">Illumina (short reads)</option>
                 </select>
+              </div>
+
+              <div class="mb-3" id="pacbioKindGroup" style="display: none;">
+                <label for="pacbio_read_kind" class="form-label">PacBio read kind (hint)</label>
+                <select class="form-select" id="pacbio_read_kind" name="pacbio_read_kind">
+                  <option value="hifi" selected>HiFi / CCS (&lt;1% error, high Q)</option>
+                  <option value="corr">Corrected (&lt;3% error)</option>
+                  <option value="clr">CLR / subreads (&lt;20% error)</option>
+                </select>
+                <div class="form-text">
+                  Plots are the same as ONT. Visualize also classifies PacBio reads as HiFi/CCS or subreads/CLR
+                  and tells you which Assembly Flye mode to use (<code>pacbio-hifi</code> vs <code>pacbio-raw</code>).
+                </div>
               </div>
 
               <div class="mb-3">
@@ -119,7 +134,7 @@
                   <option value="true" selected>True</option>
                   <option value="false">False</option>
                 </select>
-                <div class="form-text">Use this for ONT barcode folders that still need pooling.</div>
+                <div class="form-text">Use this for ONT or PacBio folders that still need pooling.</div>
               </div>
 
               <div class="mb-3">
@@ -184,7 +199,29 @@
       </div>
   
          <!-- installation Output Section -->
-         <div class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
+         <div id="pre-results-pane" class="col-md-9" style="display: block; width: 70%; height: 100vh; overflow-y: auto;">
+
+          <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
+            <div class="bf-meter" data-kind="cpu">
+              <span class="bf-meter-label">CPU</span>
+              <div class="bf-meter-track" title="Host CPU">
+                <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+                <div class="bf-meter-job" id="bf-cpu-job"></div>
+              </div>
+              <span class="bf-meter-val" id="bf-cpu-val">—</span>
+              <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <div class="bf-meter" data-kind="ram">
+              <span class="bf-meter-label">RAM</span>
+              <div class="bf-meter-track" title="Host memory">
+                <div class="bf-meter-fill" id="bf-ram-fill"></div>
+                <div class="bf-meter-job" id="bf-ram-job"></div>
+              </div>
+              <span class="bf-meter-val" id="bf-ram-val">—</span>
+              <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+          </div>
+
           <div id="spin-fastq-list" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
             <div class="spinner-grow" role="status" style="width: 100px; height: 100px; color: #5f547c;"> 
             <span class="visually-hidden">Loading...</span>
@@ -408,7 +445,8 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=vis4"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=jump1"></script>
+<script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
