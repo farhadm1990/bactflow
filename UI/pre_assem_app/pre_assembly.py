@@ -62,6 +62,7 @@ from pool_reads import (
     inspect_layout,
     list_read_files,
     pool_fastq_dir,
+    resolve_fastq_dir,
 )
 
 
@@ -289,9 +290,10 @@ def run_illumina_filter(form):
 
 
 def prepare_reads_dir(form):
-    fastq_dir = (form.get("fastq_dir") or "").strip()
-    if not fastq_dir or not os.path.isdir(fastq_dir):
-        return None, "Choose an existing FASTQ directory first."
+    try:
+        fastq_dir, _correction = resolve_fastq_dir(form.get("fastq_dir"))
+    except PoolReadsError as exc:
+        return None, str(exc)
     if illumina_filter_enabled(form):
         return run_illumina_filter(form)
     layout = inspect_layout(fastq_dir)
@@ -458,15 +460,16 @@ def install_bactflow():
 @app.route('/ls-fastq', methods = ['POST', 'GET'])
 def ls_fastq():
     if request.method == 'POST':
-        fastq_dir = (request.form.get("fastq_dir") or "").strip()
+        try:
+            fastq_dir, correction = resolve_fastq_dir(request.form.get("fastq_dir"))
+        except PoolReadsError as exc:
+            return jsonify({"error": str(exc)}), 400
         extension = (request.form.get("extension") or "auto").strip() or "auto"
         out_dir = (request.form.get("out_dir") or "").strip()
         try:
             cpus = max(1, int(request.form.get("cpus") or 1))
         except ValueError:
             cpus = 1
-        if not fastq_dir or not os.path.isdir(fastq_dir):
-            return jsonify({"error": "Choose an existing FASTQ directory first."}), 400
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
 
@@ -512,7 +515,7 @@ def ls_fastq():
         return jsonify({
             "html_table": table_html,
             "fastq_files": fastq_entries,
-            "note": layout.get("note") or "",
+            "note": " ".join(x for x in (correction, layout.get("note") or "") if x),
             "looks_like_subreads": bool(layout.get("looks_like_subreads")),
             "extension": layout.get("extension") or extension,
             "needs_concat": bool(layout.get("needs_concat")),
@@ -522,27 +525,21 @@ def ls_fastq():
 @app.route('/trim-list', methods = ['POST', 'GET'])
 def trim_list():
     if request.method == 'POST':
-        fastq_dir = request.form.get("fastq_dir")
+        try:
+            fastq_dir, _correction = resolve_fastq_dir(request.form.get("fastq_dir"))
+        except PoolReadsError as exc:
+            return jsonify({"error": str(exc)}), 400
         concater = "true" if concat_enabled(request.form) else "false"
         threshold = request.form.get("size-threshold")
-
-    if concater == "true":
+        target = os.path.join(fastq_dir, "pooled") if concater == "true" else fastq_dir
         command = f"""
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate bactflow
-        {base_dir}/read_filter.sh -d {fastq_dir}/pooled -t {threshold} 
+        {shlex.quote(base_dir)}/read_filter.sh -d {shlex.quote(target)} -t {shlex.quote(str(threshold or "0"))}
         """
-    
-    else:
-        command = f"""
-        source $(conda info --base)/etc/profile.d/conda.sh
-        conda activate bactflow
-        {base_dir}/read_filter.sh -d {fastq_dir} -t {threshold} 
-        """
- 
-
-    subprocess.run(command, shell=True, text=True, executable="/bin/bash")
-    return jsonify({"status": "completed"}), 200
+        subprocess.run(command, shell=True, text=True, executable="/bin/bash")
+        return jsonify({"status": "completed"}), 200
+    return jsonify({"status": "idle"}), 200
 
 
 @app.route("/filter-illumina", methods=["POST"])

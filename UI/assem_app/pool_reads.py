@@ -71,6 +71,42 @@ def sample_name_from_dir(name: str) -> str:
     return n or name
 
 
+_DIR_ALIASES = {
+    "fastq_wg": "fastqs_wg",
+    "fastqs_wg": "fastq_wg",
+}
+
+
+def _rewrite_path_part(path: Path, old: str, new: str) -> Path:
+    parts = path.parts
+    if old not in parts:
+        return path
+    rebuilt = Path(parts[0])
+    for part in parts[1:]:
+        rebuilt = rebuilt / (new if part == old else part)
+    return rebuilt
+
+
+def resolve_fastq_dir(raw: str | None) -> tuple[str, str]:
+    """Return (absolute directory, optional correction note)."""
+    text = (raw or "").strip().strip('"').strip("'")
+    if not text:
+        raise PoolReadsError("Choose an existing FASTQ directory first.")
+    path = Path(os.path.abspath(os.path.expanduser(os.path.expandvars(text))))
+    if path.is_dir():
+        return str(path), ""
+    for old, new in _DIR_ALIASES.items():
+        alt = _rewrite_path_part(path, old, new)
+        if alt != path and alt.is_dir():
+            return str(alt), f"Using {alt} ({path} does not exist)."
+    parent = path.parent
+    hint = ""
+    if parent.is_dir():
+        names = sorted(os.listdir(parent))[:12]
+        hint = f" Found in {parent}: {', '.join(names)}."
+    raise PoolReadsError(f"FASTQ directory does not exist: {path}.{hint}")
+
+
 def human_size(num_bytes: int) -> str:
     value = float(num_bytes)
     for unit in ("B", "K", "M", "G", "T"):
@@ -288,9 +324,8 @@ def _safe_sample_filename(sample: str) -> str:
 
 
 def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1) -> list[Path]:
-    root = Path(fastq_dir).resolve()
-    if not root.is_dir():
-        raise PoolReadsError(f"FASTQ directory does not exist: {fastq_dir}")
+    resolved, _note = resolve_fastq_dir(str(fastq_dir))
+    root = Path(resolved)
 
     ext = _normalize_ext(extension)
     if ext == "auto":
@@ -337,8 +372,16 @@ def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1
             written.append(fut.result())
 
     written = sorted(written, key=lambda p: p.name.lower())
-    ready = root / "concatenated_fq_are_ready"
-    ready.write_text("ok\n")
+    for leftover in (root / "concatenated_fq_are_ready", pooled_dir / "concatenated_fq_are_ready"):
+        try:
+            leftover.unlink()
+        except OSError:
+            pass
+    for partial in pooled_dir.glob("*.partial"):
+        try:
+            partial.unlink()
+        except OSError:
+            pass
     print(f"Pooled {len(written)} FASTQ file(s) in {pooled_dir}")
     return written
 

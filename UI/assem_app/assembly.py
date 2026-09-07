@@ -52,9 +52,16 @@ def with_nextflow_java(command):
 def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
     """Enable pooling and CLR Flye mode for nested PacBio subread folders."""
     try:
-        from pool_reads import inspect_layout
+        from pool_reads import inspect_layout, resolve_fastq_dir
     except ImportError:
-        return concat_reads, extension, pacbio_read_type
+        return concat_reads, extension, pacbio_read_type, fastq_dir
+    try:
+        fastq_dir, note = resolve_fastq_dir(fastq_dir)
+        if note:
+            print(note, flush=True)
+    except Exception as exc:
+        print(exc, flush=True)
+        return concat_reads, extension, pacbio_read_type, fastq_dir
     layout = inspect_layout(fastq_dir)
     if layout.get("needs_concat"):
         concat_reads = "true"
@@ -74,7 +81,7 @@ def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
             f"PacBio sample folders detected; pooling first (concat=true, extension={extension})",
             flush=True,
         )
-    return concat_reads, extension, pacbio_read_type
+    return concat_reads, extension, pacbio_read_type, fastq_dir
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
@@ -475,7 +482,7 @@ def run_bactflow():
             tensor_batch = tensor_batch if str(tensor_batch).strip() not in ("", "None") else "200"
 
             if str(run_pacbio).lower() == "true" and fastq_dir:
-                concat_reads, extension, pacbio_read_type = apply_pacbio_layout(
+                concat_reads, extension, pacbio_read_type, fastq_dir = apply_pacbio_layout(
                     fastq_dir, concat_reads, extension, pacbio_read_type
                 )
              

@@ -120,11 +120,9 @@
                   <input
                   type="text"
                   class="form-control"
-                  id="filePicker"
+                  id="fastq_dir"
                   name="fastq_dir"
-                  placeholder="./"
-                  webkitdirectory
-                  directory
+                  placeholder="/path/to/fastq_dir"
                   />
                 </div>
               </div>
@@ -453,7 +451,7 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbsub1"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbsub2"></script>
 <script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>

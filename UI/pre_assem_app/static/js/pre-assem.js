@@ -6,8 +6,8 @@ const helpButton = document.getElementById("help-bt");
 let eventSource = null;
 
 
-const filePicker = document.getElementById("filePicker");
-const fastqDirInput = document.getElementById("fastq_dir");
+const filePicker = document.getElementById("fastq_dir") || document.getElementById("filePicker");
+const fastqDirInput = document.getElementById("fastq_dir") || document.getElementById("filePicker");
 
 
 // check bactflow installation 
@@ -858,18 +858,15 @@ document.addEventListener("DOMContentLoaded", function(){
 
 
 // Handle directory selection
-filePicker.addEventListener("click", (event) => {
-  const selectedFiles = Array.from(event.target.files);
-
-  if (selectedFiles.length > 0) {
-    // Extract the directory path from the first file
-    const selectedDirectory = selectedFiles[0].webkitRelativePath.split("/")[0];
-    const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
-
-    // Update the input field with the absolute directory path
-    fastqDirInput.value = absolutePath;
-  }
-});
+if (filePicker) {
+  filePicker.addEventListener("change", (event) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    if (selectedFiles.length > 0 && fastqDirInput) {
+      const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
+      fastqDirInput.value = absolutePath;
+    }
+  });
+}
 
 
 // tggler function
