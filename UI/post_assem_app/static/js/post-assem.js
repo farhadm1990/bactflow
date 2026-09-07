@@ -835,17 +835,29 @@ async function readJsonError(res, fallback) {
   }
 }
 
-function downloadCircularPlot() {
-  const img = document.getElementById("circularImg");
+function downloadPlotImage(imgId, filename) {
+  const img = document.getElementById(imgId);
   if (!img || !img.src) {
     return;
   }
   const link = document.createElement("a");
   link.href = img.src;
-  link.download = "circular_plot.png";
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+function downloadCircularPlot() {
+  downloadPlotImage("circularImg", "circular_plot.png");
+}
+
+function downloadAbundPlot() {
+  downloadPlotImage("abundImg", "requested_genes_abundance.jpeg");
+}
+
+function downloadPrevPlot() {
+  downloadPlotImage("prevImg", "requested_genes_prevalence.jpeg");
 }
 
 function selectedGeneTypes() {
@@ -1339,6 +1351,10 @@ async function abundRun(){
 
   hideSectionError("abund-error");
   hideSectionError("abund-plot-error");
+  const abundPlotBar = document.getElementById("abund-plot-bar");
+  if (abundPlotBar) {
+    abundPlotBar.style.display = "none";
+  }
   if (abDIV) {
     abDIV.style.display = "block";
   }
@@ -1401,8 +1417,14 @@ async function abundRun(){
       if (abundImg) {
         abundImg.style.display = "block";
       }
+      if (abundPlotBar) {
+        abundPlotBar.style.display = "flex";
+      }
       jumpToSection("abundImgDiv");
     } else {
+      if (abundPlotBar) {
+        abundPlotBar.style.display = "none";
+      }
       showSectionError("abund-plot-error", "Abundance table was created but the plot file was not found.");
     }
   } catch (error) {
@@ -1436,6 +1458,10 @@ async function prevRun(){
 
   hideSectionError("prev-error");
   hideSectionError("prev-plot-error");
+  const prevPlotBar = document.getElementById("prev-plot-bar");
+  if (prevPlotBar) {
+    prevPlotBar.style.display = "none";
+  }
   if (prevDIV) {
     prevDIV.style.display = "block";
   }
@@ -1489,8 +1515,14 @@ async function prevRun(){
       if (prevImg) {
         prevImg.style.display = "block";
       }
+      if (prevPlotBar) {
+        prevPlotBar.style.display = "flex";
+      }
       jumpToSection("prevImgDiv");
     } else {
+      if (prevPlotBar) {
+        prevPlotBar.style.display = "none";
+      }
       showSectionError("prev-plot-error", "Prevalance table was created but the plot file was not found.");
     }
   } catch (error) {

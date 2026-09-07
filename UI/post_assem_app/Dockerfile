@@ -12,21 +12,26 @@ WORKDIR /build
 
 COPY config.yml bactflow_runtime.sh ./
 
+# Install conda-pack into base BEFORE stripping the env. Deleting .a/.pyc/man/doc
+# files makes the env look "inconsistent" to mamba/conda-pack unless we pack
+# with --ignore-missing-files afterward.
 RUN --mount=type=cache,target=/opt/conda/pkgs \
     mamba env create -f config.yml -y && \
+    mamba install -y -n base -c conda-forge conda-pack && \
     mamba clean -afy && \
-    /opt/conda/envs/bactflow/bin/Rscript -e 'if (!requireNamespace("MatrixGenerics", quietly = TRUE)) BiocManager::install("MatrixGenerics", force = TRUE)' && \
+    /opt/conda/envs/bactflow/bin/Rscript -e 'if (!requireNamespace("MatrixGenerics", quietly = TRUE)) BiocManager::install("MatrixGenerics", force = TRUE, ask = FALSE, update = FALSE)' && \
     mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d && \
     cp bactflow_runtime.sh /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh && \
     chmod +x /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh && \
-    /opt/conda/envs/bactflow/bin/java -version 2>&1 | grep -qE 'version "1[7-9]\.|version "2[0-4]\.' && \
+    /opt/conda/envs/bactflow/bin/java -version 2>&1 | grep -qE 'version "1[7-9]|version "2[0-4]' && \
     /opt/conda/envs/bactflow/bin/nextflow -version 2>&1 | grep -qE 'version 24\.' && \
     find /opt/conda/envs/bactflow -type f \( -name '*.a' -o -name '*.la' \) -delete && \
     find /opt/conda/envs/bactflow -type d -name '__pycache__' -prune -exec rm -rf {} + && \
     find /opt/conda/envs/bactflow -type f -name '*.pyc' -delete && \
     rm -rf /opt/conda/envs/bactflow/share/man /opt/conda/envs/bactflow/share/doc && \
-    mamba install -y -c conda-forge conda-pack && \
-    conda-pack -n bactflow -o /tmp/bactflow-env.tar.gz && \
+    /opt/conda/bin/conda-pack -n bactflow -o /tmp/bactflow-env.tar.gz \
+        --ignore-missing-files \
+        --dest-prefix /opt/conda/envs/bactflow && \
     mamba clean -afy
 
 
@@ -51,9 +56,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /tmp/bactflow-env.tar.gz /tmp/bactflow-env.tar.gz
 
+# Prefixes were rewritten at pack time (--dest-prefix), so no conda-unpack step.
 RUN mkdir -p /opt/conda/envs/bactflow && \
     tar -xzf /tmp/bactflow-env.tar.gz -C /opt/conda/envs/bactflow && \
-    /opt/conda/envs/bactflow/conda-unpack && \
     rm /tmp/bactflow-env.tar.gz && \
     find /opt/conda/envs/bactflow -type d -name '__pycache__' -prune -exec rm -rf {} + && \
     /usr/lib/jvm/bactflow-java/bin/java -version && \

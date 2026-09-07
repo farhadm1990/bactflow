@@ -67,6 +67,8 @@ dependencies:
   - r-dplyr=1.2.1
   - r-igraph=2.3.3
   - r-biocmanager=1.30.27
+  # Used by gene_plotter.r / pheatmap; pin so Docker need not hit Bioconductor at build time.
+  - bioconductor-matrixgenerics=1.18.0
   - pip:
     - bakta>=1.12.0
     - pyrodigal>=3.5.0

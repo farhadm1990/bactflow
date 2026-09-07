@@ -17,28 +17,40 @@ BAKTA_COLS = [
     "DbXrefs",
 ]
 
+# Bakta also writes *.inference.tsv / *.hypotheticals.tsv; those are not feature tables.
+# Bakta *.txt files are human-readable summaries, not TSV feature tables.
+_SKIP_NAME_PARTS = (".inference.", ".hypotheticals.", ".amr.", ".plot.")
+
+
+def _is_primary_bakta_table(file_path: str) -> bool:
+    name = os.path.basename(file_path).lower()
+    if not name.endswith(".tsv"):
+        return False
+    return not any(part in name for part in _SKIP_NAME_PARTS)
+
 
 def _annotation_tables(gene_files: str):
     path = os.path.abspath(gene_files)
     tables = []
     if os.path.isfile(path):
-        parent = os.path.dirname(path)
-        if path.lower().endswith((".tsv", ".txt")):
-            sibling_dir = parent if os.path.isdir(parent) else None
-        else:
-            sibling_dir = None
-        search_dir = sibling_dir
-        if search_dir:
-            for name in os.listdir(search_dir):
-                if name.lower().endswith((".tsv", ".txt")):
-                    tables.append(os.path.join(search_dir, name))
-        if not tables:
+        if _is_primary_bakta_table(path):
             tables.append(path)
+        else:
+            # If a side-table was passed, prefer primary siblings in the same folder.
+            parent = os.path.dirname(path)
+            if os.path.isdir(parent):
+                for name in os.listdir(parent):
+                    candidate = os.path.join(parent, name)
+                    if _is_primary_bakta_table(candidate):
+                        tables.append(candidate)
+            if not tables:
+                tables.append(path)
     elif os.path.isdir(path):
         for root, _dirs, names in os.walk(path):
             for name in names:
-                if name.lower().endswith((".tsv", ".txt")):
-                    tables.append(os.path.join(root, name))
+                candidate = os.path.join(root, name)
+                if _is_primary_bakta_table(candidate):
+                    tables.append(candidate)
     return sorted(set(tables))
 
 

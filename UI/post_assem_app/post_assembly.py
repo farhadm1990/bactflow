@@ -1522,7 +1522,8 @@ def abund_finder():
     out_dir = request.form.get("out_dir")
     gene_files = request.form.get("gene_files")
     prevalance = "false"
-    gene_type = ",".join(_selected_gene_types())
+    # Enzyme matching needs CDS products/genes; ignore UI gene_type for strain finder.
+    gene_type = "cds"
     width = request.form.get("plot_width") or "10"
     height = request.form.get("plot_height") or "10"
 
@@ -1534,6 +1535,11 @@ def abund_finder():
         return jsonify({"exists": False, "error": "Gene annotation directory is missing."}), 400
     if not enzyme_file:
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
+    try:
+        width = str(max(5.0, min(40.0, float(width))))
+        height = str(max(5.0, min(40.0, float(height))))
+    except (TypeError, ValueError):
+        width, height = "12", "12"
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "abundance.tsv")
     plot = _first_existing(
@@ -1601,7 +1607,8 @@ def prev_finder():
     out_dir = request.form.get("out_dir")
     gene_files = request.form.get("gene_files")
     prevalance = "true"
-    gene_type = ",".join(_selected_gene_types())
+    # Enzyme matching needs CDS products/genes; ignore UI gene_type for strain finder.
+    gene_type = "cds"
     
     enzyme_file = request.form.get("enzyme_loc")
     if not out_dir:
@@ -1612,8 +1619,13 @@ def prev_finder():
         return jsonify({"exists": False, "error": "Enzyme file path is missing."}), 400
     output = os.path.join(out_dir, "strain_finder")
     count_tab = os.path.join(output, "prevalance.tsv")
-    width = request.form.get("plot_width") or "10"
-    height = request.form.get("plot_height") or "10"
+    width = request.form.get("plot_width") or "12"
+    height = request.form.get("plot_height") or "12"
+    try:
+        width = str(max(5.0, min(40.0, float(width))))
+        height = str(max(5.0, min(40.0, float(height))))
+    except (TypeError, ValueError):
+        width, height = "12", "12"
 
     command = (
         f"{shlex.quote(os.path.join(base_dir, 'strain_finder.sh'))} "

@@ -49,11 +49,15 @@ norm_str <- function(x) {
 }
 
 # Enzyme query must appear inside Bakta Product/Gene (fixed, normalized).
+# Also try a plural-stripped form (e.g. polygalacturonases -> polygalacturonase).
 enzyme_in <- function(enzyme, field) {
   q <- norm_str(enzyme)
   t <- norm_str(field)
   if (nchar(q) < 3 || !nzchar(t)) return(FALSE)
-  grepl(q, t, fixed = TRUE)
+  if (grepl(q, t, fixed = TRUE)) return(TRUE)
+  q2 <- sub("s$", "", q)
+  if (nchar(q2) >= 5 && q2 != q && grepl(q2, t, fixed = TRUE)) return(TRUE)
+  FALSE
 }
 
 # Gene symbol may appear inside the enzyme label (e.g. ruvB in "... subunit RuvB").
@@ -161,12 +165,22 @@ matches = unique(matches)
 orig_name = unique(orig_name[!is.na(orig_name)])
 
 if (length(matches) == 0) {
+  n_prod <- length(products)
+  n_map <- if (is.null(gene_map)) 0L else nrow(gene_map)
+  hint <- ""
+  if (n_prod > 0 && all(grepl("^tRNA", products, ignore.case = TRUE))) {
+    hint <- paste0(
+      "\nHint: the count table looks tRNA-only. Strain finder needs CDS features; ",
+      "re-run with gene type 'cds' (the UI now forces cds for strain finder)."
+    )
+  }
   stop(
     "No enzymes from the wanted list were found in Bakta Product/Gene fields.\n",
     "Check that enzyme names resemble Bakta Product names or Gene symbols ",
     "(e.g. 'beta-glucosidase' or 'ruvB').\n",
-    "Count table: ", opt$count_table, "\n",
-    "Enzyme file: ", opt$enzymes
+    "Count table: ", opt$count_table, " (", n_prod, " products)\n",
+    "Gene map: ", map_path, " (", n_map, " rows)\n",
+    "Enzyme file: ", opt$enzymes, hint
   )
 }
 
@@ -275,15 +289,34 @@ heat_p = do.call(pheatmap, heat_args)
 
 write.table(x = mat_ord, file = glue("{opt$output_dir}/{outname_table}"), sep = '\t', row.names = TRUE)
 
-# JPEG heatmap on an explicit white canvas (pheatmap gtable + grid).
+# Keep plot files browser-friendly: clamp cm, use screen DPI, hard-cap pixels.
+# (UI sliders without an explicit value default to ~100 cm; at 300 DPI that
+# produces multi-hundred-megapixel JPEGs that freeze the page.)
+w_cm <- as.numeric(opt$width)
+h_cm <- as.numeric(opt$height)
+if (!is.finite(w_cm) || w_cm <= 0) w_cm <- 12
+if (!is.finite(h_cm) || h_cm <= 0) h_cm <- 12
+w_cm <- min(max(w_cm, 5), 40)
+h_cm <- min(max(h_cm, 5), 40)
+
+dpi <- 150
+max_px <- 2400
+w_px <- w_cm / 2.54 * dpi
+h_px <- h_cm / 2.54 * dpi
+px_scale <- min(1, max_px / max(w_px, h_px))
+if (px_scale < 1) {
+  w_cm <- w_cm * px_scale
+  h_cm <- h_cm * px_scale
+}
+
 jpeg_path <- glue("{opt$output_dir}/{outname_jpeg}")
 jpeg(
   filename = jpeg_path,
-  width = opt$width,
-  height = opt$height,
+  width = w_cm,
+  height = h_cm,
   units = "cm",
-  res = 300,
-  quality = 95,
+  res = dpi,
+  quality = 85,
   bg = "white"
 )
 grid::grid.newpage()
@@ -291,4 +324,7 @@ grid::grid.rect(gp = grid::gpar(fill = "white", col = NA))
 grid::grid.draw(heat_p$gtable)
 dev.off()
 
-message("Wrote ", glue("{opt$output_dir}/{outname_table}"), " and ", jpeg_path)
+message(
+  "Wrote ", glue("{opt$output_dir}/{outname_table}"), " and ", jpeg_path,
+  " (", round(w_cm, 1), "x", round(h_cm, 1), " cm @ ", dpi, " dpi)"
+)

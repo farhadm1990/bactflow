@@ -6,7 +6,7 @@
  
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix7">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix8">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters-top1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
@@ -243,6 +243,12 @@
                 <label for="out_dir" class="form-label">Output Directory</label>
                 <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out"/>
               </div>
+              <div class="btn-group w-100 bf-bactflow-actions" role="group" aria-label="BactFlow actions">
+                <button type="button" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
+                <button type="button" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
+                <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
+                <button type="button" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
+              </div>
             </div>
           </div>
 
@@ -323,14 +329,14 @@
 
         <div id="sliders" style="margin-bottom: 20px !important;">
               <label id="w-range" for="plot_width" class="form-label">Ajust the widht of the plot (cm):
-              <span id="width-value" style="color: blueviolet;"><strong>10</strong></span> cm
+              <span id="width-value" style="color: blueviolet;"><strong>12</strong></span> cm
               </label>
-              <input type="range" name  ="plot_width" min="1" max="200" class="form-range" id="width-range">
+              <input type="range" name="plot_width" min="5" max="40" value="12" class="form-range" id="width-range">
 
               <label id="h-range" for="plot_height" class="form-label">Ajust the height of the plot (cm):
-                <span id="height-value" style="color: blueviolet;"><strong >10</strong></span> cm
+                <span id="height-value" style="color: blueviolet;"><strong>12</strong></span> cm
               </label>
-              <input type="range" class="form-range" name ="plot_height" min="1" max="200"  id="height-range">
+              <input type="range" class="form-range" name="plot_height" min="5" max="40" value="12" id="height-range">
         </div>
 
           <div class="btn-group w-100" style="justify-content: center; display: flex;">
@@ -342,21 +348,6 @@
       </div>
 
         </div>
-
-        <!-- Fixed Buttons Section -->
-        <div class="bg-light py-3 bf-side-actions">
-          <div class="btn-group" style="justify-content: center; display: flex;">
-            
-              <button type="button" class="btn" style="background-color: antiquewhite;" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
-              <button type="button" style="border: solid 0px blue; color: rgb(129, 231, 241);" class="btn btn-danger" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
-             
-                <button type="button" style="background-color: rgb(135, 222, 192);" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
-          
-              <button type="button" class="btn btn-dark" name="action-assem" value="help" id="help-bt">Help!</button>
-              
-            
-          </div>
-        </div> 
         
       </div>
     
@@ -599,6 +590,12 @@
       <div id="abundImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%; height: auto;">
         <h4 class="text-left mb-3">Plot of abundance-based classification for genomes based on requested genes</h4>
         <div id="abund-plot-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="abund-plot-bar" style="display: none;">
+          <span class="bf-plot-bar-title">Abundance strain-finder plot</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadAbundPlot()">Download PNG</button>
+          </div>
+        </div>
          <div id="output-abund-img" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
@@ -654,6 +651,12 @@
        <div id="prevImgDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%; height: auto;">
         <h4 class="text-left mb-3">Plot of prevalance-based classification of genomes based on requested genes</h4>
         <div id="prev-plot-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="prev-plot-bar" style="display: none;">
+          <span class="bf-plot-bar-title">Prevalence strain-finder plot</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPrevPlot()">Download PNG</button>
+          </div>
+        </div>
          <div id="output-prev-img" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
