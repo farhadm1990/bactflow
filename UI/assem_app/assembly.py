@@ -836,8 +836,6 @@ def find_quast_dir(out_dir):
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():
     out_dir = request.form.get("out_dir")
-    if not out_dir:
-        return jsonify({"exists":False, "error": "Missing out_dir"}), 400
     quast_path = find_quast_dir(out_dir)
     if quast_path:
         return jsonify({"exists": True, "quast_dir": os.path.basename(quast_path)})
@@ -850,15 +848,17 @@ def quast_report():
     quast_path = find_quast_dir(out_dir)
     if quast_path:
         return send_from_directory(quast_path, "report.html")
-    return jsonify({"error": "QUAST report not found"}), 404
+    return ("", 204)
 
 @app.route("/contig-report", methods = ["POST"])
 def contig_report():
     out_dir = request.form.get("out_dir")
     quast_path = find_quast_dir(out_dir)
     if quast_path:
-        return send_from_directory(quast_path, "icarus_viewers/contig_size_viewer.html")
-    return jsonify({"error": "QUAST contig viewer not found"}), 404
+        contig = os.path.join(quast_path, "icarus_viewers/contig_size_viewer.html")
+        if os.path.isfile(contig):
+            return send_from_directory(quast_path, "icarus_viewers/contig_size_viewer.html")
+    return ("", 204)
 
 if __name__ == '__main__':
     # Docker: open via host browser hook. Local: webbrowser/xdg-open.

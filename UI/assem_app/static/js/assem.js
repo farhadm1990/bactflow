@@ -535,64 +535,106 @@ document.addEventListener("DOMContentLoaded", function(){
   });
 });
 
-// function to show quast
+// Silent QUAST lookup: never surface an error if the report is not ready yet.
+function hideQuastUi() {
+  const quastDiv = document.getElementById("quastDiv");
+  if (quastDiv) {
+    quastDiv.style.display = "none";
+  }
+}
+
 function checkForQuastReport(){
   const form = document.getElementById("runForm");
-  const formData = new FormData(form);
+  if (!form) {
+    hideQuastUi();
+    return;
+  }
 
-  fetch("/check-quast", {method: "POST", body: formData})
-    .then(response => response.json())
-    .then(data => {
-      let helpBtn = document.getElementById("help-bt");
-
-      if(data.exists){
-        console.log("✅ Quast report found! Loading...");
-        
-        let quastDiv = document.getElementById("quastDiv");
-        quastDiv.style.display = "block";
-        jumpToSection("quastDiv");
-        quastReport().then(() => jumpToSection("quastDiv"));
-        clearInterval(quastCheckInterval);
-      } else {
-        console.log("⏳ Waiting for Quast report...");
-        let quastDiv = document.getElementById("quastDiv");
-      
-        quastDiv.style.display = "none";
+  fetch("/check-quast", {method: "POST", body: new FormData(form)})
+    .then((response) => {
+      if (!response.ok) {
+        return { exists: false };
       }
+      return response.json().catch(() => ({ exists: false }));
     })
-    .catch(error => console.error("Error checking Quast report:", error));
+    .then((data) => {
+      if (data && data.exists) {
+        return quastReport();
+      }
+      hideQuastUi();
+    })
+    .catch(() => {
+      hideQuastUi();
+    });
 }
 
 
 async function quastReport() {
   const form = document.getElementById("runForm");
+  const quastDiv = document.getElementById("quastDiv");
+  if (!form || !quastDiv) {
+    return false;
+  }
   const formData = new FormData(form);
-  
+
   try {
-   
-    let quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok) throw new Error("Failed to fetch QUAST report");
-    let quastBlob = await quastResponse.blob();
-    let quastUrl = URL.createObjectURL(quastBlob);
-    
-    let quastOutputDiv = document.getElementById("output-quast");
-    quastOutputDiv.innerHTML = ""; 
-    quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
-    // for contig
-    let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-    if (!contigResponse.ok) throw new Error("Failed to fetch Contig report");
-    let contigBlob = await contigResponse.blob();
-    let contigUrl = URL.createObjectURL(contigBlob);
-    
-    let contigOutputDiv = document.getElementById("contig-quast");
-    contigOutputDiv.innerHTML = ""; 
-    contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    jumpToSection("quastDiv");
-    
-  } catch (error) {
-    console.error("Error:", error);
-    alert("An error occurred while fetching the reports.");
+    const quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
+    if (!quastResponse.ok || quastResponse.status === 204) {
+      hideQuastUi();
+      return false;
+    }
+    const quastBlob = await quastResponse.blob();
+    if (!quastBlob || quastBlob.size === 0) {
+      hideQuastUi();
+      return false;
+    }
+    const quastUrl = URL.createObjectURL(quastBlob);
+    const quastOutputDiv = document.getElementById("output-quast");
+    if (quastOutputDiv) {
+      quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+    }
+
+    quastDiv.style.display = "block";
+
+    const contigOutputDiv = document.getElementById("contig-quast");
+    const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
+    try {
+      const contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
+      if (contigResponse.ok && contigResponse.status !== 204) {
+        const contigBlob = await contigResponse.blob();
+        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
+          const contigUrl = URL.createObjectURL(contigBlob);
+          contigOutputDiv.style.display = "";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "";
+          }
+          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+        } else if (contigOutputDiv) {
+          contigOutputDiv.style.display = "none";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "none";
+          }
+        }
+      } else if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+        if (contigHeading && contigHeading.tagName === "H4") {
+          contigHeading.style.display = "none";
+        }
+      }
+    } catch (err) {
+      if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+      }
+    }
+
+    if (quastCheckInterval) {
+      clearInterval(quastCheckInterval);
+      quastCheckInterval = null;
+    }
+    return true;
+  } catch (err) {
+    hideQuastUi();
+    return false;
   }
 }
 
