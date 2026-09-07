@@ -227,7 +227,7 @@ function updateAssemblerUI() {
   showEl(spadesHint, isSpades);
   showEl(pacbioHint, isPacbio);
   showEl(flyeCoverage, isFlye || isPacbio);
-  showEl(nanofilterGroup, isLongRead);
+  showEl(nanofilterGroup, isFlye || isUnicycler);
   showEl(flyePolish, isFlye);
   showEl(circleGenomeGroup, !isNone);
   showEl(concatReadsGroup, isLongRead);
@@ -254,6 +254,13 @@ function updateAssemblerUI() {
     const concatReads = document.getElementById("concat_reads");
     if (concatReads) {
       concatReads.value = "false";
+    }
+  }
+
+  if (isPacbio) {
+    const concatReads = document.getElementById("concat_reads");
+    if (concatReads) {
+      concatReads.value = "true";
     }
   }
 

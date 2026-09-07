@@ -11,7 +11,7 @@ Options:
    
     --setup_only            If true, only runs envSetUp(), default false
     --fastq_dir             Absolute path to the fastq_pass directory (required). 
-    --concat_reads          Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
+    --concat_reads          Default true. Pools ONT barcode folders or PacBio per-sample movie/subread folders (e.g. TL110_fastq/*.subreads.fastq) into one FASTQ per sample. Set false if files are already pooled.
     --extension             String; extention of basecalled fastq files; default '.fastq.gz'
     --cpus                  Number of available cpus; default 1.
     --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
@@ -33,6 +33,7 @@ Options:
     --short_read_dir       Absolute path to Illumina paired-end reads. Required if '--run_unicycler true'.
     --run_spades            If true, it runs SPAdes isolate assembly on Illumina paired-end reads in --fastq_dir, default false.
     --run_pacbio           If true, it runs Flye on PacBio reads, default false.
+                            Nested sample folders of movie/subread FASTQs are pooled first when --concat_reads true.
     --pacbio_read_type      PacBio Flye read mode: pacbio-raw, pacbio-corr, or pacbio-hifi (default pacbio-hifi).
                             Process pacbio_read_check classifies inputs; subreads/CLR require pacbio-raw.
     --tax_class             If true, it runs GTBtk taxonomic classification, default true.
@@ -135,17 +136,33 @@ workflow {
         def fastas_fold
         def quast_out
         def circ_fasta
-         // PacBio: classify (HiFi vs subread), then Flye (skip ONT dedup/nanofilter)
+         // PacBio: optional pooling of per-sample movie/subread folders, classify, then Flye
         if (params.run_pacbio) {
             // Brace globs like *.{fastq.gz,...} do NOT match .fastq.gz in Java PathMatcher.
-            def pacbio_inputs = Channel
-                .fromPath("${params.fastq_dir}/*.fastq.gz", checkIfExists: false)
-                .mix(Channel.fromPath("${params.fastq_dir}/*.fq.gz", checkIfExists: false))
-                .mix(Channel.fromPath("${params.fastq_dir}/*.fastq", checkIfExists: false))
-                .mix(Channel.fromPath("${params.fastq_dir}/*.fq", checkIfExists: false))
-                .mix(Channel.fromPath("${params.fastq_dir}/*.bam", checkIfExists: false))
-                .ifEmpty { error "No PacBio FASTQ/BAM files found in ${params.fastq_dir}" }
-                .collect()
+            def pacbio_inputs
+            if (params.concat_reads) {
+                pooled_out = fastqConcater(
+                    env_check,
+                    params.cpus,
+                    params.fastq_dir,
+                    params.extension
+                )
+                pacbio_inputs = pooled_out.collect()
+            } else {
+                pacbio_inputs = Channel
+                    .fromPath("${params.fastq_dir}/*.fastq.gz", checkIfExists: false)
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq.gz", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fastq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.bam", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*/*.fastq.gz", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*/*.fq.gz", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*/*.fastq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*/*.fq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*/*.bam", checkIfExists: false))
+                    .ifEmpty { error "No PacBio FASTQ/BAM files found in ${params.fastq_dir} (looked at the directory and one level of sample subfolders)" }
+                    .collect()
+            }
             pacbio_ready = pacbio_read_check(
                 env_check,
                 pacbio_inputs,
@@ -407,119 +424,38 @@ process testify {
 
 process fastqConcater {
     cpus params.cpus
+    stageInMode 'symlink'
 
     input:
     path env_check
-    val cpus 
+    val cpus
     path fastq_dir
     val extension
-    
 
     when:
     params.concat_reads
 
     output:
-   // file('concatenated_fq_are_ready') 
     path("${fastq_dir}/pooled/*.fastq"), emit: pooled_out
-
 
     script:
     """
-    
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
 
-    
+    python3 "${baseDir}/pool_reads.py" \\
+        -g "${fastq_dir}" \\
+        -c "${cpus}" \\
+        -e "${extension}"
 
-    num_file=\$(ls "${fastq_dir}"| wc -l)
-
-    if [ -d "${fastq_dir}"/pooled ] 
-    then 
-        num_pooled=\$(ls "${fastq_dir}"/pooled | wc -l)
-        num_dif=\$(("\${num_file}" - "\${num_pooled}"))
-        if [ \$num_dif -eq 1 ]
-        then
-            touch concatenated_fq_are_ready
-        else 
-            if [ "${extension}" == ".fastq.gz" ]
-            then
-                // export "${fastq_dir}"
-                parallel --will-cite -j   "${cpus}" '
-                    if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                    then
-                        fastq_dir=\$(dirname {})
-                        name=\$(basename {})
-                        zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
-                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
-                    fi
-                ' ::: "${fastq_dir}"/*
-
-                touch concatenated_fq_are_ready
-
-            elif [ "${extension}" == ".fastq" ] 
-            then	
-                export "${fastq_dir}"
-                parallel --will-cite -j   "${cpus}" '
-                    if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                    then
-                        fastq_dir=\$(dirname {})
-                        name=\$(basename {})
-                        cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
-                        mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
-                    fi
-                ' ::: "${fastq_dir}"/*
-                
-                touch concatenated_fq_are_ready
-            else
-                echo "Your extention is not recognized!"
-                exit 1
-
-            fi
-        fi
-
-
-
-    else 
-        
-        mkdir -p "${fastq_dir}"/pooled
-
-        if [ "${extension}" == ".fastq.gz" ]
-        then
-
-            export "${fastq_dir}"
-            parallel --will-cite -j   "${cpus}" '
-                if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                then
-                    fastq_dir=\$(dirname {})
-                    name=\$(basename {})
-                    zcat {}/*.fastq.gz >> "${fastq_dir}"/"\${name}_pooled.fastq"
-                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
-                fi
-            ' ::: "${fastq_dir}"/*
-
-            touch concatenated_fq_are_ready
-
-        elif [ "${extension}" == ".fastq" ] 
-        then
-
-            export "${fastq_dir}"
-            parallel --will-cite -j   "${cpus}" '
-                if [ -d {} ]  && [ "\$(basename {})" != "pooled" ]
-                then
-                    fastq_dir=\$(dirname {})
-                    name=\$(basename {})
-                    cat {}/*.fastq >> "${fastq_dir}"/"\${name}_pooled.fastq"
-                    mv "${fastq_dir}"/"\${name}"_pooled.fastq "${fastq_dir}/pooled"
-                fi
-            ' ::: "${fastq_dir}"/*	
-            
-            touch concatenated_fq_are_ready
-        else
-            echo "Your extention is not recognized!"
-            exit 1
-
-        fi
-
+    shopt -s nullglob
+    pooled=("${fastq_dir}"/pooled/*.fastq)
+    if [ \${#pooled[@]} -eq 0 ]
+    then
+        echo "Concatenation produced no FASTQ files in ${fastq_dir}/pooled" >&2
+        ls -la "${fastq_dir}" >&2 || true
+        ls -la "${fastq_dir}/pooled" >&2 || true
+        exit 1
     fi
     """
 }
@@ -1167,6 +1103,9 @@ process assembly_pacbio {
         out_name=\${out_name%.fq.gz}
         out_name=\${out_name%.fastq}
         out_name=\${out_name%.fq}
+        out_name=\${out_name%.subreads}
+        out_name=\${out_name%_pooled}
+        out_name=\${out_name%_fastq}
         pb_dir=asm_out_dir/"\${out_name}"_pacbio
 
         echo "running Flye (\$pb_mode) on PacBio reads for \${out_name}..."

@@ -198,6 +198,29 @@ function catFastq(){
       spinFastqLs.style.display = "none";
       lsDiv.style.display = "block";
       lsfq.innerHTML = data.html_table;
+      if (data.note) {
+        const note = document.createElement("p");
+        note.style.marginTop = "8px";
+        note.innerHTML = data.note;
+        lsfq.prepend(note);
+      }
+      if (data.looks_like_subreads) {
+        const kind = document.getElementById("pacbio_read_kind");
+        const platform = document.getElementById("read_platform");
+        if (kind) {
+          kind.value = "clr";
+        }
+        if (platform && platform.value === "auto") {
+          platform.value = "pacbio";
+          updatePlatformUI();
+        }
+      }
+      if (data.extension) {
+        const extInput = document.getElementById("extension");
+        if (extInput && (extInput.value === ".fastq.gz" || !extInput.value)) {
+          extInput.value = data.extension;
+        }
+      }
       jumpToSection("fastq-ls-div");
       setTimeout(() => {
         if ($.fn.DataTable) {
@@ -388,6 +411,9 @@ function updatePlatformUI() {
     concatSel.value = "false";
   }
   if (concatSel && lastReadPlatform === "illumina" && !illumina) {
+    concatSel.value = "true";
+  }
+  if (concatSel && pacbio) {
     concatSel.value = "true";
   }
   if (catBtn) {

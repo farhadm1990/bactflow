@@ -108,10 +108,17 @@
                 <option value="true" selected>True</option>
                 <option value="false">False</option>
               </select>
+              <div class="form-text">
+                On for ONT barcode folders and PacBio per-sample movie folders
+                (<code>TL110_fastq/*.subreads.fastq</code>). One pooled FASTQ is assembled per sample.
+              </div>
             </div>
             <div class="mb-3" id="extensionGroup" style="display: none;">
               <label for="extension" class="form-label">Extension</label>
               <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" />
+              <div class="form-text">
+                PacBio subread chunks are usually <code>.subreads.fastq</code>. Leave blank to auto-detect.
+              </div>
             </div>
             
             <!-- Hidden input fields for assemblers -->
@@ -123,7 +130,11 @@
               SPAdes uses Illumina paired-end files in the FASTQ directory (<code>sample_R1.fastq.gz</code> / <code>sample_R2.fastq.gz</code>). Assemblies are written to <code>asm_out_dir/fastas/&lt;sample&gt;_spades.fasta</code> and will not replace existing ONT or PacBio FASTAs in the same folder.
             </div>
             <div id="pacbioHint" class="form-text mb-3" style="display: none;">
-              PacBio assemblies write to <code>asm_out_dir/fastas/&lt;sample&gt;_pacbio.fasta</code>.
+              Point the FASTQ directory at the parent folder of sample subdirectories
+              (e.g. <code>…/pacbio/</code> containing <code>TL110_fastq/</code>, <code>TL19_fastq/</code>),
+              or at one sample folder of <code>*.subreads.fastq</code> movie chunks.
+              Concat Reads should stay True so each sample is pooled before Flye.
+              Assemblies write to <code>asm_out_dir/fastas/&lt;sample&gt;_pacbio.fasta</code>.
               Reads are classified first (HiFi/CCS vs subreads/CLR).
               If they are <strong>subreads/CLR</strong>, set PacBio read type to <code>pacbio-raw</code> (not pacbio-hifi).
             </div>
@@ -161,7 +172,7 @@
                 <select class="form-select" id="pacbio_read_type" name="pacbio_read_type">
                   <option value="pacbio-hifi" selected>pacbio-hifi — HiFi / CCS reads (&lt;1% error)</option>
                   <option value="pacbio-corr">pacbio-corr — corrected PacBio reads (&lt;3% error)</option>
-                  <option value="pacbio-raw">pacbio-raw — regular CLR reads (&lt;20% error)</option>
+                  <option value="pacbio-raw">pacbio-raw — regular CLR / subreads (&lt;20% error)</option>
                 </select>
               </div>
             </div>
@@ -499,7 +510,7 @@
 
     <!-- scripts -->
       <script src="{{ url_for('static', filename='js/terminal.js') }}?v=meters5"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=quast1"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=pbsub1"> </script>
   
       
 {% endblock %}

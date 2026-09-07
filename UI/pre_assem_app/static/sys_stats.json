@@ -1,1 +1,1 @@
-{"cpu_percent": 19.7, "cpu_count": 12, "ram_percent": 18.6, "ram_used_gb": 5.48, "ram_total_gb": 31.22, "ram_scope": "host", "running": false, "job_cores": null, "job_cpu_percent": null, "job_rss_gb": null, "job_procs": 0, "source": "psutil"}
+{"cpu_percent": 72.1, "cpu_count": 12, "ram_percent": 27.1, "ram_used_gb": 8.29, "ram_total_gb": 30.57, "ram_scope": "host", "running": false, "job_cores": null, "job_cpu_percent": null, "job_rss_gb": null, "job_procs": 0, "source": "psutil"}

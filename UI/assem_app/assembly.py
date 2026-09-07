@@ -48,6 +48,34 @@ export NXF_ANSI_LOG=true
 def with_nextflow_java(command):
     return NF_JAVA_SETUP + "\n" + command
 
+
+def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
+    """Enable pooling and CLR Flye mode for nested PacBio subread folders."""
+    try:
+        from pool_reads import inspect_layout
+    except ImportError:
+        return concat_reads, extension, pacbio_read_type
+    layout = inspect_layout(fastq_dir)
+    if layout.get("needs_concat"):
+        concat_reads = "true"
+        sniffed = layout.get("extension") or extension
+        current = (extension or "").strip() or ".fastq.gz"
+        if current in (".fastq.gz", ".fq.gz") and sniffed:
+            extension = sniffed
+    if layout.get("looks_like_subreads") and (pacbio_read_type or "pacbio-hifi") == "pacbio-hifi":
+        pacbio_read_type = "pacbio-raw"
+        print(
+            "PacBio inputs look like subreads/CLR; using Flye mode pacbio-raw "
+            f"and concat={concat_reads} extension={extension}",
+            flush=True,
+        )
+    elif layout.get("needs_concat"):
+        print(
+            f"PacBio sample folders detected; pooling first (concat=true, extension={extension})",
+            flush=True,
+        )
+    return concat_reads, extension, pacbio_read_type
+
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
 
@@ -445,6 +473,11 @@ def run_bactflow():
             min_length = min_length if str(min_length).strip() not in ("", "None") else "1000"
             min_quality = min_quality if str(min_quality).strip() not in ("", "None") else "10"
             tensor_batch = tensor_batch if str(tensor_batch).strip() not in ("", "None") else "200"
+
+            if str(run_pacbio).lower() == "true" and fastq_dir:
+                concat_reads, extension, pacbio_read_type = apply_pacbio_layout(
+                    fastq_dir, concat_reads, extension, pacbio_read_type
+                )
              
             command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\

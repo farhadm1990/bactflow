@@ -28,9 +28,11 @@ except ImportError:
 
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 ASSEM_APP_DIR = os.path.abspath(os.path.join(base_dir, "..", "assem_app"))
 if ASSEM_APP_DIR not in sys.path:
-    sys.path.insert(0, ASSEM_APP_DIR)
+    sys.path.append(ASSEM_APP_DIR)
 
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
@@ -53,18 +55,18 @@ def with_nextflow_java(command):
     return NF_JAVA_SETUP + "\n" + command
 
 
-FASTQ_EXTS = (".fastq.gz", ".fq.gz", ".fastq", ".fq")
+from pool_reads import (
+    FASTQ_EXTS,
+    PoolReadsError,
+    human_size,
+    inspect_layout,
+    list_read_files,
+    pool_fastq_dir,
+)
 
 
-def list_fastq_files(directory):
-    if not directory or not os.path.isdir(directory):
-        return []
-    files = []
-    for name in sorted(os.listdir(directory)):
-        path = os.path.join(directory, name)
-        if os.path.isfile(path) and name.lower().endswith(FASTQ_EXTS):
-            files.append(path)
-    return files
+def list_fastq_files(directory, recurse=False):
+    return list_read_files(directory, recurse=recurse)
 
 
 def stats_error(message, status=400):
@@ -292,13 +294,33 @@ def prepare_reads_dir(form):
         return None, "Choose an existing FASTQ directory first."
     if illumina_filter_enabled(form):
         return run_illumina_filter(form)
-    reads_dir = os.path.join(fastq_dir, "pooled") if concat_enabled(form) else fastq_dir
-    if not os.path.isdir(reads_dir):
-        return None, (
-            "No pooled/ folder yet. Click “Initiate read cat” first, "
-            "or set Concat Reads to False."
+    layout = inspect_layout(fastq_dir)
+    pooled = os.path.join(fastq_dir, "pooled")
+    want_concat = concat_enabled(form) or layout.get("needs_concat")
+    if want_concat:
+        pooled_files = list_fastq_files(pooled)
+        if pooled_files:
+            return pooled, None
+        extra = layout.get("note") or (
+            "FASTQ files are in sample subfolders (e.g. TL110_fastq/*.subreads.fastq)."
         )
-    return reads_dir, None
+        return None, (
+            f"{extra} Click “Initiate read cat” first, "
+            "or set Concat Reads to False if files are already pooled."
+        )
+    files = list_fastq_files(fastq_dir)
+    if files:
+        return fastq_dir, None
+    if layout.get("needs_concat"):
+        extra = layout.get("note") or "FASTQ files are inside sample subfolders."
+        return None, extra + ' Click “Initiate read cat” to pool each sample first.'
+    nested = list_fastq_files(fastq_dir, recurse=True)
+    if nested:
+        return None, (
+            f"Found {len(nested)} FASTQ file(s) in subfolders of {fastq_dir}. "
+            "Set Concat Reads to True and click “Initiate read cat”."
+        )
+    return None, f"No FASTQ files found in {fastq_dir}."
 
 manager = Manager()
 process_status = manager.dict({"running": False})
@@ -436,45 +458,37 @@ def install_bactflow():
 @app.route('/ls-fastq', methods = ['POST', 'GET'])
 def ls_fastq():
     if request.method == 'POST':
-        fastq_dir = request.form.get("fastq_dir")
-        extension = request.form.get("extension")
-        out_dir = request.form.get("out_dir")
-        cpus = request.form.get("cpus")
-        concater = "true" if concat_enabled(request.form) else "false"
-        if concater == "true":
-            command = f"""
-            source $(conda info --base)/etc/profile.d/conda.sh
-            conda activate bactflow
-            if [ ! -d {out_dir} ]; then
-                mkdir -p {out_dir}
-            fi
-            {base_dir}/concater.sh -g {fastq_dir} -c {cpus} -e {extension}
-            
-            """
-        else:
-            command = f"""
-            source $(conda info --base)/etc/profile.d/conda.sh
-            conda activate bactflow
-            if [ ! -d {out_dir} ]; then
-                mkdir -p {out_dir}
-            fi
-            
-            """
-        subprocess.run(command, shell=True, text=True, executable="/bin/bash")
-  
-       
-        if concater == "true":
-            command = f"""
-            du -sh {fastq_dir}/pooled/*.fastq* 
-            """
-        else:
-             command = f"""
-            du -sh  {fastq_dir}/*.fastq* 
-            """
+        fastq_dir = (request.form.get("fastq_dir") or "").strip()
+        extension = (request.form.get("extension") or "auto").strip() or "auto"
+        out_dir = (request.form.get("out_dir") or "").strip()
+        try:
+            cpus = max(1, int(request.form.get("cpus") or 1))
+        except ValueError:
+            cpus = 1
+        if not fastq_dir or not os.path.isdir(fastq_dir):
+            return jsonify({"error": "Choose an existing FASTQ directory first."}), 400
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
 
-        result = subprocess.run(command, shell=True, text=True, capture_output=True)
-        fastq_files = result.stdout.strip().split("\n")
-       
+        layout = inspect_layout(fastq_dir, extension)
+        want_concat = concat_enabled(request.form) or layout.get("needs_concat")
+        try:
+            if want_concat:
+                pooled = pool_fastq_dir(fastq_dir, extension=extension, cpus=cpus)
+                files = [str(path) for path in pooled]
+            else:
+                files = list_fastq_files(fastq_dir)
+                if not files:
+                    files = list_fastq_files(fastq_dir, recurse=True)
+        except PoolReadsError as exc:
+            return jsonify({"error": str(exc) or "Concatenation failed."}), 400
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        if not files:
+            extra = layout.get("note") or "No FASTQ files found."
+            return jsonify({"error": extra}), 400
+
         table_html = """<table class='display table table-striped table-bordered nowrap table-hover' id='read-fastq' border='0.5'>
     <thead>
         <tr>
@@ -484,15 +498,25 @@ def ls_fastq():
         </tr>
     </thead>
     <tbody>"""
-        for i, entry in enumerate(fastq_files, start=1):
-            if entry:
-                size, filepath = entry.split("\t", 1)
-                basename = os.path.basename(filepath)
-                table_html += f"<tr><td>{i}</td><td>{basename}</td><td>{size}</td></tr>"
-        table_html += "</tbody></table>" 
-            
-        
-        return jsonify({"html_table": table_html, "fastq_files": fastq_files}), 200
+        fastq_entries = []
+        for i, filepath in enumerate(files, start=1):
+            try:
+                size = human_size(os.path.getsize(filepath))
+            except OSError:
+                size = "?"
+            basename = os.path.basename(filepath)
+            table_html += f"<tr><td>{i}</td><td>{basename}</td><td>{size}</td></tr>"
+            fastq_entries.append(f"{size}\t{filepath}")
+        table_html += "</tbody></table>"
+
+        return jsonify({
+            "html_table": table_html,
+            "fastq_files": fastq_entries,
+            "note": layout.get("note") or "",
+            "looks_like_subreads": bool(layout.get("looks_like_subreads")),
+            "extension": layout.get("extension") or extension,
+            "needs_concat": bool(layout.get("needs_concat")),
+        }), 200
 
 # Trim the list
 @app.route('/trim-list', methods = ['POST', 'GET'])

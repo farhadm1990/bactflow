@@ -110,6 +110,7 @@
                 <div class="form-text">
                   Plots are the same as ONT. Visualize also classifies PacBio reads as HiFi/CCS or subreads/CLR
                   and tells you which Assembly Flye mode to use (<code>pacbio-hifi</code> vs <code>pacbio-raw</code>).
+                  For RSII/CLR movie folders, choose CLR / subreads and keep Concat Reads on.
                 </div>
               </div>
 
@@ -134,12 +135,19 @@
                   <option value="true" selected>True</option>
                   <option value="false">False</option>
                 </select>
-                <div class="form-text">Use this for ONT or PacBio folders that still need pooling.</div>
+                <div class="form-text">
+                  Leave on for ONT barcode folders and PacBio sample folders
+                  (e.g. <code>TL110_fastq/*.subreads.fastq</code>) so each sample is pooled into one FASTQ.
+                </div>
               </div>
 
               <div class="mb-3">
                 <label for="extension" class="form-label">Extension</label>
                 <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
+                <div class="form-text">
+                  Auto-detected if needed. PacBio movie chunks are often uncompressed
+                  <code>.subreads.fastq</code> (not <code>.fastq.gz</code>).
+                </div>
               </div>
               <hr>
               <div class="mb-3">
@@ -445,7 +453,7 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=jump1"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbsub1"></script>
 <script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
