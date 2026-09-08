@@ -9,8 +9,6 @@ dependencies:
   - spades=4.3.0
   - unicycler=0.5.1
   - bowtie2
-  - blast
-  - pilon
   - minimap2=2.28
   - racon=1.5.0
   - miniasm=0.3

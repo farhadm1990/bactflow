@@ -184,6 +184,9 @@ function run_wf(action){
           BactflowTerminal.append("Bactflow started :)", true);
           BactflowTerminal.setStatus("Running...", "run");
           updateButtonStates("running");
+          quastShown = false;
+          baktaShown = false;
+          taxShown = false;
           connectToStream(action);
         })
     
@@ -577,76 +580,151 @@ async function refreshCircularPlotButton() {
   }
 }
 
-// function to show quast
+async function fetchJsonSafe(url, formData) {
+  try {
+    const res = await fetch(url, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    return data && typeof data === "object" ? data : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function renderCircFastaList(data, opts) {
+  const wrap = document.getElementById("circFastaDiv");
+  const list = document.getElementById("output-circ-fastas");
+  const hint = document.getElementById("circ-fasta-hint");
+  if (!wrap || !list) {
+    return;
+  }
+  const files = Array.isArray(data.files) ? data.files : [];
+  const circleOn = opts && opts.circleOn;
+  const runDone = opts && opts.runDone;
+  if (!data.exists || !files.length) {
+    if (circleOn && runDone) {
+      wrap.style.display = "block";
+      if (hint) {
+        hint.textContent = "Circulator finished but no FASTA files were found in out_dir/circulated_fasta. Set Resume to False and run again so outputs can be published.";
+      }
+      list.innerHTML = "";
+    } else {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  wrap.style.display = "block";
+  if (hint) {
+    hint.textContent = data.dir
+      ? `${files.length} circulated genome(s) in ${data.dir}`
+      : `${files.length} circulated genome(s)`;
+  }
+  list.innerHTML = files.map((name) => `<li><code>${escapeHtml(name)}</code></li>`).join("");
+}
 
 function showReport(){
   const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
   const formData = new FormData(form);
-  Promise.all([
-    fetch("/check-quast", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/check-bakta", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/circular", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/taxa-report", {method: "POST", body: formData}).then(res => res.json())
-  ])
-  
-    // quast and bakta
-    // .then(([quastData, baktaData, circPlt, taxData]) => {
-    .then(([quastData, baktaData, circPlt, taxData]) => {
-      let quastDiv = document.getElementById("quastDiv");
-      let baktaDiv = document.getElementById("baktaDiv");
-      let circDiv  = document.getElementById("circDiv");
-      let circSpin = document.getElementById("spin-circ");
-      let taxDiv = document.getElementById("taxa_class");
-  
-      if(quastData.exists){
-        console.log("this is quast data" + quastData);
-        console.log("✅ Quast report found! Loading...");
-        
-        
+  const outDir = String(formData.get("out_dir") || "").trim();
+  if (!outDir) {
+    return;
+  }
 
-        quastDiv.style.display = "block";
-        quastReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.log("⏳ Waiting for Quast report...");
-        
-      
+  Promise.all([
+    fetchJsonSafe("/check-quast", formData),
+    fetchJsonSafe("/check-bakta-ready", formData),
+    fetchJsonSafe("/circular", formData),
+    fetchJsonSafe("/taxa-report", formData),
+    fetchJsonSafe("/check-circ", formData),
+  ])
+    .then(([quastData, baktaReady, circPlt, taxData, circFasta]) => {
+      const quastDiv = document.getElementById("quastDiv");
+      const baktaDiv = document.getElementById("baktaDiv");
+      const circDiv  = document.getElementById("circDiv");
+      const circSpin = document.getElementById("spin-circ");
+      const taxDiv = document.getElementById("taxa_class");
+
+      const circleOn = String(formData.get("circle_genome") || "") === "true";
+      const quastOn = String(formData.get("run_quast") || "") === "true";
+      const baktaOn = String(formData.get("bakta_annot") || "") === "true";
+      const taxOn = String(formData.get("tax_class") || "") === "true";
+      const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
+      renderCircFastaList(circFasta || {}, { circleOn, runDone });
+
+      const statusEl = document.getElementById("results-status-text");
+      const statusWrap = document.getElementById("resultsStatusDiv");
+      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists)) {
+        const bits = [];
+        if (circleOn) {
+          bits.push(circFasta && circFasta.exists
+            ? `Circulated FASTAs: ${circFasta.count || (circFasta.files || []).length}`
+            : "Circulated FASTAs: missing");
+        }
+        if (quastOn) {
+          bits.push(quastData.exists ? "QUAST: ready" : "QUAST: missing");
+        }
+        if (baktaOn) {
+          bits.push((baktaReady.plot_ready || baktaReady.ready) ? "Bakta: ready" : "Bakta: missing");
+        }
+        if (taxOn) {
+          bits.push(taxData.exists ? "Taxonomy: ready" : "Taxonomy: missing");
+        }
+        if (bits.length) {
+          statusEl.textContent = bits.join(" · ");
+          statusWrap.style.display = "block";
+        }
+      }
+
+      if (quastData.exists) {
+        if (quastDiv) {
+          quastDiv.style.display = "block";
+        }
+        if (!quastShown) {
+          quastShown = true;
+          quastReport();
+        }
+      } else if (quastDiv) {
         quastDiv.style.display = "none";
       }
 
-      // bakta
-      if (baktaData.exists) {
-        console.log("✅ Bakta report found! Loading...");
-        baktaDiv.style.display = "block";
-        clearInterval(reportCheckInterval);
-        baktaReport();  
-      } else {
-        console.warn("⏳ Bakta report not available yet...");
+      const baktaPlotReady = baktaReady.plot_ready === true || baktaReady.ready === true;
+      if (baktaPlotReady) {
+        if (baktaDiv) {
+          baktaDiv.style.display = "block";
+        }
+        if (!baktaShown) {
+          baktaShown = true;
+          baktaReport();
+        }
+      } else if (baktaDiv) {
         baktaDiv.style.display = "none";
       }
 
       refreshCircularPlotButton();
 
-      // circular genome (display only if already generated)
-      if (circPlt.plot) {
+      if (circPlt.plot && circDiv) {
         circDiv.style.display = "block";
-        circSpin.style.display = "none";
+        if (circSpin) {
+          circSpin.style.display = "none";
+        }
         showCircularPlot(circPlt.plot);
       }
 
-      // taxonomy
-      if(taxData.exists){
-       
-        taxDiv.style.display = "block";
-        
-        taxReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.warn("⏳ Taxonomy table not available yet...");
+      if (taxData.exists) {
+        if (taxDiv) {
+          taxDiv.style.display = "block";
+        }
+        if (!taxShown) {
+          taxShown = true;
+          taxReport();
+        }
+      } else if (taxDiv) {
         taxDiv.style.display = "none";
       }
     })
-    .catch(error => console.error("Error checking Quast report:", error));
+    .catch((error) => console.error("Error checking post-assembly reports:", error));
 }
 
 async function taxReport() {
@@ -709,27 +787,45 @@ async function quastReport() {
   try {
    
     let quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok) throw new Error("Failed to fetch QUAST report");
+    if (!quastResponse.ok || quastResponse.status === 204) {
+      return;
+    }
     let quastBlob = await quastResponse.blob();
+    if (!quastBlob || quastBlob.size === 0) {
+      return;
+    }
     let quastUrl = URL.createObjectURL(quastBlob);
     
     let quastOutputDiv = document.getElementById("output-quast");
-    quastOutputDiv.innerHTML = ""; 
     quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
    
-    // for contig
-    let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-    if (!contigResponse.ok) throw new Error("Failed to fetch Contig report");
-    let contigBlob = await contigResponse.blob();
-    let contigUrl = URL.createObjectURL(contigBlob);
-    
     let contigOutputDiv = document.getElementById("contig-quast");
-    contigOutputDiv.innerHTML = ""; 
-    contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
+    const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
+    try {
+      let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
+      if (contigResponse.ok && contigResponse.status !== 204) {
+        let contigBlob = await contigResponse.blob();
+        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
+          let contigUrl = URL.createObjectURL(contigBlob);
+          contigOutputDiv.style.display = "";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "";
+          }
+          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+        }
+      } else if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+        if (contigHeading && contigHeading.tagName === "H4") {
+          contigHeading.style.display = "none";
+        }
+      }
+    } catch (_err) {
+      if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+      }
+    }
   } catch (error) {
     console.error("Error:", error);
-    alert("An error occurred while fetching the reports.");
   }
 }
 
@@ -986,7 +1082,10 @@ async function circReport(){
   }
 }
 
-var reportCheckInterval = setInterval(showReport, 5000);
+let reportCheckInterval = setInterval(showReport, 5000);
+let quastShown = false;
+let baktaShown = false;
+let taxShown = false;
 
 
 // gene annotation 

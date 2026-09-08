@@ -167,9 +167,15 @@ fi
 
 cpus=$(($cpus))
 shopt -s nullglob
-fasta_files=("$genomes"/*.fasta)
+fasta_files=()
+if [ -d "$genomes" ]; then
+    fasta_files=("$genomes"/*.fasta "$genomes"/*.fa "$genomes"/*.fna)
+elif [ -f "$genomes" ]; then
+    fasta_files=("$genomes")
+fi
 if [ "${#fasta_files[@]}" -eq 0 ]; then
-    echo "ERROR: No .fasta files found in ${genomes}" >&2
+    echo "ERROR: No FASTA files (*.fasta, *.fa, *.fna) found in ${genomes}" >&2
+    ls -la "$genomes" >&2 || true
     exit 1
 fi
 

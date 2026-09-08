@@ -873,6 +873,9 @@ const BactflowTerminal = {
 
     if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
       BactflowProcessEta.finalizeAll(this, "completed");
+      if (typeof window.showReport === "function") {
+        window.showReport();
+      }
       if (trimmed !== "Process completed") {
         const row = document.createElement("div");
         row.className = "log-line log-ok";

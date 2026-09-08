@@ -170,8 +170,23 @@ workflow {
                 params.output_dir
             )
         } else {
-            fastas_fold = Channel.fromPath(params.genome_dir)
-                                    .collect() // 
+            def genomePath = file(params.genome_dir)
+            if (!genomePath.exists()) {
+                error "genome_dir does not exist: ${params.genome_dir}"
+            }
+            if (genomePath.isDirectory()) {
+                def fastaHits = genomePath.listFiles()?.findAll { f ->
+                    f.isFile() && f.name.toLowerCase() ==~ /.*\.(fasta|fa|fna)$/
+                } ?: []
+                if (fastaHits.isEmpty()) {
+                    error "No FASTA files (*.fasta, *.fa, *.fna) in ${genomePath}"
+                }
+                // Pass the directory as one path. Collecting each FASTA makes Nextflow
+                // stringify them as "a.fasta b.fasta", which is not a usable folder.
+                fastas_fold = Channel.value(genomePath)
+            } else {
+                fastas_fold = Channel.value(genomePath)
+            }
         }
          
         // circulator
@@ -729,7 +744,7 @@ process assembly_flye2 {
 
 // circulating the genomes
 process circulator {
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -745,28 +760,62 @@ process circulator {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    set -euo pipefail
+    shopt -s nullglob
 
     echo "Running circlator"
+    python -c "import pkg_resources" 2>/dev/null || pip install --no-cache-dir "setuptools>=75,<81"
 
-    for i in "${fastas_fold}"/*.fasta
-    do  
-        prefix=\$(basename \$i | cut -f1 -d'.')
+    src="${fastas_fold}"
+    inputs=()
+    if [ -d "\$src" ]
+    then
+        inputs=("\$src"/*.fasta "\$src"/*.fa "\$src"/*.fna)
+    elif [ -f "\$src" ]
+    then
+        inputs=("\$src")
+    fi
+    # Nextflow .collect() of FASTAs stages files in the work dir and may set
+    # src to a space-separated name list that is neither a file nor a directory.
+    if [ \${#inputs[@]} -eq 0 ]
+    then
+        inputs=(*.fasta *.fa *.fna)
+    fi
+    if [ \${#inputs[@]} -eq 0 ]
+    then
+        echo "No FASTA files found in \$src" >&2
+        ls -la . >&2 || true
+        exit 1
+    fi
+    echo "Circlator inputs: \${#inputs[@]} file(s)"
 
-        if [ ! -d circulatd_"\${prefix}" ]
-        then 
-            mkdir -p circulatd_"\${prefix}" 
-        fi 
+    mkdir -p circulated_fasta
 
-        if [ ! -d circulated_fasta ]
-        then 
-            mkdir -p circulated_fasta
-        fi 
-
-        circlator fixstart \$i circulatd_"\${prefix}" 
-
-        cp circulatd_"\${prefix}".fasta circulated_fasta && rm -rf circulatd_*
+    for i in "\${inputs[@]}"
+    do
+        prefix=\$(basename "\$i" | sed -E 's/\\.(fasta|fa|fna)\$//')
+        echo "circlator fixstart \$i"
+        if ! circlator fixstart "\$i" "circulatd_\${prefix}"
+        then
+            echo "circlator fixstart failed for \$i" >&2
+            exit 1
+        fi
+        if [ ! -f "circulatd_\${prefix}.fasta" ]
+        then
+            echo "circlator did not write circulatd_\${prefix}.fasta" >&2
+            exit 1
+        fi
+        cp -f "circulatd_\${prefix}.fasta" circulated_fasta/"\${prefix}".fasta
+        rm -rf "circulatd_\${prefix}"*
     done
 
+    n=\$(ls circulated_fasta/*.fasta circulated_fasta/*.fa circulated_fasta/*.fna 2>/dev/null | wc -l)
+    if [ "\$n" -eq 0 ]
+    then
+        echo "Circlator produced no FASTA files" >&2
+        exit 1
+    fi
+    echo "Circulated genomes ready: \$n file(s) in circulated_fasta"
     """
 }
 
@@ -819,10 +868,17 @@ process taxonomyGTDBTK {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-    # Upgrade for gtdbtk
     python -m pip install gtdbtk --upgrade
 
-    bash ${projectDir}/gtdbtk.sh -g '${circ_fasta}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
+    src='${circ_fasta}'
+    if [ -f "\$src" ]
+    then
+        mkdir -p genomes_in
+        cp "\$src" genomes_in/
+        src=genomes_in
+    fi
+
+    bash ${projectDir}/gtdbtk.sh -g "\$src" -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
     """
 }
 
@@ -853,11 +909,18 @@ process checkm_lineage {
     conda activate bactflow 
     
     pip install --upgrade checkm-genome
+    src='${circ_fasta}'
+    if [ -f "\$src" ]
+    then
+        mkdir -p genomes_in
+        cp "\$src" genomes_in/
+        src=genomes_in
+    fi
     checkm data setRoot '${checkm_db}'
-    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${circ_fasta}' checkm_lineage && \
+    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' "\$src" checkm_lineage && \
     checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
 
-    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${circ_fasta}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  "\$src" checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
 
     
 
@@ -896,7 +959,7 @@ process checkm_lineage {
 // quast assembly stats
 process quast_check {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
     errorStrategy 'ignore'
 
     input:
@@ -914,18 +977,31 @@ process quast_check {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    set -euo pipefail
+    shopt -s nullglob
 
-    #Update numpy 
-    pip install --upgrade numpy
+    src='${circ_fasta}'
+    inputs=()
+    if [ -d "\$src" ]
+    then
+        inputs=("\$src"/*.fasta "\$src"/*.fa "\$src"/*.fna)
+    elif [ -f "\$src" ]
+    then
+        inputs=("\$src")
+    fi
+    if [ \${#inputs[@]} -eq 0 ]
+    then
+        inputs=(*.fasta *.fa *.fna)
+    fi
+    if [ \${#inputs[@]} -eq 0 ]
+    then
+        echo "QUAST: no FASTA files in \$src" >&2
+        ls -la . >&2 || true
+        exit 1
+    fi
 
-    
-    if [ ! -d quast_stat ]
-    then 
-        mkdir -p quast_stat
-
-    fi 
-
-    quast.py '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
+    mkdir -p quast_stat
+    quast.py "\${inputs[@]}" -o quast_stat -t ${cpus}
     """
 }
 

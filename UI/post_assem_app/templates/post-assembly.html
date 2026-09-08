@@ -401,6 +401,16 @@
       
       </div> 
 
+      <div id="resultsStatusDiv" class="col-md-7" style="display: none; padding: 8px 16px; width: 100%;">
+        <p class="text-muted small mb-0" id="results-status-text"></p>
+      </div>
+
+      <div id="circFastaDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Circulated genomes</h4>
+        <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
+        <ul id="output-circ-fastas" style="margin: 10px 20px; color: darkslategrey;"></ul>
+      </div>
+
       <!-- Quast Output Section -->
       <div id="quastDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Assembly stats: Quast</h4>
@@ -698,8 +708,8 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bakta1"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix18"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bakta3"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix20"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

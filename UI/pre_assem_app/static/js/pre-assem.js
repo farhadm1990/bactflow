@@ -387,7 +387,9 @@ function resolvePlotPlatform(declared) {
   if (p === "illumina") {
     return "illumina";
   }
-  // PacBio uses the exact same plot chrome as ONT
+  if (p === "pacbio") {
+    return "pacbio";
+  }
   return "ont";
 }
 
@@ -529,6 +531,37 @@ function downloadPlot(plotId, filename, format) {
   });
 }
 
+function setPlotlyTitle(plotData, text) {
+  if (!plotData) {
+    return plotData;
+  }
+  if (!plotData.layout) {
+    plotData.layout = {};
+  }
+  const prev = plotData.layout.title;
+  if (prev && typeof prev === "object") {
+    plotData.layout.title = Object.assign({}, prev, { text: text });
+  } else {
+    plotData.layout.title = { text: text };
+  }
+  if (Array.isArray(plotData.layout.annotations)) {
+    plotData.layout.annotations = plotData.layout.annotations.map((ann) => {
+      if (ann && typeof ann.text === "string" && /\bONT\b/.test(ann.text)) {
+        return Object.assign({}, ann, { text: ann.text.replace(/\bONT\b/g, "PacBio") });
+      }
+      return ann;
+    });
+  }
+  return plotData;
+}
+
+function visualizationPlatform(dataPlatform) {
+  if (selectedPlatform() === "pacbio" || (dataPlatform || "").toLowerCase() === "pacbio") {
+    return "pacbio";
+  }
+  return resolvePlotPlatform(dataPlatform || selectedPlatform());
+}
+
 function setPlotChrome(platform, pacbioKind, pacbioVizMode) {
   const p = resolvePlotPlatform(platform);
   let specs;
@@ -537,6 +570,12 @@ function setPlotChrome(platform, pacbioKind, pacbioVizMode) {
       ["bar-qual-plot", "qual-plot", "Illumina per-cycle quality", "illumina_per_cycle_quality"],
       ["bar-qual-heat-plot", "qual-heat-plot", "Illumina mean quality distribution", "illumina_quality_histogram"],
       ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "Illumina per-cycle nucleotide content", "illumina_base_composition"]
+    ];
+  } else if (p === "pacbio") {
+    specs = [
+      ["bar-qual-plot", "qual-plot", "PacBio read quality box plot", "pacbio_read_quality_boxplot"],
+      ["bar-qual-heat-plot", "qual-heat-plot", "PacBio read length vs quality (per sample)", "pacbio_length_quality_heatmap"],
+      ["bar-qual-heat-pool-plot", "qual-heat-pool-plot", "PacBio read length vs quality (pooled)", "pacbio_length_quality_pooled"]
     ];
   } else {
     specs = [
@@ -655,7 +694,7 @@ function read_vis(){
   ];
 
   clearPlots();
-  setPlotChrome(resolvePlotPlatform(selectedPlatform()), selectedPacbioKind());
+    setPlotChrome(visualizationPlatform(selectedPlatform()), selectedPacbioKind());
   if (visError) {
     visError.style.display = "none";
     visError.textContent = "";
@@ -674,7 +713,7 @@ function read_vis(){
       throw new Error("No plot data returned");
     }
     setPlotChrome(
-      data.platform || resolvePlotPlatform(selectedPlatform()),
+      visualizationPlatform(data.platform),
       data.pacbio_read_kind || selectedPacbioKind(),
       data.pacbio_viz_mode
     );
@@ -745,6 +784,12 @@ function read_vis(){
     plotData1.layout = { ...plotData1.layout, ...layout1 };
     plotData2.layout = { ...plotData2.layout, ...layout2 };
     plotData3.layout = { ...plotData3.layout, ...layout3 };
+
+    if (visualizationPlatform(data.platform) === "pacbio") {
+      setPlotlyTitle(plotData1, "PacBio read quality box plot");
+      setPlotlyTitle(plotData2, "PacBio read length vs quality | per sample");
+      setPlotlyTitle(plotData3, "PacBio read length vs quality | pooled");
+    }
 
     Plotly.newPlot(qualDiv, plotData1.data, plotData1.layout);
     Plotly.newPlot(qualHeatDiv, plotData2.data, plotData2.layout);
@@ -846,7 +891,7 @@ document.addEventListener("DOMContentLoaded", function(){
   if (pacbioKind) {
     pacbioKind.addEventListener("change", () => {
       if (selectedPlatform() === "pacbio") {
-        setPlotChrome("ont");
+        setPlotChrome("pacbio");
       }
     });
   }

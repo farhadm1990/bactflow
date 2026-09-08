@@ -1113,12 +1113,29 @@ def progress():
 def check_quast():
     out_dir = request.form.get("out_dir")
     if not out_dir:
-        return jsonify({"exists":False, "error": "Missing out_dir"}), 400
-    quast_path = os.path.join(out_dir, "quast_stat")
-    if os.path.exists(quast_path):
-        return jsonify({"exists": True})
-    else:
         return jsonify({"exists": False})
+    report = os.path.join(out_dir, "quast_stat", "report.html")
+    return jsonify({"exists": os.path.isfile(report)})
+
+
+@app.route("/check-circ", methods=["POST"])
+def check_circ():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False, "files": []})
+    circ_dir = os.path.join(out_dir, "circulated_fasta")
+    files = []
+    if os.path.isdir(circ_dir):
+        for name in sorted(os.listdir(circ_dir)):
+            low = name.lower()
+            if low.endswith((".fasta", ".fa", ".fna")):
+                files.append(name)
+    return jsonify({
+        "exists": bool(files),
+        "files": files,
+        "dir": circ_dir if files else None,
+        "count": len(files),
+    })
 
 
 @app.route("/quast-report", methods = ["POST"])
@@ -1145,35 +1162,38 @@ def contig_report():
 def check_bakta():
     out_dir = request.form.get("out_dir")
     gt = request.form.getlist("gene_type")
-    gene_type = ",".join(gt) 
-    
-    if not out_dir:
-        return jsonify({"exists":False, "error": "Missing out_dir"}), 400
-    bakta_path = os.path.join(out_dir, "bakta_out")
-    if os.path.exists(bakta_path):
-        try:
+    gene_type = ",".join(gt)
 
+    if not out_dir:
+        return jsonify({"exists": False})
+    bakta_path = os.path.join(out_dir, "bakta_out")
+    gene_count = os.path.join(out_dir, "gene_count.tsv")
+    if not os.path.isdir(bakta_path):
+        return jsonify({"exists": False})
+    try:
+        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
+            tsvs = _find_suffix_files(bakta_path, (".tsv",))
+            if not tsvs:
+                return jsonify({"exists": False})
             command = f"""
             cp {bakta_path}/*/*.tsv {bakta_path}
-            rm {bakta_path}/*inference.tsv {bakta_path}/*hypotheticals.tsv 
+            rm {bakta_path}/*inference.tsv {bakta_path}/*hypotheticals.tsv
             mkdir -p {bakta_path}/genes && mv {bakta_path}/*.tsv {bakta_path}/genes
-           
+
             python {base_dir}/gene_counter_bakta.py -d {bakta_path}/genes -t {gene_type} -o {out_dir}/gene_count
             """
-            
-            gene_count = os.path.join(out_dir, "gene_count.tsv")
             subprocess.run(command, shell=True, text=True, check=True, capture_output=True)
-            if not os.path.exists(gene_count):
-                subprocess.run(command, shell=True, text=True, check=True, capture_output=True)
 
-            df = pd.read_csv(gene_count, sep="\t")
+        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
+            return jsonify({"exists": False})
 
-            
-            if os.path.exists(gene_count) and len(gene_count) != 0:
-                table_data = df.to_dict(orient="records")
-                table_html = """
+        df = pd.read_csv(gene_count, sep="\t")
+        if df.empty:
+            return jsonify({"exists": False})
+        table_data = df.to_dict(orient="records")
+        table_html = """
                 <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
-                        <thead> 
+                        <thead>
                             <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
                         </thead>
                         <tbody>
@@ -1183,29 +1203,25 @@ def check_bakta():
                         </tbody>
                     </table>
                 """
-               
-         
-          
-            return jsonify({
-                "exists": True, 
-                # "message": result.stdout.strip(), #remove whitespace 
-                # "error": result.stderr.strip(), 
-                "count_tab": render_template_string(
-                    table_html, id="bakta-tab", tabnumber = "Table 1: Count table of annotated genes by Bakta.", tabcaption="This is the abundance of all genes (selected based on gene type input) at all genomes.", table=table_data
-                )
-                })
-        except subprocess.CalledProcessError as e:
-            return jsonify({
-                "exists": True,
-                "error": f"Gene counter failed with error code {e.returncode}",
-                "stderr": e.stderr.strip(),
-                "stdout": e.stdout.strip()
-
-                }), 500
-
-            
-    else:
-        return jsonify({"exists": False, "error": "Bakta annotation directory doesn't exist!"}), 400
+        return jsonify({
+            "exists": True,
+            "count_tab": render_template_string(
+                table_html,
+                id="bakta-tab",
+                tabnumber="Table 1: Count table of annotated genes by Bakta.",
+                tabcaption="This is the abundance of all genes (selected based on gene type input) at all genomes.",
+                table=table_data,
+            ),
+        })
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "exists": False,
+            "error": f"Gene counter failed with error code {e.returncode}",
+            "stderr": (e.stderr or "").strip(),
+            "stdout": (e.stdout or "").strip(),
+        })
+    except Exception:
+        return jsonify({"exists": False})
 
 def _find_suffix_files(root, suffixes):
     found = []
@@ -1262,6 +1278,8 @@ def check_bakta_ready():
 @app.route("/circular", methods=["POST"])
 def circular():
     out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"plot": False, "reason": "missing_out_dir"}), 200
     generate = str(request.form.get("generate", "false")).lower() == "true"
     gbk_dir = os.path.join(out_dir, "bakta_out")
     crc_plt = os.path.join(out_dir, "circular_plot.png")
@@ -1354,6 +1372,8 @@ python3 {shlex.quote(os.path.join(base_dir, "circular_plotter.py"))} -d {shlex.q
 @app.route("/taxa-report", methods = ["POST"])
 def taxa_report():
     out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"exists": False})
     tax_file = os.path.join(out_dir, "gtdbtk_out/classify/gtdbtk.bac120.summary.tsv")
 
     if os.path.exists(tax_file):
@@ -1385,9 +1405,9 @@ def taxa_report():
                 )
                 })
         else:
-            return jsonify({"exists": False, "error": "Missing expected columns in taxonomy.tsv"}), 400
+            return jsonify({"exists": False})
     else:
-        return jsonify({"exists": False, "error": "taxonomy.tsv file not found"}), 404
+        return jsonify({"exists": False})
 
 @app.route("/snp-finder", methods = ["POST"])
 def snp_finder():

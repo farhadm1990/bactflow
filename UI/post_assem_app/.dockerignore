@@ -5,5 +5,8 @@
 .git
 .gitignore
 *.md
+work
+**/.nextflow*
 Dockerfile
 .dockerignore
+config.yml

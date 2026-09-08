@@ -940,12 +940,13 @@ def build_pacbio_figures(df, pacbio_kind="hifi"):
 
 def build_long_read_figures(df, platform="ont", pacbio_kind="hifi"):
     """Length×quality plots (same figure set for ONT and PacBio)."""
+    label = "PacBio" if (platform or "").lower() == "pacbio" else "ONT"
     fig = px.box(
         data_frame=df,
         x="file_name",
         y="read_quality",
         color="file_name",
-        title="ONT read quality box plot",
+        title=f"{label} read quality box plot",
     )
     fig.update_layout(
         autosize=True,
@@ -959,14 +960,14 @@ def build_long_read_figures(df, platform="ont", pacbio_kind="hifi"):
         marginal_x="histogram",
         marginal_y="histogram",
         facet_col="file_name",
-        title="ONT read length vs quality | per sample",
+        title=f"{label} read length vs quality | per sample",
     )
     fig_heat.update_layout(autosize=True, yaxis_title="Read length")
     fig_heat_pool = px.density_heatmap(
         data_frame=df,
         x="read_quality",
         y="read_length",
-        title="ONT read length vs quality | pooled",
+        title=f"{label} read length vs quality | pooled",
         marginal_x="histogram",
         marginal_y="histogram",
     )
@@ -1030,18 +1031,33 @@ def peek_median_length(fastq_file, n=80):
     return float(np.median(lengths)) if lengths else None
 
 
-def detect_read_platform(fastq_files, declared="auto"):
+def detect_read_platform(fastq_files, declared="auto", reads_dir=None):
     declared = (declared or "auto").strip().lower()
     if declared in ("ont", "illumina", "pacbio"):
         return declared
     names = [os.path.basename(path) for path in fastq_files]
+    if any("subreads" in name.lower() for name in names):
+        return "pacbio"
     if any(PACBIO_NAME_RE.search(name) for name in names):
         return "pacbio"
+    dirs = []
+    if reads_dir:
+        abs_reads = os.path.abspath(reads_dir)
+        dirs.append(abs_reads)
+        if os.path.basename(abs_reads) == "pooled":
+            dirs.append(os.path.dirname(abs_reads))
+    for directory in dirs:
+        try:
+            layout = inspect_layout(directory)
+        except Exception:
+            continue
+        if layout.get("looks_like_subreads") or layout.get("nested_samples"):
+            return "pacbio"
     if any(ILLUMINA_NAME_RE.search(name) for name in names):
         return "illumina"
     if any(ONT_NAME_RE.search(name) for name in names):
         return "ont"
-    median = peek_median_length(fastq_files[0])
+    median = peek_median_length(fastq_files[0]) if fastq_files else None
     if median is not None and median <= 500:
         return "illumina"
     # Long reads without a clear vendor tag default to ONT.
@@ -1248,7 +1264,9 @@ def plot_qual():
     elif is_pacbio_form(request.form):
         declared = "pacbio"
 
-    platform = detect_read_platform(fastq_files, declared)
+    platform = detect_read_platform(fastq_files, declared, reads_dir=reads_dir)
+    if declared == "pacbio":
+        platform = "pacbio"
     pb_kind = pacbio_read_kind(request.form) if platform == "pacbio" else "hifi"
     viz_note = None
 
@@ -1296,7 +1314,11 @@ def plot_qual():
                 df.to_csv(lr_cache, sep="\t", index=False)
                 with open(lr_meta, "w", encoding="utf-8") as handle:
                     json.dump({"fingerprint": fingerprint, "platform": platform}, handle)
-            fig, fig_heat, fig_heat_pool = build_long_read_figures(df, platform="ont")
+            fig, fig_heat, fig_heat_pool = build_long_read_figures(df, platform=platform)
+            label = "PacBio" if platform == "pacbio" else "ONT"
+            fig.update_layout(title=f"{label} read quality box plot")
+            fig_heat.update_layout(title=f"{label} read length vs quality | per sample")
+            fig_heat_pool.update_layout(title=f"{label} read length vs quality | pooled")
             if platform == "pacbio":
                 viz_note = classify_pacbio_reads_message(fastq_files)
     except Exception as exc:
