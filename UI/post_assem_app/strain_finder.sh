@@ -117,6 +117,10 @@ fi
 
 # script_dir="$(dirname "$(realpath "$0")")"
 
+if [ -f "${gene_dir}" ]; then
+    gene_dir="$(cd -- "$(dirname -- "${gene_dir}")" && pwd)"
+fi
+
 python "${script_dir}"/gene_counter_bakta.py -d "${gene_dir}" -t "${gene_type}" -o "${out_dir}/${out_name}"
 
 if [ $count_only = 'false' ]

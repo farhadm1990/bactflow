@@ -3,6 +3,8 @@ const runButton = document.getElementById("run-bt");
 const stopButton = document.getElementById("stop-bt");
 const helpButton = document.getElementById("help-bt");
 let eventSource = null;
+let streamGeneration = 0;
+const STOP_USER_MSG = "Bactflow has been stopped by the user!";
 // const form = document.getElementById("postForm");
 // const formData = new FormData(form);
 const filePicker = document.getElementById("filePicker");
@@ -15,37 +17,104 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 // connect to stream when on assembly
 function connectToStream(action){
+  // Always (re)connect — a stale EventSource left "Running..." with no lines.
   if (eventSource){
-    console.log("Stream already connected");
-    return;
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    } catch (e) { /* ignore */ }
+    eventSource = null;
   }
 
-  
-  outputDiv.innerHTML = "";
+  window.__bactflowUserStopped = false;
+  BactflowTerminal.init();
+  const gen = ++streamGeneration;
+  let logBuffer = [];
+  let flushTimer = null;
+
+  const flushLog = () => {
+    flushTimer = null;
+    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+      logBuffer = [];
+      return;
+    }
+    if (!logBuffer.length) {
+      return;
+    }
+    const lines = logBuffer.filter((line) => {
+      const t = String(line || "").trim();
+      return !/exited with code\s+-?\d+|Process completed|Stream disconnected/i.test(t);
+    });
+    logBuffer = [];
+    if (lines.length) {
+      BactflowTerminal.appendMany(lines);
+    }
+  };
+
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
+  if (window.BactflowMeters) {
+    BactflowMeters.attachStream(eventSource);
+  }
   
   eventSource.onmessage = (event) =>{
-    
-    outputDiv.innerHTML += event.data + '\n';
-    outputDiv.scrollTop = outputDiv.scrollHeight;
-    
+    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+      return;
+    }
+    logBuffer.push(event.data);
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushLog, 200);
+    }
   };
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
-    outputDiv.innerHTML += "Stream disconnected.  \n";
-    eventSource.close();
-    eventSource = null;
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    flushLog();
+    logBuffer = [];
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    } catch (e) { /* ignore */ }
+    if (eventSource) {
+      eventSource = null;
+    }
+    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+      return;
+    }
+    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+    BactflowTerminal.append("Stream disconnected.", true);
+    BactflowTerminal.setStatus("Stream disconnected", "warn");
     updateButtonStates("stopped");
+    refreshCircularPlotButton();
   };
 }
 
 //disconnect function
 function disconnectStream(){
+  streamGeneration += 1;
   if(eventSource){
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+    } catch (e) { /* ignore */ }
     eventSource.close();
     eventSource = null;
   }
+}
+
+function applyUserStopUI() {
+  window.__bactflowUserStopped = true;
+  disconnectStream();
+  BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+  updateButtonStates("stopped");
+  BactflowTerminal.clear();
+  BactflowTerminal.append(STOP_USER_MSG, true);
+  BactflowTerminal.setStatus(STOP_USER_MSG, "warn");
 }
 
 // function update buttons
@@ -64,6 +133,13 @@ function updateButtonStates(status) {
 
 // Run BactFlow
 function run_wf(action){
+  if (action === "stop" && window.__bactflowStopInFlight) {
+    return;
+  }
+  if (action === "stop") {
+    window.__bactflowStopInFlight = true;
+    setTimeout(() => { window.__bactflowStopInFlight = false; }, 1500);
+  }
 
   // including the form data for input parameters to be passed to backend
   const form = document.getElementById('postForm');
@@ -76,7 +152,8 @@ function run_wf(action){
   const el = document.getElementById("output-div");
   if(el.style.display ==="none" || el.style.display === ""){
     el.style.display = "block";
-  }; 
+  };
+  jumpToSection("output-div");
   // switch actions
   switch (action){
     case "run":
@@ -86,61 +163,71 @@ function run_wf(action){
           { method: "POST", 
             body : formData }
           )
-        .then((response) => {
-          outputDiv.innerHTML = "";
-        if(!response.ok) {
-          outputDiv.innerHTML += "Error starting BactFlow. It might already be running?!\n";
-          document.getElementById('run-bt').disabled = false;
-          document.getElementById('help-bt').disabled = false;
-          return;
-        };
-        
+        .then(async (response) => {
+          const message = await response.text();
+          BactflowTerminal.clear();
+          if (!response.ok) {
+            const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
+            BactflowTerminal.append(
+              looksHtml
+                ? "Error starting BactFlow (server error). Restart the post-assembly app and try again."
+                : (message || "Error starting BactFlow."),
+              true
+            );
+            BactflowTerminal.setStatus("Failed to start", "error");
+            document.getElementById('run-bt').disabled = false;
+            document.getElementById('stop-bt').disabled = true;
+            document.getElementById('help-bt').disabled = false;
+            return;
+          }
 
-        outputDiv.innerHTML += "Bactflow started :)\n";
-
-      
-        
-        
-        //now we start streatming here
-       
-        updateButtonStates("running");
-        connectToStream(action);
-      
-      
-    })
+          BactflowTerminal.append("Bactflow started :)", true);
+          BactflowTerminal.setStatus("Running...", "run");
+          updateButtonStates("running");
+          quastShown = false;
+          baktaShown = false;
+          taxShown = false;
+          connectToStream(action);
+        })
     
     .catch((error) => {
-      outputDiv.innerHTML += "Failed to start BactFlow" + error.message + "\n";
-      
+      BactflowTerminal.append("Failed to start BactFlow: " + error.message, true);
+      BactflowTerminal.setStatus("Failed to start", "error");
+      document.getElementById('run-bt').disabled = false;
+      document.getElementById('stop-bt').disabled = true;
+      document.getElementById('help-bt').disabled = false;
     });
         break;
       }
     
     case "stop":
       {
-        document.getElementById('help-bt').disabled = false;
-        document.getElementById('run-bt').disabled = false;
-    
-
-
-    fetch(`/run_bactflow?action-assem=${action}`, { 
-      method: "POST"
-    })
-      .then((response) => response.text())
-      .then((message) => {
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += message + "\n";
-        
-        // disconnect
-        disconnectStream();
-        updateButtonStates('stopped')
-      });
-          break;
-        }
+        applyUserStopUI();
+        fetch(`/run_bactflow?action-assem=stop`, { method: "POST" })
+          .then(async (response) => {
+            const message = (await response.text() || "").trim();
+            // Keep the dedicated user-stop line; ignore kill/exit noise from the server body.
+            if (
+              message &&
+              message !== STOP_USER_MSG &&
+              !/exited with code|Process completed|Stream disconnected|started/i.test(message)
+            ) {
+              BactflowTerminal.append(message, true);
+            }
+            BactflowTerminal.setStatus(STOP_USER_MSG, "warn");
+            updateButtonStates("stopped");
+            refreshCircularPlotButton();
+          })
+          .catch((error) => {
+            BactflowTerminal.append(STOP_USER_MSG + " (" + error.message + ")", true);
+            updateButtonStates("stopped");
+          });
+        break;
+      }
         
       case "help":
       {
-        outputDiv.innerHTML = "";
+        BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
     
    
@@ -149,26 +236,34 @@ function run_wf(action){
         const quastDiv = document.getElementById("quastDiv");
         quastDiv.style.display = "none";
 
-      fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
-      .then((response) => {
+      fetch(`/run_bactflow?action-assem=help`, { method: "POST" })
+      .then(async (response) => {
+        const message = await response.text();
         if(!response.ok) {
-          outputDiv.innerHTML += "Error showing help for BactFlow. It might already be running?!\n";
+          const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
+          BactflowTerminal.append(
+            looksHtml
+              ? "Error showing help (server error). Restart the post-assembly app and try again."
+              : (message || "Error showing help for BactFlow."),
+            true
+          );
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
           return;
         };
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += "Bactflow's help menue!\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append("Bactflow's help menu", true);
 
         // const action = "help";
         updateButtonStates("running");
-        connectToStream(action);
+        connectToStream("help");
         
         
       })
       .catch((error) => {
-        outputDiv.innerHTML += "Failed to give you BactFlow help!" + error.message + "\n";
-        runButton.disabled = false;
+        BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
+        document.getElementById('run-bt').disabled = false;
+        document.getElementById('help-bt').disabled = false;
         
       });
         break;
@@ -178,30 +273,113 @@ function run_wf(action){
   }
 }
 
-document.getElementById("postForm").addEventListener("submit", (e) => {
- e.preventDefault();
- outputDiv.innerHTML = "";
+document.addEventListener("DOMContentLoaded", function () {
+  const postForm = document.getElementById("postForm");
+  if (!postForm) {
+    return;
+  }
 
-  const action = e.submitter.value;
+  postForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-  document.getElementById('run-bt').disabled = true;
-  document.getElementById('stop-bt').disabled = false; 
-  document.getElementById('help-bt').disabled = true;
+    const action =
+      (e.submitter && e.submitter.value) ||
+      (e.submitter && e.submitter.getAttribute("value")) ||
+      null;
+    if (!action) {
+      return;
+    }
+    if (action !== "stop") {
+      window.__bactflowUserStopped = false;
+      BactflowTerminal.clear();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+    }
 
-  run_wf(action);
+    run_wf(action);
+  });
+
+  // Direct clicks — avoid mis-detecting action when submitter is missing.
+  const runBt = document.getElementById("run-bt");
+  if (runBt) {
+    runBt.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.__bactflowUserStopped = false;
+      BactflowTerminal.clear();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+      run_wf("run");
+    });
+  }
+
+  // Direct Stop click — same strategy as assembly, guaranteed even if submitter is missing.
+  const stopBt = document.getElementById("stop-bt");
+  if (stopBt) {
+    stopBt.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      run_wf("stop");
+    });
+  }
+
+  const helpBt = document.getElementById("help-bt");
+  if (helpBt) {
+    helpBt.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.__bactflowUserStopped = false;
+      BactflowTerminal.clear();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+      run_wf("help");
+    });
+  }
+
+  function process_status_hint_from_ui() {
+    return document.getElementById("stop-bt")?.disabled ? "stopped" : "running";
+  }
+
+  restoreFormData(); //from local storage
+  bindStrainFinderFields();
+
+  postForm.addEventListener("input", () => {
+    saveFormData();
+    updateStrainFinderFromFields();
+  });
+
+  const outDirInput = document.getElementById("out_dir");
+  if (outDirInput) {
+    outDirInput.addEventListener("change", refreshCircularPlotButton);
+    outDirInput.addEventListener("blur", refreshCircularPlotButton);
+  }
+
+  const baktaSel = document.getElementById("bakta_annot");
+  if (baktaSel) {
+    baktaSel.addEventListener("change", updateBaktaUI);
+  }
+
+  updateBaktaUI();
+  updateStrainFinderFromFields();
 });
 
-// saving inputs in the local storage to prevent refereshing
 function restoreFormData(){
   let savedData = localStorage.getItem("bactflowFormData");
   if(savedData){
     let formData = JSON.parse(savedData);
     let form = document.getElementById("postForm");
-    
-    Array.from(form.elemnts).forEach(function (element){
+    if (!form) {
+      return;
+    }
+
+    Array.from(form.elements).forEach(function (element){
       if (element.name && formData[element.name] !== undefined ) {
-        if (elemnt.type === "checkbox" || elemnt.type === "radio"){
-          elemnt.checked = formData[element.name];
+        if (element.type === "checkbox" || element.type === "radio"){
+          element.checked = formData[element.name];
         } else {
           element.value = formData[element.name];
         }
@@ -210,15 +388,13 @@ function restoreFormData(){
   }
 }
 
-
-
 function saveFormData(){
   let form = document.getElementById("postForm");
   let formData = {};
 
-  Array.from(form.elemnts).forEach(function (element){
+  Array.from(form.elements).forEach(function (element){
     if (element.name) {
-      if(element.name === "checkbox" || element.type === "radio"){
+      if (element.type === "checkbox" || element.type === "radio"){
         formData[element.name] = element.checked;
       } else {
         formData[element.name] = element.value;
@@ -232,89 +408,323 @@ function clearFormData(){
   localStorage.removeItem("bactflowFormData");
 }
 
+function showChildPanel(childId, visible) {
+  const childDiv = document.getElementById(childId);
+  if (!childDiv) {
+    return;
+  }
+  if (childId === "genetype") {
+    childDiv.style.display = visible ? "flex" : "none";
+  } else {
+    childDiv.style.display = visible ? "block" : "none";
+  }
+}
 
+let baktaReadyPoll = null;
 
+function stopBaktaReadyPoll() {
+  if (baktaReadyPoll) {
+    clearInterval(baktaReadyPoll);
+    baktaReadyPoll = null;
+  }
+}
 
-document.addEventListener("DOMContentLoaded", function(){
-  restoreFormData(); //from local storage
+function startBaktaReadyPoll() {
+  stopBaktaReadyPoll();
+  baktaReadyPoll = setInterval(() => {
+    const baktaSel = document.getElementById("bakta_annot");
+    const circBtn = document.getElementById("circ-plot-bt");
+    if (!baktaSel || baktaSel.value !== "true") {
+      stopBaktaReadyPoll();
+      return;
+    }
+    if (circBtn && !circBtn.disabled) {
+      stopBaktaReadyPoll();
+      return;
+    }
+    refreshCircularPlotButton();
+  }, 5000);
+}
 
-  document.getElementById("postForm").addEventListener("input", () =>{
-    saveFormData();
+function setStrainFinderEnabled(ready, message) {
+  const abundBtn = document.getElementById("abund-bt");
+  const prevBtn = document.getElementById("prev-bt");
+  const hint = document.getElementById("strain-finder-hint");
+  if (abundBtn) {
+    abundBtn.disabled = !ready;
+  }
+  if (prevBtn) {
+    prevBtn.disabled = !ready;
+  }
+  if (hint) {
+    hint.textContent = message || (ready
+      ? "Gene and enzyme paths are set. You can run strain finder."
+      : "Fill both the enzyme file and the gene annotation directory to activate strain finder.");
+  }
+}
+
+function strainFinderFieldsFilled() {
+  const enzyme = document.querySelector('#postForm [name="enzyme_loc"]');
+  const genes = document.querySelector('#postForm [name="gene_files"]');
+  const enzymeVal = (enzyme && enzyme.value ? enzyme.value : "").trim();
+  const genesVal = (genes && genes.value ? genes.value : "").trim();
+  return enzymeVal.length > 0 && genesVal.length > 0;
+}
+
+function updateStrainFinderFromFields() {
+  const filled = strainFinderFieldsFilled();
+  setStrainFinderEnabled(
+    filled,
+    filled
+      ? "Gene and enzyme paths are set. You can run strain finder."
+      : "Fill both the enzyme file and the gene annotation directory to activate strain finder."
+  );
+}
+
+function bindStrainFinderFields() {
+  ["enzyme_loc", "gene_files"].forEach((name) => {
+    const el = document.querySelector(`#postForm [name="${name}"]`);
+    if (!el) {
+      return;
+    }
+    el.addEventListener("input", updateStrainFinderFromFields);
+    el.addEventListener("change", updateStrainFinderFromFields);
+    el.addEventListener("blur", updateStrainFinderFromFields);
   });
-});
+  updateStrainFinderFromFields();
+}
 
-// function to show quast
+function updateBaktaUI() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circularDiv = document.getElementById("circular-div");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!baktaSel) {
+    return;
+  }
+
+  const enabled = baktaSel.value === "true";
+  showChildPanel("bakta_dbDiv", enabled);
+  showChildPanel("genetype", enabled);
+  if (circularDiv) {
+    circularDiv.style.display = enabled ? "block" : "none";
+  }
+
+  if (!enabled) {
+    stopBaktaReadyPoll();
+    if (circBtn) {
+      circBtn.disabled = true;
+    }
+    if (circHint) {
+      circHint.textContent = "Enable Bakta annotation to use the circular plot.";
+    }
+    const circDiv = document.getElementById("circDiv");
+    if (circDiv) {
+      circDiv.style.display = "none";
+    }
+    updateStrainFinderFromFields();
+    return;
+  }
+
+  if (circBtn) {
+    circBtn.disabled = true;
+  }
+  if (circHint) {
+    circHint.textContent = "Checking for .gbk/.gbff/.gff/.gff3 annotation files…";
+  }
+  updateStrainFinderFromFields();
+  refreshCircularPlotButton();
+  startBaktaReadyPoll();
+}
+
+async function refreshCircularPlotButton() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!baktaSel || baktaSel.value !== "true") {
+    return;
+  }
+
+  if (circHint) {
+    circHint.textContent = "Checking for annotation files…";
+  }
+
+  const form = document.getElementById("postForm");
+  const formData = new FormData(form);
+
+  try {
+    const res = await fetch("/check-bakta-ready", { method: "POST", body: formData });
+    const data = await res.json();
+    const plotReady = data.plot_ready === true || data.ready === true;
+    if (circBtn) {
+      circBtn.disabled = !plotReady;
+    }
+    if (circHint) {
+      const kinds = (data.plot_kinds && data.plot_kinds.length)
+        ? data.plot_kinds.join(", ")
+        : ".gbk/.gbff/.gff";
+      circHint.textContent = plotReady
+        ? `Annotation files ready (${data.plot_count || data.gbk_count || 0} file(s): ${kinds}). You can create the plot.`
+        : (data.plot_message || data.message || "Run BactFlow with Bakta enabled first.");
+    }
+    if (plotReady) {
+      stopBaktaReadyPoll();
+    }
+  } catch (error) {
+    if (circBtn) {
+      circBtn.disabled = true;
+    }
+    if (circHint) {
+      circHint.textContent = "Could not check Bakta annotation files.";
+    }
+  }
+}
+
+async function fetchJsonSafe(url, formData) {
+  try {
+    const res = await fetch(url, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    return data && typeof data === "object" ? data : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function renderCircFastaList(data, opts) {
+  const wrap = document.getElementById("circFastaDiv");
+  const list = document.getElementById("output-circ-fastas");
+  const hint = document.getElementById("circ-fasta-hint");
+  if (!wrap || !list) {
+    return;
+  }
+  const files = Array.isArray(data.files) ? data.files : [];
+  const circleOn = opts && opts.circleOn;
+  const runDone = opts && opts.runDone;
+  if (!data.exists || !files.length) {
+    if (circleOn && runDone) {
+      wrap.style.display = "block";
+      if (hint) {
+        hint.textContent = "Circulator finished but no FASTA files were found in out_dir/circulated_fasta. Set Resume to False and run again so outputs can be published.";
+      }
+      list.innerHTML = "";
+    } else {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  wrap.style.display = "block";
+  if (hint) {
+    hint.textContent = data.dir
+      ? `${files.length} circulated genome(s) in ${data.dir}`
+      : `${files.length} circulated genome(s)`;
+  }
+  list.innerHTML = files.map((name) => `<li><code>${escapeHtml(name)}</code></li>`).join("");
+}
 
 function showReport(){
   const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
   const formData = new FormData(form);
-  Promise.all([
-    fetch("/check-quast", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/check-bakta", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/circular", {method: "POST", body: formData}).then(res => res.json()),
-    fetch("/taxa-report", {method: "POST", body: formData}).then(res => res.json())
-  ])
-  
-    // quast and bakta
-    // .then(([quastData, baktaData, circPlt, taxData]) => {
-    .then(([quastData, baktaData, circPlt, taxData]) => {
-      let quastDiv = document.getElementById("quastDiv");
-      let baktaDiv = document.getElementById("baktaDiv");
-      let circDiv  = document.getElementById("circDiv");
-      let circSpin = document.getElementById("spin-circ");
-      let taxDiv = document.getElementById("taxa_class");
-  
-      if(quastData.exists){
-        console.log("this is quast data" + quastData);
-        console.log("✅ Quast report found! Loading...");
-        
-        
+  const outDir = String(formData.get("out_dir") || "").trim();
+  if (!outDir) {
+    return;
+  }
 
-        quastDiv.style.display = "block";
-        quastReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.log("⏳ Waiting for Quast report...");
-        
-      
+  Promise.all([
+    fetchJsonSafe("/check-quast", formData),
+    fetchJsonSafe("/check-bakta-ready", formData),
+    fetchJsonSafe("/circular", formData),
+    fetchJsonSafe("/taxa-report", formData),
+    fetchJsonSafe("/check-circ", formData),
+  ])
+    .then(([quastData, baktaReady, circPlt, taxData, circFasta]) => {
+      const quastDiv = document.getElementById("quastDiv");
+      const baktaDiv = document.getElementById("baktaDiv");
+      const circDiv  = document.getElementById("circDiv");
+      const circSpin = document.getElementById("spin-circ");
+      const taxDiv = document.getElementById("taxa_class");
+
+      const circleOn = String(formData.get("circle_genome") || "") === "true";
+      const quastOn = String(formData.get("run_quast") || "") === "true";
+      const baktaOn = String(formData.get("bakta_annot") || "") === "true";
+      const taxOn = String(formData.get("tax_class") || "") === "true";
+      const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
+      renderCircFastaList(circFasta || {}, { circleOn, runDone });
+
+      const statusEl = document.getElementById("results-status-text");
+      const statusWrap = document.getElementById("resultsStatusDiv");
+      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists)) {
+        const bits = [];
+        if (circleOn) {
+          bits.push(circFasta && circFasta.exists
+            ? `Circulated FASTAs: ${circFasta.count || (circFasta.files || []).length}`
+            : "Circulated FASTAs: missing");
+        }
+        if (quastOn) {
+          bits.push(quastData.exists ? "QUAST: ready" : "QUAST: missing");
+        }
+        if (baktaOn) {
+          bits.push((baktaReady.plot_ready || baktaReady.ready) ? "Bakta: ready" : "Bakta: missing");
+        }
+        if (taxOn) {
+          bits.push(taxData.exists ? "Taxonomy: ready" : "Taxonomy: missing");
+        }
+        if (bits.length) {
+          statusEl.textContent = bits.join(" · ");
+          statusWrap.style.display = "block";
+        }
+      }
+
+      if (quastData.exists) {
+        if (quastDiv) {
+          quastDiv.style.display = "block";
+        }
+        if (!quastShown) {
+          quastShown = true;
+          quastReport();
+        }
+      } else if (quastDiv) {
         quastDiv.style.display = "none";
       }
 
-      // bakta
-      if (baktaData.exists) {
-        console.log("✅ Bakta report found! Loading...");
-        baktaDiv.style.display = "block";
-        clearInterval(reportCheckInterval);
-        baktaReport();  
-      } else {
-        console.warn("⏳ Bakta report not available yet...");
+      const baktaPlotReady = baktaReady.plot_ready === true || baktaReady.ready === true;
+      if (baktaPlotReady) {
+        if (baktaDiv) {
+          baktaDiv.style.display = "block";
+        }
+        if (!baktaShown) {
+          baktaShown = true;
+          baktaReport();
+        }
+      } else if (baktaDiv) {
         baktaDiv.style.display = "none";
       }
 
-      // circular genome
-      if(circPlt.plot){
+      refreshCircularPlotButton();
+
+      if (circPlt.plot && circDiv) {
         circDiv.style.display = "block";
-        circSpin.style.display = 'block';
-        circReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.warn("⏳ Circular plot not available yet...");
-        circDiv.style.display = "none";
+        if (circSpin) {
+          circSpin.style.display = "none";
+        }
+        showCircularPlot(circPlt.plot);
       }
 
-      // taxonomy
-      if(taxData.exists){
-       
-        taxDiv.style.display = "block";
-        
-        taxReport();
-        clearInterval(reportCheckInterval);
-      } else {
-        console.warn("⏳ Taxonomy table not available yet...");
+      if (taxData.exists) {
+        if (taxDiv) {
+          taxDiv.style.display = "block";
+        }
+        if (!taxShown) {
+          taxShown = true;
+          taxReport();
+        }
+      } else if (taxDiv) {
         taxDiv.style.display = "none";
       }
     })
-    .catch(error => console.error("Error checking Quast report:", error));
+    .catch((error) => console.error("Error checking post-assembly reports:", error));
 }
 
 async function taxReport() {
@@ -377,27 +787,45 @@ async function quastReport() {
   try {
    
     let quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok) throw new Error("Failed to fetch QUAST report");
+    if (!quastResponse.ok || quastResponse.status === 204) {
+      return;
+    }
     let quastBlob = await quastResponse.blob();
+    if (!quastBlob || quastBlob.size === 0) {
+      return;
+    }
     let quastUrl = URL.createObjectURL(quastBlob);
     
     let quastOutputDiv = document.getElementById("output-quast");
-    quastOutputDiv.innerHTML = ""; 
     quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
    
-    // for contig
-    let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-    if (!contigResponse.ok) throw new Error("Failed to fetch Contig report");
-    let contigBlob = await contigResponse.blob();
-    let contigUrl = URL.createObjectURL(contigBlob);
-    
     let contigOutputDiv = document.getElementById("contig-quast");
-    contigOutputDiv.innerHTML = ""; 
-    contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
+    const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
+    try {
+      let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
+      if (contigResponse.ok && contigResponse.status !== 204) {
+        let contigBlob = await contigResponse.blob();
+        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
+          let contigUrl = URL.createObjectURL(contigBlob);
+          contigOutputDiv.style.display = "";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "";
+          }
+          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+        }
+      } else if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+        if (contigHeading && contigHeading.tagName === "H4") {
+          contigHeading.style.display = "none";
+        }
+      }
+    } catch (_err) {
+      if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+      }
+    }
   } catch (error) {
     console.error("Error:", error);
-    alert("An error occurred while fetching the reports.");
   }
 }
 
@@ -454,6 +882,168 @@ async function baktaReport() {
   }
 }
 
+function showSectionError(id, message) {
+  const errorBox = document.getElementById(id);
+  if (!errorBox) {
+    return;
+  }
+  errorBox.style.display = "block";
+  errorBox.textContent = message || "An error occurred.";
+}
+
+function hideSectionError(id) {
+  const errorBox = document.getElementById(id);
+  if (errorBox) {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+}
+
+function jumpToSection(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) {
+    return;
+  }
+  const pane =
+    document.querySelector(".bf-results-col") ||
+    el.closest(".bf-results-col") ||
+    null;
+  requestAnimationFrame(() => {
+    if (pane && pane.scrollHeight > pane.clientHeight) {
+      const top =
+        el.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        pane.scrollTop -
+        12;
+      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
+async function readJsonError(res, fallback) {
+  try {
+    const data = await res.json();
+    return { data, error: data.error || data.message || fallback };
+  } catch (e) {
+    return { data: {}, error: fallback };
+  }
+}
+
+function downloadPlotImage(imgId, filename) {
+  const img = document.getElementById(imgId);
+  if (!img || !img.src) {
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = img.src;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function downloadCircularPlot() {
+  downloadPlotImage("circularImg", "circular_plot.png");
+}
+
+function downloadAbundPlot() {
+  downloadPlotImage("abundImg", "requested_genes_abundance.jpeg");
+}
+
+function downloadPrevPlot() {
+  downloadPlotImage("prevImg", "requested_genes_prevalence.jpeg");
+}
+
+function selectedGeneTypes() {
+  const sel = document.getElementById("geneType");
+  if (!sel) {
+    return ["cds"];
+  }
+  const picked = Array.from(sel.selectedOptions).map((opt) => opt.value).filter(Boolean);
+  return picked.length ? picked : ["cds"];
+}
+
+function showCircularPlot(src) {
+  const img = document.getElementById("circularImg");
+  const bar = document.getElementById("circ-plot-bar");
+  const typeLabel = document.getElementById("circ-type-label");
+  if (typeLabel) {
+    typeLabel.textContent = `(${selectedGeneTypes().join(", ")})`;
+  }
+  if (img && src) {
+    img.src = src;
+    img.style.display = "block";
+  }
+  if (bar) {
+    bar.style.display = "flex";
+  }
+}
+
+async function createCircularPlot() {
+  const form = document.getElementById("postForm");
+  const formData = new FormData(form);
+  const circBtn = document.getElementById("circ-plot-bt");
+
+  if (circBtn && circBtn.disabled) {
+    await refreshCircularPlotButton();
+    if (circBtn.disabled) {
+      const hint = document.getElementById("circ-plot-hint");
+      alert(hint?.textContent || "Bakta annotation results are not available yet.");
+      return;
+    }
+  }
+
+  formData.set("generate", "true");
+
+  const circDiv = document.getElementById("circDiv");
+  const circSpin = document.getElementById("spin-circ");
+  const circImg = document.getElementById("circularImg");
+  const circBar = document.getElementById("circ-plot-bar");
+
+  hideSectionError("circ-error");
+  circDiv.style.display = "block";
+  circSpin.style.display = "flex";
+  if (circImg) {
+    circImg.style.display = "none";
+    circImg.removeAttribute("src");
+  }
+  if (circBar) {
+    circBar.style.display = "none";
+  }
+  jumpToSection("circDiv");
+  if (circBtn) {
+    circBtn.disabled = true;
+    circBtn.textContent = "Creating plot…";
+  }
+
+  try {
+    const circRes = await fetch("/circular", { method: "POST", body: formData });
+    const parsed = await readJsonError(circRes, `HTTP ${circRes.status}`);
+    circSpin.style.display = "none";
+
+    if (!circRes.ok || !parsed.data.plot) {
+      const reason = parsed.data.reason === "no_bakta_dir"
+        ? "Bakta annotation output not found. Run Circulator with Bakta enabled first."
+        : (parsed.error || parsed.data.error || "Could not create the circular plot.");
+      showSectionError("circ-error", reason);
+      return;
+    }
+    hideSectionError("circ-error");
+    showCircularPlot(parsed.data.plot);
+  } catch (error) {
+    circSpin.style.display = "none";
+    console.error("Error creating circular plot:", error);
+    showSectionError("circ-error", error.message || "An error occurred while creating the circular plot.");
+  } finally {
+    if (circBtn) {
+      circBtn.disabled = false;
+      circBtn.textContent = "Create circular plot";
+    }
+  }
+}
+
 async function circReport(){
 
   const form = document.getElementById("postForm");
@@ -478,7 +1068,7 @@ async function circReport(){
     if (circData.plot) {
       
       circSpin.style.display = "none";
-      circImg.src = circData.plot;
+      showCircularPlot(circData.plot);
 
     
     } else {
@@ -492,7 +1082,10 @@ async function circReport(){
   }
 }
 
-var reportCheckInterval = setInterval(showReport, 5000);
+let reportCheckInterval = setInterval(showReport, 5000);
+let quastShown = false;
+let baktaShown = false;
+let taxShown = false;
 
 
 // gene annotation 
@@ -505,94 +1098,406 @@ genetype.addEventListener("change", ()=> {
 });
 
 // snp finder 
+function showSnpError(message) {
+  const errorBox = document.getElementById("snp-error");
+  if (!errorBox) {
+    return;
+  }
+  errorBox.style.display = "block";
+  errorBox.textContent = message || "An error occurred while running SNP finder.";
+}
+
+function hideSnpError() {
+  const errorBox = document.getElementById("snp-error");
+  if (errorBox) {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderChromSummary(chromCounts) {
+  const entries = Object.entries(chromCounts || {});
+  if (!entries.length) {
+    return "";
+  }
+  const max = Math.max(...entries.map(([, n]) => Number(n) || 0), 1);
+  const bars = entries
+    .slice(0, 20)
+    .map(([chrom, n]) => {
+      const width = Math.max(4, Math.round((Number(n) / max) * 100));
+      return `<div class="vcf-chrom-row"><span class="vcf-chrom-name">${escapeHtml(chrom)}</span>
+        <span class="vcf-chrom-bar"><span style="width:${width}%"></span></span>
+        <span class="vcf-chrom-n">${escapeHtml(n)}</span></div>`;
+    })
+    .join("");
+  return `<div class="vcf-chrom-summary"><strong>Variants per contig</strong>${bars}</div>`;
+}
+
+function renderVcfGenomeBlock(genome, tableId) {
+  const name = escapeHtml(genome.genome || "genome");
+  const path = escapeHtml(genome.path || "");
+  const n = genome.n_variants ?? 0;
+  const shown = genome.n_shown ?? (genome.rows || []).length;
+  const truncated = genome.truncated
+    ? ` <span class="text-muted">(showing first ${shown} of ${n})</span>`
+    : "";
+
+  if (genome.error) {
+    return `<div class="vcf-genome-block">
+      <h5>${name}</h5>
+      <p class="text-danger">${escapeHtml(genome.error)}</p>
+      <p class="text-muted small">File: ${path}</p>
+    </div>`;
+  }
+
+  if (!n) {
+    return `<div class="vcf-genome-block">
+      <h5>${name}</h5>
+      <p>No variants in this VCF (header only).</p>
+      <p class="text-muted small">VCF file: <code>${path}</code></p>
+    </div>`;
+  }
+
+  const columns = genome.columns || ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"];
+  const thead = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+  const tbody = (genome.rows || [])
+    .map((row) => {
+      const cells = columns.map((c) => `<td>${escapeHtml(row[c] ?? "")}</td>`).join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  return `<div class="vcf-genome-block">
+    <h5>${name} <span class="badge bg-secondary">${n} variant${n === 1 ? "" : "s"}</span>${truncated}</h5>
+    <p class="text-muted small mb-2">VCF: <code>${path}</code></p>
+    ${renderChromSummary(genome.chrom_counts)}
+    <div class="table-responsive">
+      <table id="${escapeHtml(tableId)}" class="table table-sm table-striped table-bordered vcf-table" style="width:100%">
+        <thead><tr>${thead}</tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderVariantTables(container, data, idPrefix) {
+  if (!container) {
+    return;
+  }
+  const genomes = data.genomes || [];
+  if (!genomes.length) {
+    const roots = (data.roots || []).filter(Boolean).join(", ");
+    const msg = data.message || (
+      roots
+        ? `SNP / VCF files are in: ${roots}`
+        : "No parsed VCF tables were returned. Restart post-assembly and try again."
+    );
+    container.innerHTML = `<p>${escapeHtml(msg)}</p>`;
+    return;
+  }
+
+  container.innerHTML = genomes
+    .map((g, i) => renderVcfGenomeBlock(g, `${idPrefix}-tab-${i}`))
+    .join("<hr>");
+
+  setTimeout(() => {
+    if (!window.$ || !$.fn.DataTable) {
+      return;
+    }
+    genomes.forEach((_, i) => {
+      const sel = `#${idPrefix}-tab-${i}`;
+      if (!document.querySelector(sel)) {
+        return;
+      }
+      if ($.fn.DataTable.isDataTable(sel)) {
+        $(sel).DataTable().destroy();
+      }
+      $(sel).DataTable({
+        paging: true,
+        pageLength: 25,
+        searching: true,
+        ordering: true,
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+        scrollX: true,
+        order: [[1, "asc"]],
+      });
+    });
+  }, 200);
+}
+
+async function fetchVariantReport(endpoint, form) {
+  const fd = new FormData(form);
+  const res = await fetch(endpoint, { method: "POST", body: fd });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (e) {
+    data = { exists: false, error: "Invalid report response." };
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
 function runSNP(){
   let form = document.getElementById("postForm");
   let formData = new FormData(form);
   let snpsDiv = document.getElementById("snpsDiv");
-  let snpsOUT = document.getElementById("output-snp");
+  let snpsOUT = document.getElementById("snp-result");
+  let spin = document.getElementById("spin-snp");
+  const snpBtn = document.getElementById("snp-bt");
 
-  fetch("/snp-finder", {method: "POST", body: formData})
-  .then(res => res.json())
-  .then(data => {
+  snpsDiv.style.display = "block";
+  hideSnpError();
+  if (snpsOUT) {
+    snpsOUT.innerHTML = "";
+  }
+  if (spin) {
+    spin.style.display = "flex";
+  }
+  if (snpBtn) {
+    snpBtn.disabled = true;
+  }
+  jumpToSection("snpsDiv");
 
-
-    if (data.exists) {
-      snpsDiv.style.display = "block";
-      snpsOUT.innerHTML = "<p>✅ Your SNP files have been created successfully </p>";
-    } else {
-      snpsDiv.style.display = "block";
-      snpsOUT.innerHTML = "<p>⚠️ Your SNP files don't exist, perhaps an error occurred! </p>";
+  const finishOk = (data) => {
+    if (spin) {
+      spin.style.display = "none";
     }
-  })
-  .catch((error) => {
-    console.error("❌ Error fetching SNPs report:", error);
-    alert("An error occurred while fetching the SNPs report.");
-  });
+    hideSnpError();
+    renderVariantTables(snpsOUT, data, "snp");
+    jumpToSection("snpsDiv");
+  };
+
+  // Prefer existing VCFs (fast). Only re-run the pipeline if none are found.
+  fetchVariantReport("/snp-report", form)
+    .then((existing) => {
+      if (existing.exists && (existing.genomes || []).length) {
+        finishOk(existing);
+        return null;
+      }
+      return fetch("/snp-finder", { method: "POST", body: formData }).then(async (res) => {
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (e) {
+          data = { exists: false, error: "SNP finder returned an invalid response." };
+        }
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        return data;
+      });
+    })
+    .then(async (data) => {
+      if (data == null) {
+        return;
+      }
+      if (!data.exists) {
+        if (spin) {
+          spin.style.display = "none";
+        }
+        showSnpError(data.error || "Your SNP files were not created. Check the reference genome path and try again.");
+        return;
+      }
+      if ((data.genomes || []).length) {
+        finishOk(data);
+        return;
+      }
+      try {
+        const report = await fetchVariantReport("/snp-report", form);
+        finishOk(report);
+      } catch (err) {
+        const outDir = (formData.get("out_dir") || "").toString();
+        finishOk({
+          roots: outDir ? [`${outDir.replace(/\/$/, "")}/snps`] : [],
+          message: data.message || err.message,
+          genomes: [],
+        });
+      }
+    })
+    .catch((error) => {
+      if (spin) {
+        spin.style.display = "none";
+      }
+      console.error("Error fetching SNPs report:", error);
+      showSnpError(error.message || "An error occurred while fetching the SNPs report.");
+    })
+    .finally(() => {
+      if (snpBtn) {
+        snpBtn.disabled = false;
+      }
+    });
 }
 
 // SVS
+// SVS / variant calling
+function showSvsError(message) {
+  const errorBox = document.getElementById("svs-error");
+  if (!errorBox) {
+    return;
+  }
+  errorBox.style.display = "block";
+  errorBox.textContent = message || "An error occurred while running variant calling.";
+}
+
+function hideSvsError() {
+  const errorBox = document.getElementById("svs-error");
+  if (errorBox) {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+}
+
 function runVCF(){
   let form = document.getElementById("postForm");
   let formData = new FormData(form);
   let svsDiv = document.getElementById("svs");
-  let svsOUT = document.getElementById("output-svs");
+  let svsOUT = document.getElementById("svs-result");
+  let spin = document.getElementById("spin-svs");
+  const vcfBtn = document.getElementById("vcf-bt");
+
+  svsDiv.style.display = "block";
+  hideSvsError();
+  if (svsOUT) {
+    svsOUT.innerHTML = "";
+  }
+  if (spin) {
+    spin.style.display = "flex";
+  }
+  if (vcfBtn) {
+    vcfBtn.disabled = true;
+  }
+  jumpToSection("svs");
 
   fetch("/svs-finder", {method: "POST", body: formData})
-  .then(res => res.json())
-  .then(data => {
-
-
-    if (data.exists) {
-      svsDiv.style.display = "block";
-      svsOUT.innerHTML = "<p>✅ Your SVS files have been created successfully </p>";
-    } else {
-      svsDiv.style.display = "block";
-      svsOUT.innerHTML = "<p>⚠️ Your SVS files don't exist, perhaps an error occurred! </p>";
+  .then(async (res) => {
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = { exists: false, error: "Variant calling returned an invalid response." };
     }
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  })
+  .then(async (data) => {
+    if (spin) {
+      spin.style.display = "none";
+    }
+    if (!data.exists) {
+      showSvsError(data.error || "Variant calling files were not created. Check the reference genome path and try again.");
+      return;
+    }
+    hideSvsError();
+    if ((data.genomes || []).length) {
+      renderVariantTables(svsOUT, data, "svs");
+    } else {
+      try {
+        const report = await fetchVariantReport("/svs-report", form);
+        renderVariantTables(svsOUT, report, "svs");
+      } catch (err) {
+        const outDir = (formData.get("out_dir") || "").toString();
+        renderVariantTables(svsOUT, {
+          roots: outDir ? [`${outDir.replace(/\/$/, "")}/vcs`] : [],
+          message: data.message || err.message,
+          genomes: [],
+        }, "svs");
+      }
+    }
+    jumpToSection("svs");
   })
   .catch((error) => {
-    console.error("❌ Error fetching SVS report:", error);
-    alert("An error occurred while fetching the SVS report.");
+    if (spin) {
+      spin.style.display = "none";
+    }
+    console.error("Error fetching variant calling report:", error);
+    showSvsError(error.message || "An error occurred while fetching the variant calling report.");
+  })
+  .finally(() => {
+    if (vcfBtn) {
+      vcfBtn.disabled = false;
+    }
   });
 }
 
 // abund plot 
 async function abundRun(){
+  const abundBtn = document.getElementById("abund-bt");
+  if (abundBtn && abundBtn.disabled) {
+    return;
+  }
 
   const form = document.getElementById("postForm");
   const formData = new FormData(form);
-  let abundSpin = document.getElementById("spin-abund");
-  abundSpin.style.display = "block";
+  const abundSpin = document.getElementById("spin-abund");
+  const abundImgSpin = document.getElementById("spin-abund-img");
+  const abundImg = document.getElementById("abundImgDiv");
+  const abundImgOut = document.getElementById("abundImg");
+  const abundDiv = document.getElementById("output-abund");
+  const abDIV = document.getElementById("abundDiv");
+
+  hideSectionError("abund-error");
+  hideSectionError("abund-plot-error");
+  const abundPlotBar = document.getElementById("abund-plot-bar");
+  if (abundPlotBar) {
+    abundPlotBar.style.display = "none";
+  }
+  if (abDIV) {
+    abDIV.style.display = "block";
+  }
+  if (abundImg) {
+    abundImg.style.display = "block";
+  }
+  if (abundSpin) {
+    abundSpin.style.display = "flex";
+  }
+  if (abundImgSpin) {
+    abundImgSpin.style.display = "flex";
+  }
+  if (abundImgOut) {
+    abundImgOut.style.display = "none";
+  }
+  if (abundBtn) {
+    abundBtn.disabled = true;
+  }
+  jumpToSection("abundDiv");
+
   try {
+    const abundRes = await fetch("/abund-run", { method: "POST", body: formData });
+    const parsed = await readJsonError(abundRes, `HTTP ${abundRes.status}`);
+    const abundData = parsed.data;
 
-    let abundRes = await fetch("/abund-run", { method: "POST", body: formData });
-
-   
-    if (!abundRes.ok) {
-      console.error("❌ Abundance report fetch failed:", abundRes.status, abundRes.statusText);
-      throw new Error(`HTTP error! Status: ${abundRes.status}`);
+    if (abundSpin) {
+      abundSpin.style.display = "none";
+    }
+    if (abundImgSpin) {
+      abundImgSpin.style.display = "none";
     }
 
-    let abundData = await abundRes.json();
-    
-    let abundImg = document.getElementById("abundImgDiv");
-    let abundImgOut = document.getElementById("abundImg");
-    let abundDiv = document.getElementById("output-abund");
-    let abDIV = document.getElementById("abundDiv");
-    abundImg.style.display = "block";
-    if (abundData.exists  && abundData.abund_table) {
-      
-      abDIV.style.display = "block";
-      abundDiv.innerHTML = abundData.abund_table
+    if (!abundRes.ok || !abundData.exists) {
+      showSectionError("abund-error", parsed.error || abundData.error || "Abundance strain finder failed.");
+      return;
+    }
+
+    if (abundData.abund_table && abundDiv) {
+      abundDiv.innerHTML = abundData.abund_table;
       setTimeout(() => {
         if ($.fn.DataTable) {
-          console.log("✅ Initializing abund DataTable...");
           if ($.fn.DataTable.isDataTable("#abund-tab")) {
-            table.DataTable().destroy();
-        }
-        if ($.fn.DataTable.isDataTable("#abund-tab")) {
-          $("#abund-tab").DataTable().destroy();
-        }
+            $("#abund-tab").DataTable().destroy();
+          }
           $("#abund-tab").DataTable({
             "paging": true,
             "pageLength": 10,
@@ -601,81 +1506,96 @@ async function abundRun(){
             "lengthMenu": [[10, 25, 50, -1], [10, 25, 50, "All"]],
             "responsive": true
           });
-        } else {
-          console.warn("⚠️ DataTables is not loaded.");
         }
       }, 500);
-
-     
-
-    
-    } else {
-      console.warn("⚠️ No abundance data was found!");
-      abundDiv.innerHTML = `<p>No Abundance data available.</p>`;
     }
 
-    if (abundData.exists && abundData.plot_abund) {
-      
-      abundSpin.style.display = "none";
-      
-      
-      
-      
-      setTimeout(() => {
-        abundImgOut.src = abundData.plot_abund;
-          console.log("✅ Image src updated:", abundImgOut.src);
-      }, 500);
-     
+    if (abundData.plot_abund && abundImgOut) {
+      abundImgOut.src = abundData.plot_abund;
+      abundImgOut.style.display = "block";
+      if (abundImg) {
+        abundImg.style.display = "block";
+      }
+      if (abundPlotBar) {
+        abundPlotBar.style.display = "flex";
+      }
+      jumpToSection("abundImgDiv");
     } else {
-      console.warn("⚠️ No abundance data was found!");
-      abundDiv.innerHTML = `<p>No Abundance data available.</p>`;
+      if (abundPlotBar) {
+        abundPlotBar.style.display = "none";
+      }
+      showSectionError("abund-plot-error", "Abundance table was created but the plot file was not found.");
     }
-
   } catch (error) {
-    console.error("❌ Error fetching Abundance report:", error);
-    alert("An error occurred while fetching the Abundance report.");
+    if (abundSpin) {
+      abundSpin.style.display = "none";
+    }
+    if (abundImgSpin) {
+      abundImgSpin.style.display = "none";
+    }
+    console.error("Error fetching Abundance report:", error);
+    showSectionError("abund-error", error.message || "An error occurred while fetching the Abundance report.");
+  } finally {
+    updateStrainFinderFromFields();
   }
 }
 
 // prev plot 
 async function prevRun(){
+  const prevBtn = document.getElementById("prev-bt");
+  if (prevBtn && prevBtn.disabled) {
+    return;
+  }
 
   const form = document.getElementById("postForm");
   const formData = new FormData(form);
- 
+  const prevSpin = document.getElementById("spin-prev");
+  const prevImg = document.getElementById("prevImgDiv");
+  const prevImgOut = document.getElementById("prevImg");
+  const prevDiv = document.getElementById("output-prev");
+  const prevDIV = document.getElementById("prevDiv");
+
+  hideSectionError("prev-error");
+  hideSectionError("prev-plot-error");
+  const prevPlotBar = document.getElementById("prev-plot-bar");
+  if (prevPlotBar) {
+    prevPlotBar.style.display = "none";
+  }
+  if (prevDIV) {
+    prevDIV.style.display = "block";
+  }
+  if (prevImg) {
+    prevImg.style.display = "block";
+  }
+  if (prevSpin) {
+    prevSpin.style.display = "flex";
+  }
+  if (prevBtn) {
+    prevBtn.disabled = true;
+  }
+  jumpToSection("prevDiv");
 
   try {
+    const prevRes = await fetch("/prev-run", { method: "POST", body: formData });
+    const parsed = await readJsonError(prevRes, `HTTP ${prevRes.status}`);
+    const prevData = parsed.data;
 
-    let prevRes = await fetch("/prev-run", { method: "POST", body: formData });
-
-   
-    if (!prevRes.ok) {
-      console.error("❌ Abundance report fetch failed:", prevRes.status, prevRes.statusText);
-      throw new Error(`HTTP error! Status: ${prevRes.status}`);
+    if (prevSpin) {
+      prevSpin.style.display = "none";
     }
 
-    let prevData = await prevRes.json();
-    
-   
+    if (!prevRes.ok || !prevData.exists) {
+      showSectionError("prev-error", parsed.error || prevData.error || "Prevalance strain finder failed.");
+      return;
+    }
 
-    let prevImg = document.getElementById("prevImgDiv");
-    let prevImgOut = document.getElementById("prevImg");
-    let prevDiv = document.getElementById("output-prev");
-    let prevDIV = document.getElementById("prevDiv");
-    prevDIV.style.display = "block";
-    if (prevData.exists  && prevData.prev_table) {
-      
-     
-      prevDiv.innerHTML = prevData.prev_table
+    if (prevData.prev_table && prevDiv) {
+      prevDiv.innerHTML = prevData.prev_table;
       setTimeout(() => {
         if ($.fn.DataTable) {
-          console.log("✅ Initializing prev DataTable...");
           if ($.fn.DataTable.isDataTable("#prev-tab")) {
-            table.DataTable().destroy();
-        }
-        if ($.fn.DataTable.isDataTable("#prev-tab")) {
-          $("#prev-tab").DataTable().destroy();
-        }
+            $("#prev-tab").DataTable().destroy();
+          }
           $("#prev-tab").DataTable({
             "paging": true,
             "pageLength": 10,
@@ -684,39 +1604,34 @@ async function prevRun(){
             "lengthMenu": [[10, 25, 50, -1], [10, 25, 50, "All"]],
             "responsive": true
           });
-        } else {
-          console.warn("⚠️ DataTables is not loaded.");
         }
       }, 500);
-
-     
-
-    
-    } else {
-      console.warn("⚠️ No prevalance data was found!");
-      prevDiv.innerHTML = `<p>No prevalance data available.</p>`;
     }
 
-    if (prevData.exists && prevData.plot_prev) {
-      
-      
-      
-      prevImg.style.display = 'block';
-      
-      
-      setTimeout(() => {
-        prevImgOut.src = prevData.plot_prev;
-          
-      }, 500);
-     
+    if (prevData.plot_prev && prevImgOut) {
+      prevImgOut.src = prevData.plot_prev;
+      prevImgOut.style.display = "block";
+      if (prevImg) {
+        prevImg.style.display = "block";
+      }
+      if (prevPlotBar) {
+        prevPlotBar.style.display = "flex";
+      }
+      jumpToSection("prevImgDiv");
     } else {
-      console.warn("⚠️ No prevalance data was found!");
-      prevDiv.innerHTML = `<p>No Prevalance data available.</p>`;
+      if (prevPlotBar) {
+        prevPlotBar.style.display = "none";
+      }
+      showSectionError("prev-plot-error", "Prevalance table was created but the plot file was not found.");
     }
-
   } catch (error) {
-    console.error("❌ Error fetching prevalance report:", error);
-    alert("An error occurred while fetching the prevalance report.");
+    if (prevSpin) {
+      prevSpin.style.display = "none";
+    }
+    console.error("Error fetching prevalance report:", error);
+    showSectionError("prev-error", error.message || "An error occurred while fetching the prevalance report.");
+  } finally {
+    updateStrainFinderFromFields();
   }
 }
 //reconnect to stream when on assembly
@@ -840,10 +1755,3 @@ toggler("tax_class", "gtdbtk_dbDiv")
 
 //checkm
 toggler("run_checkm", "checkm_dbDiv")
-
-//bakta 
-toggler("bakta_annot", childID = "bakta_dbDiv")
-
-//genetype 
-
-toggler("bakta_annot", "genetype")

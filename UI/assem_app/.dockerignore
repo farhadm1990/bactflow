@@ -1,0 +1,14 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+.git
+.gitignore
+*.md
+work
+**/.nextflow*
+Dockerfile
+.dockerignore
+config.yml
+illumina_pair_finder.sh
+bakta_annot.sh

@@ -5,7 +5,6 @@ const helpButton = document.getElementById("help-bt");
 let eventSource = null;
 
 
-const filePicker = document.getElementById("filePicker");
 const fastqDirInput = document.getElementById("fastq_dir");
 
 
@@ -96,20 +95,37 @@ function connectToStream(action){
     return;
   }
 
-  
-  outputDiv.innerHTML = "";
+  BactflowTerminal.init();
+  let logBuffer = [];
+  let flushTimer = null;
+
+  const flushLog = () => {
+    flushTimer = null;
+    if (!logBuffer.length) {
+      return;
+    }
+    BactflowTerminal.appendMany(logBuffer);
+    logBuffer = [];
+  };
+
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
+  if (window.BactflowMeters) {
+    BactflowMeters.attachStream(eventSource);
+  }
   
   eventSource.onmessage = (event) =>{
-    
-    outputDiv.innerHTML += event.data + '\n';
-    outputDiv.scrollTop = outputDiv.scrollHeight;
-    
+    logBuffer.push(event.data);
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushLog, 200);
+    }
   };
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
-    outputDiv.innerHTML += "Stream disconnected.  \n";
+    flushLog();
+    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+    BactflowTerminal.append("Stream disconnected.", true);
+    BactflowTerminal.setStatus("Stream disconnected", "warn");
     eventSource.close();
     eventSource = null;
     updateButtonStates("stopped");
@@ -138,16 +154,151 @@ function updateButtonStates(status) {
 }
 
 document.getElementById("assemblerDropdown").addEventListener("change", function(){
-  var selectedAssembler = this.value;
-
-  var assemblers = ["flye", "unicycler", "megahit", "spades"];
-  assemblers.forEach(assembler => {
-    document.getElementById("run_" + assembler).value = "false";
-  });
-  if(selectedAssembler !=="none") {
-    document.getElementById("run_" + selectedAssembler).value = "true";
-  }
+  updateAssemblerUI();
 });
+
+function showEl(el, visible) {
+  if (!el) {
+    return;
+  }
+  el.style.display = visible ? "" : "none";
+}
+
+function resetFlyeOptions() {
+  const coverageFilter = document.getElementById("coverage_filter");
+  if (coverageFilter) {
+    coverageFilter.value = "false";
+    coverageFilter.dispatchEvent(new Event("change"));
+  }
+  const nanofilter = document.getElementById("nanofilter");
+  if (nanofilter) {
+    nanofilter.value = "false";
+    nanofilter.dispatchEvent(new Event("change"));
+  }
+  const medakaPolish = document.getElementById("medaka_polish");
+  if (medakaPolish) {
+    medakaPolish.value = "false";
+    medakaPolish.dispatchEvent(new Event("change"));
+  }
+}
+
+function updateAssemblerUI() {
+  const selectedAssembler = document.getElementById("assemblerDropdown").value;
+  const assemblers = ["flye", "unicycler", "spades", "pacbio"];
+  assemblers.forEach(assembler => {
+    const flag = document.getElementById("run_" + assembler);
+    if (flag) {
+      flag.value = "false";
+    }
+  });
+  if (selectedAssembler !== "none") {
+    const selectedFlag = document.getElementById("run_" + selectedAssembler);
+    if (selectedFlag) {
+      selectedFlag.value = "true";
+    }
+  }
+
+  const isNone = selectedAssembler === "none";
+  const isFlye = selectedAssembler === "flye";
+  const isSpades = selectedAssembler === "spades";
+  const isUnicycler = selectedAssembler === "unicycler";
+  const isPacbio = selectedAssembler === "pacbio";
+  const isLongRead = isFlye || isUnicycler || isPacbio;
+
+  const fastqDirGroup = document.getElementById("fastqDirGroup");
+  const fastqLabel = document.getElementById("fastqDirLabel");
+  const unicyclerDiv = document.getElementById("unicyclerDiv");
+  const flyeOntDiv = document.getElementById("flyeOntDiv");
+  const pacbioDiv = document.getElementById("pacbioDiv");
+  const shortReadInput = document.getElementById("short_read_dir");
+  const flyeCoverage = document.getElementById("flyeCoverageOptions");
+  const flyePolish = document.getElementById("flyePolishOptions");
+  const nanofilterGroup = document.getElementById("nanofilterGroup");
+  const circleGenomeGroup = document.getElementById("circleGenomeGroup");
+  const concatReadsGroup = document.getElementById("concatReadsGroup");
+  const extensionGroup = document.getElementById("extensionGroup");
+  const spadesHint = document.getElementById("spadesHint");
+  const pacbioHint = document.getElementById("pacbioHint");
+
+  showEl(fastqDirGroup, !isNone);
+  showEl(flyeOntDiv, isFlye);
+  showEl(unicyclerDiv, isUnicycler);
+  showEl(pacbioDiv, isPacbio);
+  showEl(spadesHint, isSpades);
+  showEl(pacbioHint, isPacbio);
+  showEl(flyeCoverage, isFlye || isPacbio);
+  showEl(nanofilterGroup, isFlye || isUnicycler);
+  showEl(flyePolish, isFlye);
+  showEl(circleGenomeGroup, !isNone);
+  showEl(concatReadsGroup, isLongRead);
+  showEl(extensionGroup, isLongRead);
+
+  if (shortReadInput) {
+    shortReadInput.required = isUnicycler;
+    if (!isUnicycler) {
+      shortReadInput.value = "";
+    }
+  }
+
+  if (isSpades || isNone) {
+    resetFlyeOptions();
+  } else if (!isFlye) {
+    const medakaPolish = document.getElementById("medaka_polish");
+    if (medakaPolish) {
+      medakaPolish.value = "false";
+      medakaPolish.dispatchEvent(new Event("change"));
+    }
+  }
+
+  if (isSpades) {
+    const concatReads = document.getElementById("concat_reads");
+    if (concatReads) {
+      concatReads.value = "false";
+    }
+  }
+
+  if (isPacbio) {
+    const concatReads = document.getElementById("concat_reads");
+    if (concatReads) {
+      concatReads.value = "true";
+    }
+  }
+
+  if (fastqLabel) {
+    if (isUnicycler) {
+      fastqLabel.textContent = "Long-read FASTQ directory";
+    } else if (isPacbio) {
+      fastqLabel.textContent = "PacBio FASTQ directory";
+    } else if (isSpades) {
+      fastqLabel.textContent = "Illumina FASTQ directory (paired-end)";
+    } else {
+      fastqLabel.textContent = "FASTQ Directory";
+    }
+  }
+}
+
+function jumpToSection(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) {
+    return;
+  }
+  const pane =
+    document.getElementById("assem-results-pane") ||
+    el.closest(".col-md-9") ||
+    null;
+  requestAnimationFrame(() => {
+    if (pane && pane.scrollHeight > pane.clientHeight) {
+      const top =
+        el.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        pane.scrollTop -
+        12;
+      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
 
 // Run BactFlow
 function run_wf(action){
@@ -162,7 +313,8 @@ function run_wf(action){
   const el = document.getElementById("output-div");
   if(el.style.display ==="none" || el.style.display === ""){
     el.style.display = "block";
-  }; 
+  };
+  jumpToSection("output-div");
   // switch actions
   switch (action ){
     case "run":
@@ -170,16 +322,20 @@ function run_wf(action){
         
         fetch(`/run_bactflow?action-assem=${action}`, { method: "POST", body : formData })
         .then((response) => {
-          outputDiv.innerHTML = "";
+          BactflowTerminal.clear();
         if(!response.ok) {
-          outputDiv.innerHTML += "Error starting BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error starting BactFlow. It might already be running?!", true);
+          BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
+          jumpToSection("output-div");
           return;
         };
         
 
-        outputDiv.innerHTML += "Bactflow started :)\n";
+        BactflowTerminal.append("Bactflow started :)", true);
+        BactflowTerminal.setStatus("Running...", "run");
+        jumpToSection("output-div");
 
         // getting value of the setup only field
         let setOnly = document.getElementById("setup_only").value;
@@ -207,7 +363,9 @@ function run_wf(action){
     })
     
     .catch((error) => {
-      outputDiv.innerHTML += "Failed to start BactFlow" + error.message + "\n";
+      BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
+      BactflowTerminal.setStatus("Failed to start", "error");
+      jumpToSection("output-div");
       
     });
         break;
@@ -215,46 +373,56 @@ function run_wf(action){
     
     case "stop":
       {
-        document.getElementById('help-bt').disabled = false;
-        document.getElementById('run-bt').disabled = false;
-     
-
-
-    fetch(`/run_bactflow?action-assem=${action}`, { 
-      method: "POST"
-    })
-      .then((response) => response.text())
-      .then((message) => {
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += message + "\n";
-        
-        // disconnect
-        disconnectStream();
-        updateButtonStates('stopped')
-      });
-          break;
-        }
+        jumpToSection("output-div");
+        fetch(`/run_bactflow?action-assem=${action}`, {
+          method: "POST"
+        })
+          .then(async (response) => {
+            const message = await response.text();
+            if (!response.ok) {
+              BactflowTerminal.append(message || "Could not stop BactFlow.", true);
+              BactflowTerminal.setStatus("Stop failed", "error");
+              jumpToSection("output-div");
+              return;
+            }
+            BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+            BactflowTerminal.append(message || "Bactflow stopped successfully!", true);
+            BactflowTerminal.setStatus("Stopped", "warn");
+            disconnectStream();
+            updateButtonStates("stopped");
+            jumpToSection("output-div");
+          })
+          .catch((error) => {
+            BactflowTerminal.append("Failed to stop BactFlow: " + error.message, true);
+            BactflowTerminal.setStatus("Stop failed", "error");
+            jumpToSection("output-div");
+          });
+        break;
+      }
         
       case "help":
       {
-        outputDiv.innerHTML = "";
+        BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
        
 
         // hide quast
         const quastDiv = document.getElementById("quastDiv");
         quastDiv.style.display = "none";
+        jumpToSection("output-div");
 
       fetch(`/run_bactflow?action-assem=${action}`, { method: "POST" })
       .then((response) => {
         if(!response.ok) {
-          outputDiv.innerHTML += "Error showing help for BactFlow. It might already be running?!\n";
+          BactflowTerminal.append("Error showing help for BactFlow. It might already be running?!", true);
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
+          jumpToSection("output-div");
           return;
         };
-        outputDiv.innerHTML = "";
-        outputDiv.innerHTML += "Bactflow's help menue!\n";
+        BactflowTerminal.clear();
+        BactflowTerminal.append("Bactflow's help menu", true);
+        jumpToSection("output-div");
 
         // const action = "help";
         updateButtonStates("running");
@@ -263,8 +431,9 @@ function run_wf(action){
         
       })
       .catch((error) => {
-        outputDiv.innerHTML += "Failed to give you BactFlow help!" + error.message + "\n";
+        BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
         runButton.disabled = false;
+        jumpToSection("output-div");
         
       });
         break;
@@ -276,13 +445,46 @@ function run_wf(action){
 
 document.getElementById("runForm").addEventListener("submit", (e) => {
  e.preventDefault();
- outputDiv.innerHTML = "";
 
   const action = e.submitter.value;
+  if (action !== "stop") {
+    BactflowTerminal.clear();
+  }
+  const selectedAssembler = document.getElementById("assemblerDropdown").value;
+  const longReads = document.getElementById("fastq_dir").value.trim();
+  if (action === "run" && selectedAssembler === "unicycler") {
+    const shortReads = document.getElementById("short_read_dir").value.trim();
+    if (!longReads || !shortReads) {
+      const out = document.getElementById("output-div");
+      if (out) {
+        out.style.display = "block";
+      }
+      BactflowTerminal.append("Unicycler hybrid assembly needs both a long-read path and a short-read path.", true);
+      jumpToSection("output-div");
+      document.getElementById('run-bt').disabled = false;
+      document.getElementById('stop-bt').disabled = true;
+      document.getElementById('help-bt').disabled = false;
+      return;
+    }
+  }
+  if (action === "run" && selectedAssembler === "spades" && !longReads) {
+    const out = document.getElementById("output-div");
+    if (out) {
+      out.style.display = "block";
+    }
+    BactflowTerminal.append("SPAdes needs an Illumina paired-end FASTQ directory (sample_R1 / sample_R2).", true);
+    jumpToSection("output-div");
+    document.getElementById('run-bt').disabled = false;
+    document.getElementById('stop-bt').disabled = true;
+    document.getElementById('help-bt').disabled = false;
+    return;
+  }
 
-  document.getElementById('run-bt').disabled = true;
-  document.getElementById('stop-bt').disabled = false; 
-  document.getElementById('help-bt').disabled = true;
+  if (action !== "stop") {
+    document.getElementById('run-bt').disabled = true;
+    document.getElementById('stop-bt').disabled = false; 
+    document.getElementById('help-bt').disabled = true;
+  }
 
   run_wf(action);
 });
@@ -333,68 +535,113 @@ function clearFormData(){
 
 document.addEventListener("DOMContentLoaded", function(){
   restoreFormData(); //from local storage
+  updateAssemblerUI();
 
   document.getElementById("runForm").addEventListener("input", () =>{
     saveFormData();
   });
 });
 
-// function to show quast
+// Silent QUAST lookup: never surface an error if the report is not ready yet.
+function hideQuastUi() {
+  const quastDiv = document.getElementById("quastDiv");
+  if (quastDiv) {
+    quastDiv.style.display = "none";
+  }
+}
+
 function checkForQuastReport(){
   const form = document.getElementById("runForm");
-  const formData = new FormData(form);
+  if (!form) {
+    hideQuastUi();
+    return;
+  }
 
-  fetch("/check-quast", {method: "POST", body: formData})
-    .then(response => response.json())
-    .then(data => {
-      let helpBtn = document.getElementById("help-bt");
-
-      if(data.exists){
-        console.log("✅ Quast report found! Loading...");
-        
-        let quastDiv = document.getElementById("quastDiv");
-        quastDiv.style.display = "block";
-        quastReport();
-        clearInterval(quastCheckInterval);
-      } else {
-        console.log("⏳ Waiting for Quast report...");
-        let quastDiv = document.getElementById("quastDiv");
-      
-        quastDiv.style.display = "none";
+  fetch("/check-quast", {method: "POST", body: new FormData(form)})
+    .then((response) => {
+      if (!response.ok) {
+        return { exists: false };
       }
+      return response.json().catch(() => ({ exists: false }));
     })
-    .catch(error => console.error("Error checking Quast report:", error));
+    .then((data) => {
+      if (data && data.exists) {
+        return quastReport();
+      }
+      hideQuastUi();
+    })
+    .catch(() => {
+      hideQuastUi();
+    });
 }
 
 
 async function quastReport() {
   const form = document.getElementById("runForm");
+  const quastDiv = document.getElementById("quastDiv");
+  if (!form || !quastDiv) {
+    return false;
+  }
   const formData = new FormData(form);
-  
+
   try {
-   
-    let quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok) throw new Error("Failed to fetch QUAST report");
-    let quastBlob = await quastResponse.blob();
-    let quastUrl = URL.createObjectURL(quastBlob);
-    
-    let quastOutputDiv = document.getElementById("output-quast");
-    quastOutputDiv.innerHTML = ""; 
-    quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
-    // for contig
-    let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-    if (!contigResponse.ok) throw new Error("Failed to fetch Contig report");
-    let contigBlob = await contigResponse.blob();
-    let contigUrl = URL.createObjectURL(contigBlob);
-    
-    let contigOutputDiv = document.getElementById("contig-quast");
-    contigOutputDiv.innerHTML = ""; 
-    contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-    
-  } catch (error) {
-    console.error("Error:", error);
-    alert("An error occurred while fetching the reports.");
+    const quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
+    if (!quastResponse.ok || quastResponse.status === 204) {
+      hideQuastUi();
+      return false;
+    }
+    const quastBlob = await quastResponse.blob();
+    if (!quastBlob || quastBlob.size === 0) {
+      hideQuastUi();
+      return false;
+    }
+    const quastUrl = URL.createObjectURL(quastBlob);
+    const quastOutputDiv = document.getElementById("output-quast");
+    if (quastOutputDiv) {
+      quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+    }
+
+    quastDiv.style.display = "block";
+
+    const contigOutputDiv = document.getElementById("contig-quast");
+    const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
+    try {
+      const contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
+      if (contigResponse.ok && contigResponse.status !== 204) {
+        const contigBlob = await contigResponse.blob();
+        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
+          const contigUrl = URL.createObjectURL(contigBlob);
+          contigOutputDiv.style.display = "";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "";
+          }
+          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+        } else if (contigOutputDiv) {
+          contigOutputDiv.style.display = "none";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "none";
+          }
+        }
+      } else if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+        if (contigHeading && contigHeading.tagName === "H4") {
+          contigHeading.style.display = "none";
+        }
+      }
+    } catch (err) {
+      if (contigOutputDiv) {
+        contigOutputDiv.style.display = "none";
+      }
+    }
+
+    if (quastCheckInterval) {
+      clearInterval(quastCheckInterval);
+      quastCheckInterval = null;
+    }
+    return true;
+  } catch (err) {
+    hideQuastUi();
+    return false;
   }
 }
 
@@ -454,19 +701,17 @@ window.addEventListener("beforeunloaded", ()=>{
 });
 
 
-// Handle directory selection
-filePicker.addEventListener("click", (event) => {
-  const selectedFiles = Array.from(event.target.files);
+// Handle directory selection for FASTQ input
+if (fastqDirInput) {
+  fastqDirInput.addEventListener("change", (event) => {
+    const selectedFiles = Array.from(event.target.files || []);
 
-  if (selectedFiles.length > 0) {
-    // Extract the directory path from the first file
-    const selectedDirectory = selectedFiles[0].webkitRelativePath.split("/")[0];
-    const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
-
-    // Update the input field with the absolute directory path
-    fastqDirInput.value = absolutePath;
-  }
-});
+    if (selectedFiles.length > 0) {
+      const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
+      fastqDirInput.value = absolutePath;
+    }
+  });
+}
 
 
 // tggler function

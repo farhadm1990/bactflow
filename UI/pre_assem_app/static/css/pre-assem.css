@@ -118,3 +118,149 @@ table.dataTable thead th {
 #read-fastq tr:hover {
     background-color: #ddd;
 }
+
+.bf-plot-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 98%;
+    margin: 10px 10px 0;
+    padding: 8px 12px;
+    background: #f4f6f7;
+    border: 1px solid #696969;
+    border-bottom: 0;
+    box-sizing: border-box;
+}
+
+.bf-plot-bar-title {
+    font-weight: 600;
+    color: #2f4f4f;
+}
+
+.bf-dl-png,
+.bf-dl-svg {
+    border: 0;
+    color: #fff;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+}
+
+.bf-dl-png {
+    background: #12b5a8;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.bf-dl-png:hover,
+.bf-dl-png:focus {
+    background: #0e968c;
+    color: #fff;
+}
+
+.bf-dl-svg {
+    background: #ee6c4d;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.bf-dl-svg:hover,
+.bf-dl-svg:focus {
+    background: #d45a3e;
+    color: #fff;
+}
+
+.bf-plot-error {
+    margin: 10px;
+    padding: 12px;
+    width: 98%;
+    box-sizing: border-box;
+    color: #8b1e1e;
+    background: #fdeeee;
+    border: 1px solid #e0a0a0;
+}
+
+/* Left menu: absolute scroll pane + sticky bottom actions.
+   Bootstrap .row flex items default to min-height:auto, which prevents
+   shrinking and kills overflow scrolling when PacBio/Illumina blocks expand. */
+#preForm > .container-fluid {
+    max-width: 100%;
+}
+
+#preForm > .container-fluid > .row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    margin-left: 0;
+    margin-right: 0;
+    height: calc(100vh - 128px);
+    max-height: calc(100vh - 128px);
+    overflow: hidden;
+}
+
+.bf-pre-side {
+    position: relative !important;
+    flex: 0 0 30%;
+    width: 30% !important;
+    max-width: 30% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    border-right: 1px solid #ddd;
+    overflow: hidden !important;
+    box-sizing: border-box;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.bf-pre-side-scroll {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 140px; /* reserved for wrapping action buttons */
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    padding: 8px 12px 28px 8px;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.bf-pre-side-actions {
+    position: absolute !important;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    margin: 0;
+    padding: 10px 8px !important;
+    min-height: 120px;
+    border-top: 1px solid #ddd;
+    background: #f8f9fa;
+    box-sizing: border-box;
+}
+
+.bf-pre-side-actions-btns {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.bf-pre-side-actions-btns > .btn {
+    flex: 1 1 42%;
+    font-size: 0.82rem;
+    white-space: normal;
+}
+
+#pre-results-pane {
+    flex: 0 0 70%;
+    width: 70% !important;
+    max-width: 70% !important;
+    min-width: 0;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow-y: auto;
+    box-sizing: border-box;
+}

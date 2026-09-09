@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+JAR="${PILON_JAR:-/usr/local/share/pilon/pilon.jar}"
+JAVA_BIN="${JAVA_HOME:-/usr/lib/jvm/bactflow-java}/bin/java"
+if [ ! -x "${JAVA_BIN}" ]; then
+    JAVA_BIN="$(command -v java)"
+fi
+exec "${JAVA_BIN}" -jar "${JAR}" "$@"

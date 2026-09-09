@@ -1,64 +1,77 @@
-# ====== Stage 1: Build Environment ======
-FROM continuumio/miniconda3:latest AS builder
+# syntax=docker/dockerfile:1
+# Slim pre-assembly image: Flask + seqkit + plotting only.
+# Build from this directory:
+#   cd UI/pre_assem_app
+#   docker build -f Dockerfile -t bactflow_preassem:v1.0 .
+
+FROM mambaorg/micromamba:1.5.10 AS builder
+USER root
+ARG MAMBA_DOCKERFILE_ACTIVATE=1
+SHELL ["/bin/bash", "-lc"]
+
+COPY environment.docker.yml /tmp/environment.yml
+
+RUN /bin/micromamba create -y -p /opt/conda/envs/bactflow -f /tmp/environment.yml \
+    && micromamba clean -afy --all \
+    && find /opt/conda/envs/bactflow -type f \( -name '*.a' -o -name '*.la' \) -delete \
+    && find /opt/conda/envs/bactflow -type d -name '__pycache__' -prune -exec rm -rf {} + \
+    && find /opt/conda/envs/bactflow -type f -name '*.pyc' -delete \
+    && rm -rf /opt/conda/envs/bactflow/share/man \
+              /opt/conda/envs/bactflow/share/doc \
+              /opt/conda/pkgs \
+              /tmp/environment.yml
 
 
-ENV CONDA_ENV=bactflow
-ENV PATH="/opt/conda/envs/$CONDA_ENV/bin:$PATH"
+FROM debian:bookworm-slim
 
+ENV BACTFLOW_IN_DOCKER=1 \
+    PYTHONUNBUFFERED=1 \
+    CONDA_PREFIX=/opt/conda/envs/bactflow \
+    CONDA_DEFAULT_ENV=bactflow \
+    PATH=/opt/conda/envs/bactflow/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        coreutils \
+        findutils \
+        gzip \
+        procps \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+COPY --from=builder /opt/conda/envs/bactflow /opt/conda/envs/bactflow
+COPY docker/conda.sh /opt/conda/etc/profile.d/conda.sh
+COPY docker/conda /opt/conda/bin/conda
+COPY docker/entrypoint.sh /usr/local/bin/bactflow-entrypoint
+
+RUN chmod 755 /opt/conda/bin/conda /usr/local/bin/bactflow-entrypoint \
+    && mkdir -p /opt/conda/condabin \
+    && ln -sfn /opt/conda/bin/conda /opt/conda/condabin/conda \
+    && printf '%s\n' \
+        'export CONDA_PREFIX=/opt/conda/envs/bactflow' \
+        'export CONDA_DEFAULT_ENV=bactflow' \
+        'export PATH="/opt/conda/envs/bactflow/bin:/opt/conda/bin:$PATH"' \
+        'export LD_LIBRARY_PATH="/opt/conda/envs/bactflow/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
+        '[ -f /opt/conda/etc/profile.d/conda.sh ] && . /opt/conda/etc/profile.d/conda.sh' \
+        > /etc/profile.d/bactflow.sh \
+    && chmod 644 /etc/profile.d/bactflow.sh \
+    && echo '[ -f /etc/profile.d/bactflow.sh ] && . /etc/profile.d/bactflow.sh' >> /etc/bash.bashrc \
+    && python -c "import flask, plotly, pandas, Bio" \
+    && seqkit version \
+    && conda info --base | grep -qx /opt/conda \
+    && conda env list --json | grep -q bactflow
 
 WORKDIR /app
+COPY . /app/
+RUN chmod +x /app/*.sh /usr/local/bin/bactflow-entrypoint /opt/conda/bin/conda 2>/dev/null || true
 
-
-COPY config.yml /tmp/config.yml
-
-# Install Mamba and create the Conda environment
-RUN conda install -n base -c conda-forge mamba -y && \
-    mamba env create -f /tmp/config.yml -y && \
-    conda clean --all -y
-
-RUN mamba shell init --shell bash --root-prefix=/opt/conda && \
-echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
-
-RUN conda init bash && \
-    echo "source /opt/conda/bin/activate $CONDA_ENV" >> ~/.bashrc
-
-# Install Nextflow
-RUN wget -qO- https://get.nextflow.io | bash && \
-    mv nextflow /usr/local/bin/ && \
-    chmod +x /usr/local/bin/nextflow
-
-# ====== Stage 2: Runtime Environment ======
-FROM debian:bullseye-slim AS final
-
-
-ENV CONDA_ENV=bactflow
-ENV PATH="/opt/conda/bin:$PATH"
-
-# Install dependencies 
-RUN apt-get update && apt-get install -y \
-    bash \
-    wget \
-    openjdk-11-jre \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy Conda installation and environment from builder stage
-COPY --from=builder /opt/conda /opt/conda
-COPY --from=builder /usr/local/bin/nextflow /usr/local/bin/nextflow
-
-# Set working directory
-WORKDIR /app
-
-
-COPY static/ static/
-COPY templates/ templates/
-COPY *.py *.sh *.r *.yml main.nf nextflow.config ./
-
-
-RUN chmod +x *.sh
-
+ENV BACTFLOW_MODULE=preassem
+ENV BACTFLOW_HOST_PORT=5000
 
 EXPOSE 5000
+HEALTHCHECK --interval=20s --timeout=8s --start-period=40s --retries=8 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=5)"
 
-
-
-CMD ["/bin/bash", "-c", "source /opt/conda/bin/activate bactflow && python pre_assembly.py"]
+ENTRYPOINT ["/usr/local/bin/bactflow-entrypoint"]
+CMD ["python", "/app/pre_assembly.py"]

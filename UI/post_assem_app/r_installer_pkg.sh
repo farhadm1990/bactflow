@@ -13,7 +13,10 @@ if(!require('msa')) {BiocManager::install('msa', force = TRUE,  ask=FALSE)}; \
 if(!require('ape')) {install.packages('ape')}; \
 if(!require('tidyverse')) {install.packages('tidyverse')}; \
 if(!require('patchwork')) {install.packages('patchwork')}; \
-if(!require('readr')) {install.packages('readr')}"
+if(!require('readr')) {install.packages('readr')}; \
+if(!require('optparse')) {install.packages('optparse')}; \
+if(!require('pheatmap')) {install.packages('pheatmap')}; \
+if(!require('glue')) {install.packages('glue')}"
 
 
 

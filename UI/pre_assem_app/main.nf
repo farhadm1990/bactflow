@@ -11,7 +11,7 @@ Options:
    
     --setup_only            If true, only runs envSetUp(), default false
     --fastq_dir             Absolute path to the fastq_pass directory (required). 
-    --concat_reads          Default true, it concatenates all your ONT basecaller 4000-chunk reads into one fastq file. Set it to false if it is already concatenated.
+    --concat_reads          Default false. Set true to concatenate ONT/PacBio chunked reads into one FASTQ per sample.
     --extension             String; extention of basecalled fastq files; default '.fastq.gz'
     --cpus                  Number of available cpus; default 1.
     --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
@@ -799,25 +799,6 @@ process prokAnnot {
     """
 }
 
-// process baktaAnnot {
-
-
-//     script:
-
-//     """
-//     source \$(conda info --base)/etc/profile.d/conda.sh
-//     conda activate bactflow
-
-//     if [ ! -d bakta_annot ]
-//     then 
-//         mkdir -p bakta_annot
-//     fi
-
-//     bash ${projectDir}/bakta_annot.sh
-
-//     """
-// }
-
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
@@ -946,16 +927,5 @@ process quast_check {
     quast.py '${circ_fasta}'/*.fasta -o quast_stat -t ${cpus}
     """
 }
-
-
-
-
-
-// process trycile {
-    
-
-
-// }
-
 
 
