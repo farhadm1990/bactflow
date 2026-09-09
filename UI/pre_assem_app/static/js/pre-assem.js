@@ -413,10 +413,11 @@ function updatePlatformUI() {
     concatSel.value = "false";
   }
   if (concatSel && lastReadPlatform === "illumina" && !illumina) {
-    concatSel.value = "true";
+    concatSel.value = "false";
   }
-  if (concatSel && pacbio) {
-    concatSel.value = "true";
+  if (concatSel && (platform === "ont" || platform === "pacbio") && lastReadPlatform !== platform) {
+    // Keep concat off by default for long-read platforms.
+    concatSel.value = "false";
   }
   if (catBtn) {
     catBtn.style.display = illumina ? "none" : "";
