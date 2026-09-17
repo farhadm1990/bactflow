@@ -67,7 +67,8 @@ rm -rf \
     "${PREFIX}/lib/python3.11/site-packages/torch/include" \
     "${PREFIX}/lib/R/library/translations"
 
-rm -f "${PREFIX}/bin/guppy" "${PREFIX}/bin/k8" "${PREFIX}/bin/datatool"
+# Keep pplacer's guppy (tiny). It is not Oxford Nanopore Guppy; GTDB-Tk classify needs it.
+rm -f "${PREFIX}/bin/k8" "${PREFIX}/bin/datatool"
 
 find "${PREFIX}" -type f \( -name '*.a' -o -name '*.la' -o -name '*.a.*' -o -name '*.pyc' -o -name '*.js.map' \) -delete
 find "${PREFIX}/lib" -maxdepth 1 -type f \( -name 'libncbi-*.a*' -o -name 'libicutest.so*' \) -delete
@@ -83,7 +84,8 @@ if command -v strip >/dev/null 2>&1; then
     find "${PREFIX}" -type f \( -name '*.so' -o -name '*.so.*' \) \
         ! -name 'libperl.so*' ! -name 'libtorch*' ! -name 'libgomp*' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
-    find "${PREFIX}/bin" -type f ! -name 'perl' ! -name 'perl5*' ! -name 'nextflow' -print0 \
+    find "${PREFIX}/bin" -type f ! -name 'perl' ! -name 'perl5*' ! -name 'nextflow' \
+        ! -name 'guppy' ! -name 'pplacer' ! -name 'rppr' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
 fi
 

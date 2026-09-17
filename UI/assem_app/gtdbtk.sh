@@ -114,7 +114,35 @@ chmod +x "${out_dir}"/download-db.sh
 
 
 conda activate bactflow
+export PATH="${CONDA_PREFIX:-}/bin:${PATH}"
 export GTDBTK_DATA_PATH="${db_dir}"
+
+# pplacer ships a binary named guppy (tree conversion). This is NOT ONT Guppy.
+ensure_pplacer_guppy() {
+    if command -v guppy >/dev/null 2>&1 && command -v pplacer >/dev/null 2>&1; then
+        echo "pplacer: $(command -v pplacer)"
+        echo "pplacer guppy: $(command -v guppy)"
+        return 0
+    fi
+    echo "GTDB-Tk classify needs pplacer and its guppy helper (not Oxford Nanopore Guppy)."
+    if command -v micromamba >/dev/null 2>&1; then
+        micromamba install -y -p "${CONDA_PREFIX:-}" -c bioconda -c conda-forge pplacer
+    elif command -v mamba >/dev/null 2>&1; then
+        mamba install -y -c bioconda -c conda-forge pplacer
+    elif command -v conda >/dev/null 2>&1 && conda --help 2>/dev/null | grep -q 'install'; then
+        conda install -y -c bioconda -c conda-forge pplacer
+    fi
+    hash -r 2>/dev/null || true
+    if command -v guppy >/dev/null 2>&1 && command -v pplacer >/dev/null 2>&1; then
+        echo "pplacer guppy restored: $(command -v guppy)"
+        return 0
+    fi
+    echo "ERROR: pplacer/guppy is not on PATH." >&2
+    echo "       Host: conda activate bactflow && conda install -c bioconda pplacer" >&2
+    echo "       Docker: rebuild bactflow_postassem (do not delete bin/guppy in slim-env)." >&2
+    exit 1
+}
+ensure_pplacer_guppy
 # Setting up the database
 path_f=$(which gtdbtk)
 v_f=$(gtdbtk -v)
@@ -136,9 +164,6 @@ else
     fi
 fi
 
-# Upgrading
-python -m pip install gtdbtk --upgrade
-
 # Gene calling
 echo "Executing gene calling..."
 gtdbtk identify --genome_dir "${genomes}" --out_dir "${out_dir}/identify" --cpus "${cpus}" --extension "${extension}"
@@ -148,5 +173,10 @@ echo "Executing aligning..."
 gtdbtk align --identify_dir "${out_dir}/identify" --out_dir "${out_dir}/align" --cpus "${cpus}"
 
 # Classification
+# GTDB-Tk 2.7+ removed --skip_ani_screen (ANI screen is built-in via skani).
 echo "Executing classification..."
-gtdbtk classify --genome_dir "${genomes}" --align_dir "${out_dir}/align" --out_dir "${out_dir}/classify" -x "${extension}" --cpus "${cpus}" --skip_ani_screen
+classify_extra=()
+if gtdbtk classify --help 2>&1 | grep -q -- '--skip_ani_screen'; then
+    classify_extra+=(--skip_ani_screen)
+fi
+gtdbtk classify --genome_dir "${genomes}" --align_dir "${out_dir}/align" --out_dir "${out_dir}/classify" -x "${extension}" --cpus "${cpus}" "${classify_extra[@]}"

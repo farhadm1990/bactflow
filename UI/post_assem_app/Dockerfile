@@ -102,6 +102,9 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && diamond version \
     && bakta --version \
     && command -v gtdbtk \
+    && command -v pplacer \
+    && command -v guppy \
+    && command -v skani \
     && checkm -h >/dev/null \
     && medaka --help >/dev/null \
     && quast.py --help >/dev/null \

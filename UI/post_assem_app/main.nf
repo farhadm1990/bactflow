@@ -868,7 +868,6 @@ process taxonomyGTDBTK {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-    python -m pip install gtdbtk --upgrade
 
     src='${circ_fasta}'
     if [ -f "\$src" ]

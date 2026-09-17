@@ -818,8 +818,6 @@ process taxonomyGTDBTK {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-    # Upgrade for gtdbtk
-    python -m pip install gtdbtk --upgrade
 
     bash ${projectDir}/gtdbtk.sh -g '${circ_fasta}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
     """
