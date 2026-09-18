@@ -852,7 +852,7 @@ process baktaAnnot {
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -862,7 +862,7 @@ process taxonomyGTDBTK {
     val gtdbtk_data_path
     
     output:
-    path('gtdbtk_out'),  optional: true //so that it deons't stop upon failing
+    path('gtdbtk_out')
 
     script:
     """
@@ -877,7 +877,9 @@ process taxonomyGTDBTK {
         src=genomes_in
     fi
 
-    bash ${projectDir}/gtdbtk.sh -g "\$src" -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
+    bash ${projectDir}/gtdbtk.sh -g "\$src" -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}' -o gtdbtk_out
+    echo "taxonomyGTDBTK workdir \$(pwd)"
+    ls -la gtdbtk_out/classify || true
     """
 }
 
@@ -886,7 +888,7 @@ process checkm_lineage {
         cpus params.cpus -1 
     }
 
-    publishDir "${params.out_dir}/checkm_out", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}/checkm_out", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -905,9 +907,19 @@ process checkm_lineage {
     """
     #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
-    conda activate bactflow 
-    
-    pip install --upgrade checkm-genome
+    conda activate bactflow
+    set -euo pipefail
+    export PATH="\${CONDA_PREFIX:-}/bin:\${PATH}"
+
+    for tool in checkm pplacer guppy hmmsearch prodigal
+    do
+        if ! command -v "\$tool" >/dev/null 2>&1
+        then
+            echo "ERROR: \$tool is not on PATH. CheckM needs checkm-genome, pplacer (guppy), hmmer, prodigal." >&2
+            exit 1
+        fi
+    done
+
     src='${circ_fasta}'
     if [ -f "\$src" ]
     then
@@ -915,43 +927,64 @@ process checkm_lineage {
         cp "\$src" genomes_in/
         src=genomes_in
     fi
+    if [ ! -d "\$src" ]
+    then
+        echo "ERROR: CheckM genome directory not found: \$src" >&2
+        exit 1
+    fi
+
+    ext='${genome_extension}'
+    ext="\${ext#.}"
+    shopt -s nullglob
+    hits=("\$src"/*."\$ext")
+    if [ \${#hits[@]} -eq 0 ]
+    then
+        for cand in fasta fa fna
+        do
+            hits=("\$src"/*."\$cand")
+            if [ \${#hits[@]} -gt 0 ]
+            then
+                ext="\$cand"
+                break
+            fi
+        done
+    fi
+
+    if [ ! -d '${checkm_db}' ]
+    then
+        echo "ERROR: CheckM database directory is missing: ${checkm_db}" >&2
+        exit 1
+    fi
     checkm data setRoot '${checkm_db}'
-    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' "\$src" checkm_lineage && \
-    checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
+    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x "\$ext" "\$src" checkm_lineage
+    checkm qa -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/ > checkm_lineage.txt
+    echo "CheckM lineage QA written to checkm_lineage.txt"
 
-    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  "\$src" checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
-
-    
-
-
-    # Building the genome-based tree
-    Rscript -e "
-    library(Biostrings)
-    library(msa)
-    library(ape)
-    library(tidyverse)
-    library(readr)
-    library(seqinr)
-
-    seqs <- Biostrings::readDNAStringSet('checkm_tree/storage/tree/concatenated.fasta', format = 'fasta')
-    als <- msa(seqs)
-
-    als_seqinr <- msaConvert(als, type = 'seqinr::alignment')
-    
-    dis <- dist.alignment(als_seqinr, 'identity')
-    tr <- nj(dis)
-
-    write.tree(phy = tr, file = 'genome_tree.tree')
-    "
-
-    
-
-
-
-
+    set +e
+    checkm tree -r --nt -t ${cpus} -x "\$ext" --pplacer_threads ${cpus} "\$src" checkm_tree \\
+        && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree \\
+        && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    tree_ok=\$?
+    if [ "\$tree_ok" -eq 0 ]
+    then
+        Rscript -e '
+        pkgs <- c("Biostrings","msa","ape","seqinr")
+        if (!all(vapply(pkgs, requireNamespace, logical(1), quietly=TRUE))) {
+          writeLines("WARN: R MSA packages missing; skipping genome_tree.tree")
+          quit(save="no", status=0)
+        }
+        library(Biostrings); library(msa); library(ape); library(seqinr)
+        seqs <- Biostrings::readDNAStringSet("checkm_tree/storage/tree/concatenated.fasta", format="fasta")
+        als_seqinr <- msaConvert(msa(seqs), type="seqinr::alignment")
+        write.tree(nj(dist.alignment(als_seqinr, "identity")), file="genome_tree.tree")
+        '
+    else
+        echo "WARN: CheckM tree step failed; lineage results are still valid."
+    fi
+    [ -f taxon_tree.newick ] || : > taxon_tree.newick
+    [ -f genome_tree.newick ] || : > genome_tree.newick
+    [ -f genome_tree.tree ] || : > genome_tree.tree
     """
-
-
 }
 
 

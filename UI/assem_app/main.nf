@@ -1214,6 +1214,11 @@ process baktaAnnot {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    if ! command -v bakta >/dev/null 2>&1
+    then
+        echo "ERROR: bakta is not in this environment. Use the post-assembly app, or a full conda env (config.yml)." >&2
+        exit 1
+    fi
 
     bash ${projectDir}/bakta_annot.sh -g "${circ_fasta}" -c ${cpus} -d "${params.bakta_db}"
     
@@ -1223,7 +1228,7 @@ process baktaAnnot {
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -1233,14 +1238,19 @@ process taxonomyGTDBTK {
     val gtdbtk_data_path
     
     output:
-    path('gtdbtk_out'), optional: true
+    path('gtdbtk_out')
 
     script:
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    if ! command -v gtdbtk >/dev/null 2>&1
+    then
+        echo "ERROR: gtdbtk is not in this environment. Use the post-assembly app, or a full conda env (gtdbtk=2.6.1 for R226)." >&2
+        exit 1
+    fi
 
-    bash ${projectDir}/gtdbtk.sh -g '${circ_fasta}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}'
+    bash ${projectDir}/gtdbtk.sh -g '${circ_fasta}' -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}' -o gtdbtk_out
     """
 }
 
@@ -1268,46 +1278,47 @@ process checkm_lineage {
     """
     #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
-    conda activate bactflow 
-    
-    pip install --upgrade checkm-genome
+    conda activate bactflow
+    set -euo pipefail
+    export PATH="\${CONDA_PREFIX:-}/bin:\${PATH}"
+
+    for tool in checkm pplacer guppy hmmsearch prodigal
+    do
+        if ! command -v "\$tool" >/dev/null 2>&1
+        then
+            echo "ERROR: \$tool is not on PATH. CheckM lives in the post-assembly image / full conda env." >&2
+            echo "       conda install -c bioconda checkm-genome pplacer hmmer prodigal" >&2
+            exit 1
+        fi
+    done
+
+    src='${circ_fasta}'
+    if [ -f "\$src" ]
+    then
+        mkdir -p genomes_in
+        cp "\$src" genomes_in/
+        src=genomes_in
+    fi
+
+    ext='${genome_extension}'
+    ext="\${ext#.}"
+    if [ ! -d '${checkm_db}' ]
+    then
+        echo "ERROR: CheckM database directory is missing: ${checkm_db}" >&2
+        exit 1
+    fi
     checkm data setRoot '${checkm_db}'
-    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${circ_fasta}' checkm_lineage && \
-    checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 
+    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x "\$ext" "\$src" checkm_lineage
+    checkm qa -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/ > checkm_lineage.txt
 
-    checkm tree -r --nt -t ${cpus}  -x '${genome_extension}' --pplacer_threads ${cpus}  '${circ_fasta}' checkm_tree && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
-
-    
-
-
-    # Building the genome-based tree
-    Rscript -e "
-    library(Biostrings)
-    library(msa)
-    library(ape)
-    library(tidyverse)
-    library(readr)
-    library(seqinr)
-
-    seqs <- Biostrings::readDNAStringSet('checkm_tree/storage/tree/concatenated.fasta', format = 'fasta')
-    als <- msa(seqs)
-
-    als_seqinr <- msaConvert(als, type = 'seqinr::alignment')
-    
-    dis <- dist.alignment(als_seqinr, 'identity')
-    tr <- nj(dis)
-
-    write.tree(phy = tr, file = 'genome_tree.tree')
-    "
-
-    
-
-
-
-
+    set +e
+    checkm tree -r --nt -t ${cpus} -x "\$ext" --pplacer_threads ${cpus} "\$src" checkm_tree \\
+        && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree \\
+        && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    [ -f taxon_tree.newick ] || : > taxon_tree.newick
+    [ -f genome_tree.newick ] || : > genome_tree.newick
+    [ -f genome_tree.tree ] || : > genome_tree.tree
     """
-
-
 }
 
 
@@ -1333,9 +1344,6 @@ process quast_check {
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
-
-    #Update numpy 
-    pip install --upgrade numpy
 
     mkdir -p quast_in quast_stat
 

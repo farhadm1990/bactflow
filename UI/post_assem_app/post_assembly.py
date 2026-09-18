@@ -1409,6 +1409,62 @@ def taxa_report():
     else:
         return jsonify({"exists": False})
 
+
+@app.route("/check-checkm", methods=["POST"])
+def check_checkm():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False, "has_tree": False})
+    try:
+        from checkm_report import (
+            find_checkm_files,
+            load_gtdb_species_map,
+            parse_checkm_lineage_table,
+            prepare_checkm_tree,
+            read_text_if_nonempty,
+        )
+        lineage_path, taxon_path, genome_path = find_checkm_files(out_dir)
+        lineage_text = read_text_if_nonempty(lineage_path)
+        rows = parse_checkm_lineage_table(lineage_text) if lineage_text else []
+        if not rows:
+            return jsonify({"exists": False, "has_tree": False})
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        gtdb_map = load_gtdb_species_map(out_dir)
+        newick = ""
+        tree_source = ""
+        for path, kind in ((taxon_path, "taxon_tree.newick"), (genome_path, "genome_tree")):
+            raw = read_text_if_nonempty(path)
+            if not raw:
+                continue
+            prepared = prepare_checkm_tree(raw, rows, gtdb_map)
+            if prepared:
+                newick = prepared
+                tree_source = kind
+                break
+        return jsonify({
+            "exists": True,
+            "checkm_table": render_template_string(table_html, id="checkm-tab", table=rows),
+            "has_tree": bool(newick),
+            "newick": newick,
+            "tree_source": tree_source,
+            "n_genomes": len(rows),
+        })
+    except Exception as exc:
+        print(f"check-checkm failed: {exc}")
+        return jsonify({"exists": False, "has_tree": False})
+
+
 @app.route("/snp-finder", methods = ["POST"])
 def snp_finder():
     out_dir = request.form.get("out_dir")

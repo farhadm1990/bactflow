@@ -123,7 +123,9 @@ const BactflowProcessEta = {
     proc.finishedAt = Date.now();
     proc.frozenElapsed = (proc.finishedAt - proc.startedAt) / 1000;
     proc.percent = 100;
-    this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
+    if (!proc.cached && proc.frozenElapsed >= 45) {
+      this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
+    }
   },
 
   markHashDone(hash, terminal) {
@@ -161,15 +163,7 @@ const BactflowProcessEta = {
 
     const wf = t.match(/\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
     if (wf && Number(wf[1]) >= 100 && Number(wf[2]) >= Number(wf[3])) {
-      this.processes.forEach((proc) => {
-        if (!proc.done && proc.id !== "_executor") {
-          this.markDone(proc);
-          if (proc.row && terminal) {
-            this.renderRow(proc, terminal.classify(proc.lastLine));
-          }
-          matched = true;
-        }
-      });
+      matched = true;
     }
 
     if (/ERROR:\s*Bakta failed|Bakta failed for|annotation summary|If you use this software in a publication/i.test(t)) {
@@ -321,13 +315,8 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-
-    const eta = this.computeEta(proc);
-    if (eta.label === "overrun") {
-      return `still running · ${runFor} (past estimate)`;
-    }
-    if (eta.seconds != null && eta.seconds > 0) {
-      return `ETA ${this.formatClockEta(eta.seconds)} (~${this.formatDuration(eta.seconds)} left) · ran ${runFor}`;
+    if (proc.percent > 0 && proc.percent < 100) {
+      return `running ${proc.percent}% · ${runFor}`;
     }
     return `running · ${runFor}`;
   },
@@ -485,7 +474,9 @@ const BactflowProcessEta = {
     if (!proc || proc.id === "_executor") {
       return "executor";
     }
-    return this.prettyName(proc.name);
+    const pretty = this.prettyName(proc.name);
+    const hash = proc.workHash || "";
+    return hash ? `${pretty} [${hash}]` : pretty;
   },
 
   upsert(parsed) {
@@ -531,6 +522,9 @@ const BactflowProcessEta = {
 
     if (parsed.id && parsed.id !== "_executor") {
       this.hashToProc.set(parsed.id, proc);
+      if (this.isHashId(parsed.id)) {
+        proc.workHash = parsed.id;
+      }
       if (!this.isHashId(parsed.name)) {
         this.hashToName.set(parsed.id, parsed.name);
       }
@@ -616,14 +610,6 @@ const BactflowProcessEta = {
   },
 
   refreshAll(terminal) {
-    if (this.workflow.percent >= 100 && this.workflow.total > 0 &&
-        this.workflow.completed >= this.workflow.total) {
-      this.processes.forEach((proc) => {
-        if (!proc.done && proc.id !== "_executor") {
-          this.markDone(proc);
-        }
-      });
-    }
     this.processes.forEach((proc) => {
       if (proc.row && (!proc.done || proc.frozenElapsed != null)) {
         if (!proc.done || proc.row.dataset.bfSettled !== "1") {
@@ -637,6 +623,39 @@ const BactflowProcessEta = {
     if (this.allDone()) {
       this.stopTick();
     }
+  },
+
+  applyLiveActivity(line, terminal) {
+    const t = String(line || "");
+    const rules = [
+      [/Identifying marker|Executing gene calling|Running Prodigal|TIGRFAM|Pfam|Executing aligning|hmmalign|Masking columns|Executing classification|Using GTDB-Tk|gtdbtk /i, /taxonomy|gtdbtk/i],
+      [/checkm lineage|checkm tree|checkm qa|CheckM /i, /checkm/i],
+      [/Running circlator|circlator fixstart|Circulated genomes/i, /circul/i],
+      [/quast\.py|Running QUAST|QUAST:/i, /quast/i]
+    ];
+    let hit = false;
+    for (const [re, nameRe] of rules) {
+      if (!re.test(t)) {
+        continue;
+      }
+      this.processes.forEach((proc) => {
+        if (proc.done || proc.id === "_executor") {
+          return;
+        }
+        if (nameRe.test(`${proc.name} ${proc.id}`)) {
+          proc.phase = "running";
+          if (!proc.runningAt) {
+            proc.runningAt = Date.now();
+          }
+          proc.lastLine = line;
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(line));
+          }
+          hit = true;
+        }
+      });
+    }
+    return hit;
   },
 
   baktaProc() {
@@ -699,6 +718,7 @@ const BactflowProcessEta = {
   handleLine(terminal, line, className) {
     this.scanLineForCompletion(line, terminal);
     this.applyBaktaStage(line, terminal);
+    this.applyLiveActivity(line, terminal);
 
     const parsed = this.parse(line);
     if (!parsed) {
@@ -819,13 +839,13 @@ const BactflowTerminal = {
     if (this.quiet === false) {
       return true;
     }
-    if (/^\[-\s*\]/.test(t) && !/\[\d/.test(t)) {
+    if (/^\[-\s*\]/.test(t) && !/process\s*>/i.test(t)) {
       return false;
     }
     if (/Tip: you can|Check '\.nextflow\.log'|WORKFLOW OUTPUT DEFINITION|is available - Please consider/.test(t)) {
       return false;
     }
-    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >|taxonomy|bakta|checkm|quast/i.test(t);
+    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >|taxonomy|bakta|checkm|quast|Identifying marker|Executing gene|Executing align|Executing class|Prodigal|hmmalign|gtdbtk|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
   },
 
   setStatus(text, kind) {

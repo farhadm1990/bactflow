@@ -63,13 +63,15 @@ RUN apt-get update \
         gzip \
         libgomp1 \
         libgfortran5 \
-        ncbi-blast+ \
         procps \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
               /usr/share/doc /usr/share/man /usr/share/info /usr/share/ncbi \
               /usr/share/perl /usr/share/perl5 /usr/lib/python3.11 \
               /usr/lib/python3 /usr/lib/valgrind \
     && rm -f /usr/bin/python3 /usr/bin/python3.11
+
+COPY docker/install-blast.sh /tmp/install-blast.sh
+RUN bash /tmp/install-blast.sh 2.17.0 /usr/local/bin && rm -f /tmp/install-blast.sh
 
 COPY --from=jre /opt/jre /usr/lib/jvm/bactflow-java
 COPY --from=builder /opt/conda/envs/bactflow /opt/conda/envs/bactflow
@@ -90,15 +92,18 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && printf '%s\n' \
         'export CONDA_PREFIX=/opt/conda/envs/bactflow' \
         'export CONDA_DEFAULT_ENV=bactflow' \
-        'export PATH="/opt/conda/envs/bactflow/bin:/opt/conda/bin:$PATH"' \
+        'export PATH="/opt/conda/envs/bactflow/bin:/usr/local/bin:/opt/conda/bin:$PATH"' \
         'export LD_LIBRARY_PATH="/opt/conda/envs/bactflow/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
         '[ -f /opt/conda/etc/profile.d/conda.sh ] && . /opt/conda/etc/profile.d/conda.sh' \
         > /etc/profile.d/bactflow.sh \
     && chmod 644 /etc/profile.d/bactflow.sh \
     && echo '[ -f /etc/profile.d/bactflow.sh ] && . /etc/profile.d/bactflow.sh' >> /etc/bash.bashrc \
+    && ln -sfn /usr/local/bin/blastn /opt/conda/envs/bactflow/bin/blastn \
+    && ln -sfn /usr/local/bin/blastp /opt/conda/envs/bactflow/bin/blastp \
+    && ln -sfn /usr/local/bin/makeblastdb /opt/conda/envs/bactflow/bin/makeblastdb \
     && python -c "import flask, pandas, Bio, psutil, pkg_resources, circlator, bakta, torch, medaka; x=torch.zeros(4,4); x=x@x" \
     && seqkit version \
-    && blastn -version \
+    && blastn -version | grep -q '2.17.0' \
     && diamond version \
     && bakta --version \
     && command -v gtdbtk \

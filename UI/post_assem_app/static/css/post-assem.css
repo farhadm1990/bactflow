@@ -297,6 +297,8 @@ table.dataTable thead th {
 #baktaDiv,
 #circDiv,
 #taxa_class,
+#checkmDiv,
+#checkmTreeDiv,
 #snpsDiv,
 #svs,
 #output-div {
@@ -369,4 +371,80 @@ table.dataTable thead th {
     height: auto !important;
     min-height: 200px;
     max-height: none;
+}
+
+#checkm-tab {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+#checkm-tab th {
+    background-color: #404340;
+    color: white;
+    padding: 10px;
+    text-align: center;
+}
+
+#checkm-tab td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+#checkm-tab tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+#checkm-tab tr:hover {
+    background-color: #ddd;
+}
+
+#output-checkm {
+    white-space: normal !important;
+}
+
+.checkm-tree-wrap {
+    border: 1px solid rgb(105, 105, 105);
+    border-top: 0;
+    margin: 0 10px 10px;
+    padding: 0;
+    width: 95%;
+    overflow: auto;
+    background: #f7faf8;
+    min-height: 420px;
+}
+
+#checkm-tree-svg {
+    display: block;
+    max-width: none;
+    margin: 0 auto;
+}
+
+#checkm-tree-bar {
+    width: 95%;
+    margin: 10px 10px 0;
+}
+
+.checkm-tree-toggle {
+    border: 1px solid #42756b;
+    background: #fff;
+    color: #42756b;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 4px 12px;
+}
+
+.checkm-tree-toggle:hover,
+.checkm-tree-toggle:focus {
+    background: #e7f3ef;
+    color: #2f4f4f;
+}
+
+.checkm-tree-toggle.active {
+    background: #42756b;
+    color: #fff;
+    border-color: #42756b;
 }

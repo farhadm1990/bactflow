@@ -848,9 +848,8 @@ process checkm_lineage {
     """
     #!/usr/bin/bash
     source \$(conda info --base)/etc/profile.d/conda.sh
-    conda activate bactflow 
-    
-    pip install --upgrade checkm-genome
+    conda activate bactflow
+
     checkm data setRoot '${checkm_db}'
     checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x '${genome_extension}' '${circ_fasta}' checkm_lineage && \
     checkm qa  -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/  > checkm_lineage.txt 

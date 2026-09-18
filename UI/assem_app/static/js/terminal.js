@@ -124,7 +124,9 @@ const BactflowProcessEta = {
     proc.finishedAt = Date.now();
     proc.frozenElapsed = (proc.finishedAt - proc.startedAt) / 1000;
     proc.percent = 100;
-    this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
+    if (!proc.cached && proc.frozenElapsed >= 45) {
+      this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
+    }
   },
 
   markHashDone(hash, terminal) {
@@ -290,13 +292,8 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-
-    const eta = this.computeEta(proc);
-    if (eta.label === "overrun") {
-      return `still running · ${runFor} (past estimate)`;
-    }
-    if (eta.seconds != null && eta.seconds > 0) {
-      return `ETA ${this.formatClockEta(eta.seconds)} (~${this.formatDuration(eta.seconds)} left) · ran ${runFor}`;
+    if (proc.percent > 0 && proc.percent < 100) {
+      return `running ${proc.percent}% · ${runFor}`;
     }
     return `running · ${runFor}`;
   },
@@ -454,7 +451,9 @@ const BactflowProcessEta = {
     if (!proc || proc.id === "_executor") {
       return "executor";
     }
-    return this.prettyName(proc.name);
+    const pretty = this.prettyName(proc.name);
+    const hash = proc.workHash || "";
+    return hash ? `${pretty} [${hash}]` : pretty;
   },
 
   upsert(parsed) {
@@ -500,6 +499,9 @@ const BactflowProcessEta = {
 
     if (parsed.id && parsed.id !== "_executor") {
       this.hashToProc.set(parsed.id, proc);
+      if (this.isHashId(parsed.id)) {
+        proc.workHash = parsed.id;
+      }
       if (!this.isHashId(parsed.name)) {
         this.hashToName.set(parsed.id, parsed.name);
       }
@@ -595,6 +597,40 @@ const BactflowProcessEta = {
     }
   },
 
+  applyLiveActivity(line, terminal) {
+    const t = String(line || "");
+    const rules = [
+      [/running SPAdes|spades.py/i, /spades/i],
+      [/running Unicycler|unicycler/i, /unicycler/i],
+      [/running Flye|flye /i, /flye|pacbio/i],
+      [/Running circlator|circlator fixstart/i, /circul/i],
+      [/quast\.py|Running QUAST/i, /quast/i]
+    ];
+    let hit = false;
+    for (const [re, nameRe] of rules) {
+      if (!re.test(t)) {
+        continue;
+      }
+      this.processes.forEach((proc) => {
+        if (proc.done || proc.id === "_executor") {
+          return;
+        }
+        if (nameRe.test(`${proc.name} ${proc.id}`)) {
+          proc.phase = "running";
+          if (!proc.runningAt) {
+            proc.runningAt = Date.now();
+          }
+          proc.lastLine = line;
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(line));
+          }
+          hit = true;
+        }
+      });
+    }
+    return hit;
+  },
+
   isProcessLine(line) {
     const t = String(line || "").trim();
     return /^\[-+\s*\]\s+(?:process\s+>\s+)?[A-Za-z_]/i.test(t) ||
@@ -605,6 +641,7 @@ const BactflowProcessEta = {
 
   handleLine(terminal, line, className) {
     this.scanLineForCompletion(line, terminal);
+    this.applyLiveActivity(line, terminal);
 
     const parsed = this.parse(line);
     if (!parsed) {
@@ -725,13 +762,13 @@ const BactflowTerminal = {
     if (this.quiet === false) {
       return true;
     }
-    if (/^\[-\s*\]/.test(t) && !/\[\d/.test(t)) {
+    if (/^\[-\s*\]/.test(t) && !/process\s*>/i.test(t)) {
       return false;
     }
     if (/Tip: you can|Check '\.nextflow\.log'|WORKFLOW OUTPUT DEFINITION|is available - Please consider/.test(t)) {
       return false;
     }
-    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >/i.test(t);
+    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
   },
 
   setStatus(text, kind) {

@@ -1,182 +1,179 @@
 #!/bin/bash
+# GTDB-Tk wrapper. Do not pip-upgrade gtdbtk: 2.7+ needs R232, 2.4.1–2.6.1 need R220/R226.
 
-#This package dpends on pplacer, prodigal, hmmer
+set -euo pipefail
 
 genomes="./"
 cpus=35
 extension="fasta"
 out_dir="./gtdbtk_out"
-db_dir=$(echo $GTDBTK_DATA_PATH)
+db_dir="${GTDBTK_DATA_PATH:-}"
 
 display_help(){
-    echo "Usage: $0 -g <genomes_directory> -c <cpus> -e <extension> -d <database directory> -o <output_directory>" #$0 is the name of the script
+    echo "Usage: $0 -g <genomes_directory> -c <cpus> -e <extension> -d <database directory> -o <output_directory>"
     echo "Options:"
-    echo "  -g   Genomes directory (default: ./)"
+    echo "  -g   Genomes directory to FASTA files"
     echo "  -c   Number of CPUs (default: 35)"
-    echo "  -e   File extension (default: fasta)"
-    echo "  -d   Path to the GTDBTK DATA"
-    echo "  -o   Output directory (default: out_dir)"
+    echo "  -e   File extension without dot (default: fasta)"
+    echo "  -d   Path to the GTDB-Tk reference data"
+    echo "  -o   Output directory (default: gtdbtk_out)"
     exit 1
 }
 
 while getopts ":g:c:e:d:o:" opt
-do 
+do
     case $opt in
-        g) 
-            genomes="$OPTARG"
-            ;;
-        c)
-            cpus="$OPTARG"
-            ;;
-        e)  
-            extension="$OPTARG"
-            ;;
-        d)
-            db_dir="$OPTARG"
-            ;;
-        o) 
-            out_dir="$OPTARG"
-            ;;
-        \?)
-            echo "Invalid option: -$OPTARG" >&2
-            exit 1
-            ;;
-        :)
-            echo "Option -$OPTARG requires an argument." >&2
-            exit 1
-            ;;
-    esac 
+        g) genomes="$OPTARG" ;;
+        c) cpus="$OPTARG" ;;
+        e) extension="$OPTARG" ;;
+        d) db_dir="$OPTARG" ;;
+        o) out_dir="$OPTARG" ;;
+        \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+        :) echo "Option -$OPTARG requires an argument." >&2; exit 1 ;;
+    esac
 done
 
 if [ "$#" -eq 0 ]
-then 
+then
     display_help
-fi 
+fi
 
-if [ ! -d "$out_dir" ]
-then 
-    mkdir -p "$out_dir"
-fi 
-
-# Checking installations
-echo "Checking GTDBtk installations ... "
+mkdir -p "${out_dir}"
+extension="${extension#.}"
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
-
-######## create the download file from https://github.com/bioconda/bioconda-recipes/blob/master/recipes/gtdbtk/download-db.sh#####
-
-cat << 'EOF' > "${out_dir}"/download-db.sh
-
-set -e
-
-# Configuration
-N_FILES_IN_TAR=241860
-DB_URL="https://data.gtdb.ecogenomic.org/releases/release220/220.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r220_data.tar.gz"
-TARGET_TAR_NAME="gtdbtk_r220_data.tar.gz"
-
-# Script variables (no need to configure)
-TARGET_DIR=${1:-$GTDBTK_DATA_PATH}
-TARGET_TAR="${TARGET_DIR}/${TARGET_TAR_NAME}"
-
-# Check if this is overriding an existing version
-mkdir -p "$TARGET_DIR"
-n_folders=$(find "$TARGET_DIR" -maxdepth 1 -type d | wc -l)
-if [ "$n_folders" -gt 1 ]; then
-  echo "[ERROR] - The GTDB-Tk database directory must be empty, please empty it: $TARGET_DIR"
-  exit 1
-fi
-
-# Start the download process
-# Note: When this URL is updated, ensure that the "--total" flag of TQDM below is also updated
-echo "[INFO] - Downloading the GTDB-Tk database to: ${TARGET_DIR}"
-wget $DB_URL -O "$TARGET_TAR"
-
-# Uncompress and pipe output to TQDM
-echo "[INFO] - Extracting archive..."
-tar xvzf "$TARGET_TAR" -C "${TARGET_DIR}" --strip 1 | tqdm --unit=file --total=$N_FILES_IN_TAR --smoothing=0.1 >/dev/null
-
-# Remove the file after successful extraction
-rm "$TARGET_TAR"
-echo "[INFO] - The GTDB-Tk database has been successfully downloaded and extracted."
-
-# Set the environment variable
-if conda env config vars set GTDBTK_DATA_PATH="$TARGET_DIR"; then
-  echo "[INFO] - Added GTDBTK_DATA_PATH ($TARGET_DIR) to the GTDB-Tk conda environment."
-else
-  echo "[INFO] - Conda not found in PATH, please be sure to set the GTDBTK_DATA_PATH envrionment variable"
-  echo "export GTDBTK_DATA_PATH=$TARGET_DIR before running GTDB-Tk. "
-fi
-
-exit 0
-EOF
-
-chmod +x "${out_dir}"/download-db.sh
-
-
 conda activate bactflow
 export PATH="${CONDA_PREFIX:-}/bin:${PATH}"
 export GTDBTK_DATA_PATH="${db_dir}"
 
-# pplacer ships a binary named guppy (tree conversion). This is NOT ONT Guppy.
-ensure_pplacer_guppy() {
-    if command -v guppy >/dev/null 2>&1 && command -v pplacer >/dev/null 2>&1; then
-        echo "pplacer: $(command -v pplacer)"
-        echo "pplacer guppy: $(command -v guppy)"
-        return 0
-    fi
-    echo "GTDB-Tk classify needs pplacer and its guppy helper (not Oxford Nanopore Guppy)."
+echo "Checking GTDB-Tk installations ..."
+
+if ! command -v gtdbtk >/dev/null 2>&1; then
+    echo "ERROR: gtdbtk is not on PATH." >&2
+    echo "       conda activate bactflow && conda install -c bioconda 'gtdbtk=2.6.1'" >&2
+    echo "       (2.6.1 matches GTDB R226. 2.7+ requires R232.)" >&2
+    exit 1
+fi
+
+# pplacer ships a binary named guppy (tree conversion). This is NOT Oxford Nanopore Guppy.
+if ! command -v pplacer >/dev/null 2>&1 || ! command -v guppy >/dev/null 2>&1; then
+    echo "GTDB-Tk classify needs pplacer and its guppy helper (not ONT Guppy)."
     if command -v micromamba >/dev/null 2>&1; then
-        micromamba install -y -p "${CONDA_PREFIX:-}" -c bioconda -c conda-forge pplacer
+        micromamba install -y -p "${CONDA_PREFIX:-}" -c bioconda -c conda-forge pplacer || true
     elif command -v mamba >/dev/null 2>&1; then
-        mamba install -y -c bioconda -c conda-forge pplacer
-    elif command -v conda >/dev/null 2>&1 && conda --help 2>/dev/null | grep -q 'install'; then
-        conda install -y -c bioconda -c conda-forge pplacer
+        mamba install -y -c bioconda -c conda-forge pplacer || true
     fi
     hash -r 2>/dev/null || true
-    if command -v guppy >/dev/null 2>&1 && command -v pplacer >/dev/null 2>&1; then
-        echo "pplacer guppy restored: $(command -v guppy)"
-        return 0
-    fi
+fi
+if ! command -v pplacer >/dev/null 2>&1 || ! command -v guppy >/dev/null 2>&1; then
     echo "ERROR: pplacer/guppy is not on PATH." >&2
-    echo "       Host: conda activate bactflow && conda install -c bioconda pplacer" >&2
-    echo "       Docker: rebuild bactflow_postassem (do not delete bin/guppy in slim-env)." >&2
+    echo "       Host: conda install -c bioconda pplacer" >&2
+    echo "       Docker: rebuild the post-assembly image (keep bin/guppy)." >&2
     exit 1
-}
-ensure_pplacer_guppy
-# Setting up the database
-path_f=$(which gtdbtk)
-v_f=$(gtdbtk -v)
-echo "I found gtdbtk version ${v_f} in ${path_f}"
-#finding location of the database
-db_loc=$(echo $GTDBTK_DATA_PATH)
-db_loc_chk=$(echo $db_loc | grep -o "[a-zA-Z]" | wc -l)
+fi
+if ! command -v skani >/dev/null 2>&1; then
+    echo "ERROR: skani is not on PATH (required by GTDB-Tk 2.4+ classify)." >&2
+    echo "       conda install -c bioconda skani" >&2
+    exit 1
+fi
+if ! command -v prodigal >/dev/null 2>&1 || ! command -v hmmsearch >/dev/null 2>&1; then
+    echo "ERROR: prodigal and hmmer are required for gtdbtk identify." >&2
+    exit 1
+fi
 
-if [ "$db_loc_chk" -gt 0 ]
-then
-    echo "GTDBtk database is properly setup at $db_loc"
-else
-    echo "Database is not properly setup, working on it ..."
-    if [ ! -d "${out_dir}"/databases/gtdb_db ]
-    then
-        mkdir -p "${out_dir}"/databases/gtdb_db
-        echo "Downloading GTDBtk database, takes a while ..."
-        ./"${out_dir}"/download-db.sh "${out_dir}"/databases/gtdb_db
+echo "pplacer: $(command -v pplacer)"
+echo "pplacer guppy: $(command -v guppy)"
+echo "skani: $(command -v skani)"
+
+tk_ver="$(gtdbtk -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+echo "I found gtdbtk version ${tk_ver:-unknown} in $(command -v gtdbtk)"
+
+if [ -z "${db_dir}" ] || [ ! -d "${db_dir}" ]; then
+    echo "ERROR: GTDB-Tk database directory is missing: ${db_dir:-<empty>}" >&2
+    exit 1
+fi
+export GTDBTK_DATA_PATH="${db_dir}"
+echo "GTDB-Tk database: ${db_dir}"
+
+db_rel=""
+if [ -f "${db_dir}/metadata/metadata.txt" ]; then
+    db_rel="$(grep -Eo '[Rr]?[0-9]{3}' "${db_dir}/metadata/metadata.txt" | head -1 | tr -d 'Rr' || true)"
+fi
+if [ -z "${db_rel}" ]; then
+    db_rel="$(basename "${db_dir}" | grep -Eo '[0-9]{3}' | head -1 || true)"
+fi
+if [ -n "${db_rel}" ]; then
+    echo "Detected reference data release: R${db_rel}"
+fi
+
+# Official compatibility (https://ecogenomics.github.io/GTDBTk/installing/index.html):
+#   R232: 2.7.0+
+#   R226: 2.4.1 – 2.6.1
+#   R220: 2.4.0 – 2.6.1
+if [ -n "${tk_ver}" ] && [ -n "${db_rel}" ]; then
+    tk_minor="${tk_ver#*.}"
+    tk_minor="${tk_minor%%.*}"
+    if [ "${tk_ver%%.*}" -ge 2 ] && [ "${tk_minor}" -ge 7 ] && [ "${db_rel}" != "232" ]; then
+        echo "ERROR: GTDB-Tk ${tk_ver} requires reference data R232, but this database is R${db_rel}." >&2
+        echo "       That is why classify started failing after the 2.7 upgrade." >&2
+        echo "       Keep R226:  conda install -c bioconda 'gtdbtk=2.6.1'" >&2
+        echo "       Or download R232 and point --gtdbtk_data_path at it." >&2
+        exit 1
+    fi
+    if [ "${tk_ver%%.*}" -eq 2 ] && [ "${tk_minor}" -le 6 ] && [ "${db_rel}" = "232" ]; then
+        echo "ERROR: GTDB-Tk ${tk_ver} cannot use R232. Install gtdbtk>=2.7.0 or use R226." >&2
+        exit 1
     fi
 fi
 
-# Gene calling
+if [ -f "${genomes}" ]; then
+    mkdir -p "${out_dir}/genomes_in"
+    cp -f "${genomes}" "${out_dir}/genomes_in/"
+    genomes="${out_dir}/genomes_in"
+fi
+if [ ! -d "${genomes}" ]; then
+    echo "ERROR: genome directory not found: ${genomes}" >&2
+    exit 1
+fi
+
+shopt -s nullglob
+hits=("${genomes}"/*."${extension}")
+if [ "${#hits[@]}" -eq 0 ]; then
+    for cand in fasta fa fna; do
+        hits=("${genomes}"/*."${cand}")
+        if [ "${#hits[@]}" -gt 0 ]; then
+            extension="${cand}"
+            echo "Using detected genome extension: ${extension}"
+            break
+        fi
+    done
+fi
+if [ "${#hits[@]}" -eq 0 ]; then
+    echo "ERROR: No FASTA files in ${genomes}" >&2
+    ls -la "${genomes}" >&2 || true
+    exit 1
+fi
+
 echo "Executing gene calling..."
 gtdbtk identify --genome_dir "${genomes}" --out_dir "${out_dir}/identify" --cpus "${cpus}" --extension "${extension}"
 
-# Aligning genome 
 echo "Executing aligning..."
 gtdbtk align --identify_dir "${out_dir}/identify" --out_dir "${out_dir}/align" --cpus "${cpus}"
 
-# Classification
-# GTDB-Tk 2.7+ removed --skip_ani_screen (ANI screen is built-in via skani).
 echo "Executing classification..."
 classify_extra=()
 if gtdbtk classify --help 2>&1 | grep -q -- '--skip_ani_screen'; then
     classify_extra+=(--skip_ani_screen)
 fi
 gtdbtk classify --genome_dir "${genomes}" --align_dir "${out_dir}/align" --out_dir "${out_dir}/classify" -x "${extension}" --cpus "${cpus}" "${classify_extra[@]}"
+
+shopt -s nullglob
+summaries=("${out_dir}"/classify/*.summary.tsv)
+if [ "${#summaries[@]}" -eq 0 ]; then
+    echo "ERROR: GTDB-Tk classify finished without a summary TSV in ${out_dir}/classify" >&2
+    ls -la "${out_dir}" "${out_dir}/classify" >&2 || true
+    exit 1
+fi
+echo "GTDB-Tk summaries ready:"
+ls -l "${summaries[@]}"
+echo "GTDB-Tk output directory: $(pwd)/${out_dir}"

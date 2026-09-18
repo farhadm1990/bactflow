@@ -7,7 +7,8 @@ dependencies:
   - python=3.11
   - libopenblas
   - checkm-genome=1.2.4
-  - gtdbtk=2.7.2
+  # 2.6.1 is the newest GTDB-Tk that still supports R226. 2.7+ needs R232.
+  - gtdbtk=2.6.1
   - pplacer=1.1.alpha19
   - hmmer=3.4
   - prodigal=2.6.3
@@ -51,7 +52,7 @@ dependencies:
   - bioconductor-matrixgenerics=1.18.0
   - bioconductor-biostrings
   - pip:
-      - bakta>=1.12.0
+      - bakta==1.12.0
       - pyrodigal>=3.5.0
       - pyhmmer>=0.10.15
       - pyCirclize==1.10.1

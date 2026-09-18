@@ -187,6 +187,8 @@ function run_wf(action){
           quastShown = false;
           baktaShown = false;
           taxShown = false;
+          checkmShown = false;
+          checkmTreeShown = false;
           connectToStream(action);
         })
     
@@ -638,24 +640,28 @@ function showReport(){
     fetchJsonSafe("/circular", formData),
     fetchJsonSafe("/taxa-report", formData),
     fetchJsonSafe("/check-circ", formData),
+    fetchJsonSafe("/check-checkm", formData),
   ])
-    .then(([quastData, baktaReady, circPlt, taxData, circFasta]) => {
+    .then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData]) => {
       const quastDiv = document.getElementById("quastDiv");
       const baktaDiv = document.getElementById("baktaDiv");
       const circDiv  = document.getElementById("circDiv");
       const circSpin = document.getElementById("spin-circ");
       const taxDiv = document.getElementById("taxa_class");
+      const checkmDiv = document.getElementById("checkmDiv");
+      const checkmTreeDiv = document.getElementById("checkmTreeDiv");
 
       const circleOn = String(formData.get("circle_genome") || "") === "true";
       const quastOn = String(formData.get("run_quast") || "") === "true";
       const baktaOn = String(formData.get("bakta_annot") || "") === "true";
       const taxOn = String(formData.get("tax_class") || "") === "true";
+      const checkmOn = String(formData.get("run_checkm") || "") === "true";
       const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
       renderCircFastaList(circFasta || {}, { circleOn, runDone });
 
       const statusEl = document.getElementById("results-status-text");
       const statusWrap = document.getElementById("resultsStatusDiv");
-      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists)) {
+      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists))) {
         const bits = [];
         if (circleOn) {
           bits.push(circFasta && circFasta.exists
@@ -670,6 +676,9 @@ function showReport(){
         }
         if (taxOn) {
           bits.push(taxData.exists ? "Taxonomy: ready" : "Taxonomy: missing");
+        }
+        if (checkmOn) {
+          bits.push(checkmData && checkmData.exists ? "CheckM: ready" : "CheckM: missing");
         }
         if (bits.length) {
           statusEl.textContent = bits.join(" · ");
@@ -722,6 +731,34 @@ function showReport(){
         }
       } else if (taxDiv) {
         taxDiv.style.display = "none";
+      }
+
+      if (checkmData && checkmData.exists) {
+        if (checkmDiv) {
+          checkmDiv.style.display = "block";
+        }
+        if (!checkmShown) {
+          checkmShown = true;
+          renderCheckmTable(checkmData);
+        }
+        if (checkmData.has_tree && checkmData.newick) {
+          if (checkmTreeDiv) {
+            checkmTreeDiv.style.display = "block";
+          }
+          if (!checkmTreeShown) {
+            checkmTreeShown = true;
+            renderCheckmTree(checkmData);
+          }
+        } else if (checkmTreeDiv) {
+          checkmTreeDiv.style.display = "none";
+        }
+      } else {
+        if (checkmDiv) {
+          checkmDiv.style.display = "none";
+        }
+        if (checkmTreeDiv) {
+          checkmTreeDiv.style.display = "none";
+        }
       }
     })
     .catch((error) => console.error("Error checking post-assembly reports:", error));
@@ -778,6 +815,93 @@ async function taxReport() {
     console.error("❌ Error fetching taxa report:", error);
     alert("An error occurred while fetching the taxa report.");
   }
+}
+
+function renderCheckmTable(data) {
+  const wrap = document.getElementById("checkmDiv");
+  const out = document.getElementById("output-checkm");
+  const hint = document.getElementById("checkm-table-hint");
+  if (!out) {
+    return;
+  }
+  if (!data || !data.exists || !data.checkm_table) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const n = data.n_genomes || "";
+    hint.textContent = n
+      ? `CheckM lineage QA for ${n} genome(s). Completeness, contamination, and marker lineage are from checkm_lineage.txt.`
+      : "CheckM lineage QA from checkm_lineage.txt.";
+  }
+  out.innerHTML = data.checkm_table;
+  setTimeout(() => {
+    if (!(window.$ && $.fn && $.fn.DataTable)) {
+      return;
+    }
+    if ($.fn.DataTable.isDataTable("#checkm-tab")) {
+      $("#checkm-tab").DataTable().destroy();
+    }
+    $("#checkm-tab").DataTable({
+      paging: true,
+      pageLength: 10,
+      searching: true,
+      ordering: true,
+      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+      scrollX: true
+    });
+  }, 300);
+}
+
+function renderCheckmTree(data) {
+  const wrap = document.getElementById("checkmTreeDiv");
+  const svg = document.getElementById("checkm-tree-svg");
+  const hint = document.getElementById("checkm-tree-hint");
+  if (!svg || !data || !data.has_tree || !data.newick) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const src = data.tree_source === "taxon_tree.newick"
+      ? "Pruned CheckM taxon tree (taxon_tree.newick). Tips are species names; boxed labels are taxon ranks; edge numbers are branch lengths."
+      : "CheckM genome tree. Tips are species names; boxed labels are taxon ranks when present; edge numbers are branch lengths.";
+    hint.textContent = src;
+  }
+  if (typeof CheckmTreeViz === "undefined") {
+    svg.textContent = "Tree viewer failed to load.";
+    return;
+  }
+  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout() || "rectangular");
+  document.querySelectorAll(".checkm-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout() || "rectangular"));
+  });
+}
+
+function setCheckmTreeLayout(layout) {
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.setLayout(layout);
+  document.querySelectorAll(".checkm-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === layout);
+  });
+}
+
+function downloadCheckmTreePng() {
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.downloadPng("checkm_taxon_tree.png");
 }
 
 async function quastReport() {
@@ -1086,6 +1210,8 @@ let reportCheckInterval = setInterval(showReport, 5000);
 let quastShown = false;
 let baktaShown = false;
 let taxShown = false;
+let checkmShown = false;
+let checkmTreeShown = false;
 
 
 // gene annotation 

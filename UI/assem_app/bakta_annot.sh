@@ -147,7 +147,13 @@ fi
 require_bakta_tool "aragorn" "Required by Bakta for tmRNA annotation."
 require_bakta_tool "pilercr" "Required by Bakta for CRISPR detection (piler-cr)."
 require_bakta_tool "diamond" "Required by Bakta for protein homology search."
-require_bakta_tool "blastn" "Required by Bakta (BLAST+)."
+require_bakta_tool "blastn" "Required by Bakta (BLAST+ 2.17.0)."
+blastn_ver="$(blastn -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [ "${blastn_ver}" != "2.17.0" ]; then
+    echo "ERROR: Bakta 1.12 needs blastn 2.17.0, found ${blastn_ver:-unknown} at $(command -v blastn)." >&2
+    echo "       conda activate bactflow && conda install -c bioconda 'blast=2.17.0'" >&2
+    exit 1
+fi
 require_bakta_tool "amrfinder" "Required by Bakta (ncbi-amrfinderplus)."
 
 # AMRFinderPlus 4.2.7+ needs DB >= 2025-09-22.2; older Bakta light DBs ship 2024-12-18.1.
@@ -167,9 +173,15 @@ fi
 
 cpus=$(($cpus))
 shopt -s nullglob
-fasta_files=("$genomes"/*.fasta)
+fasta_files=()
+if [ -d "$genomes" ]; then
+    fasta_files=("$genomes"/*.fasta "$genomes"/*.fa "$genomes"/*.fna)
+elif [ -f "$genomes" ]; then
+    fasta_files=("$genomes")
+fi
 if [ "${#fasta_files[@]}" -eq 0 ]; then
-    echo "ERROR: No .fasta files found in ${genomes}" >&2
+    echo "ERROR: No FASTA files (*.fasta, *.fa, *.fna) found in ${genomes}" >&2
+    ls -la "$genomes" >&2 || true
     exit 1
 fi
 

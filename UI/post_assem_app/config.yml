@@ -32,7 +32,7 @@ dependencies:
   - bwa=0.7.19
   - mummer=3.23
   - pplacer=1.1.alpha19
-  - gtdbtk=2.7.2
+  - gtdbtk=2.6.1
   - hmmer=3.4
   - prodigal=2.6.3
   - unicycler=0.5.1
@@ -70,7 +70,7 @@ dependencies:
   # Used by gene_plotter.r / pheatmap; pin so Docker need not hit Bioconductor at build time.
   - bioconductor-matrixgenerics=1.18.0
   - pip:
-    - bakta>=1.12.0
+    - bakta==1.12.0
     - pyrodigal>=3.5.0
     - pyhmmer>=0.10.15
     - pyCirclize==1.10.1

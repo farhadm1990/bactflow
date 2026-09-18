@@ -147,7 +147,14 @@ fi
 require_bakta_tool "aragorn" "Required by Bakta for tmRNA annotation."
 require_bakta_tool "pilercr" "Required by Bakta for CRISPR detection (piler-cr)."
 require_bakta_tool "diamond" "Required by Bakta for protein homology search."
-require_bakta_tool "blastn" "Required by Bakta (BLAST+)."
+require_bakta_tool "blastn" "Required by Bakta (BLAST+ 2.17.0)."
+blastn_ver="$(blastn -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [ "${blastn_ver}" != "2.17.0" ]; then
+    echo "ERROR: Bakta 1.12 needs blastn 2.17.0, found ${blastn_ver:-unknown} at $(command -v blastn)." >&2
+    echo "       conda activate bactflow && conda install -c bioconda 'blast=2.17.0'" >&2
+    echo "       Docker: rebuild bactflow_postassem (Debian BLAST 2.12 is not enough)." >&2
+    exit 1
+fi
 require_bakta_tool "amrfinder" "Required by Bakta (ncbi-amrfinderplus)."
 
 # AMRFinderPlus 4.2.7+ needs DB >= 2025-09-22.2; older Bakta light DBs ship 2024-12-18.1.
