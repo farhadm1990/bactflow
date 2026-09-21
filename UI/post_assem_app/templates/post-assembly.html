@@ -6,7 +6,7 @@
  
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix9">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix12">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters-top1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
@@ -502,20 +502,45 @@
       <br>
       <div id="taxa_class" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Taxonomic classification <strong>(GTDBtk)</strong></h4>
+        <p class="text-muted small" id="taxa-table-hint" style="margin: 10px 20px;"></p>
          <div id="output-taxa" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
               border-radius: 5px;
-              height: 600px;
+              height: 420px;
               width: 95%;
               overflow-y: auto;
               white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-          
-
-          
-      
+        </div>
+        <h4 class="text-left mb-3" id="taxa-abund-title" style="display: none;">Taxon abundance <strong>(GTDBtk)</strong></h4>
+        <p class="text-muted small" id="taxa-abund-hint" style="margin: 10px 20px; display: none;"></p>
+        <div id="output-taxa-abund" style="display: none; border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 420px;
+              width: 95%;
+              overflow-y: auto;
+              background-color: #ffffff;
+              color: darkslategrey;">
+        </div>
+        <br>
+      </div>
+      <div id="gtdbTreeDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">GTDB-Tk classify tree</h4>
+        <p class="text-muted small" id="gtdb-tree-hint" style="margin: 10px 20px;"></p>
+        <div class="bf-plot-bar" id="gtdb-tree-bar">
+          <span class="bf-plot-bar-title">Phylogenetic placement</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm gtdb-tree-toggle active" data-layout="rectangular" onclick="setGtdbTreeLayout('rectangular')">Rectangular</button>
+            <button type="button" class="btn btn-sm gtdb-tree-toggle" data-layout="circular" onclick="setGtdbTreeLayout('circular')">Circular</button>
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadGtdbTreePng()">Download PNG</button>
+          </div>
+        </div>
+        <div id="output-gtdb-tree" class="checkm-tree-wrap">
+          <svg id="gtdb-tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GTDB-Tk classify tree"></svg>
         </div>
         <br>
       </div>
@@ -744,8 +769,8 @@
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
 <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-live1"></script>
-<script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree1"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix22"></script>
+<script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree3"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix25"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

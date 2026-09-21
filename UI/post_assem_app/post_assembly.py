@@ -73,6 +73,16 @@ export NXF_ANSI_LOG=true
 def with_nextflow_java(command):
     return NF_JAVA_SETUP + "\n" + command
 
+
+def _truthy(value, default=False):
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _nf_work_dir(out_dir):
+    return os.path.join(out_dir, ".nextflow-work")
+
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
 
@@ -657,7 +667,7 @@ def run_bactflow():
             
             setup_only = request.form.get("setup_only", 'false')
             cpus = request.form.get('cpus', 1)   
-            out_dir = request.form.get('out_dir', './bactflow_out')
+            out_dir = os.path.abspath((request.form.get('out_dir') or './bactflow_out').strip())
             genome_extension = request.form.get('genome_extension', 'fasta')
             checkm_lineag_check = request.form.get('checkm_lineag_check', 'false')
             circle_genome = request.form.get('circle_genome', 'false')  
@@ -671,9 +681,13 @@ def run_bactflow():
             run_bakta = request.form.get("bakta_annot", "false")
             bakta_db = request.form.get("bakta_data_path", "")
             command = None
+            nf_work = _nf_work_dir(out_dir)
 
-            command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
+            command = f"""mkdir -p '{out_dir}' '{nf_work}'
+                    export NXF_WORK='{nf_work}'
+                    cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
+                    -w '{nf_work}' \\
                     --setup_only {setup_only} \\
                     --cpus {cpus} \\
                     --out_dir '{out_dir}' \\
@@ -690,7 +704,7 @@ def run_bactflow():
                     --run_quast {run_quast} \\
                     --genome_dir '{genome_dir}' \\
                     -ansi-log true"""
-            if resume_run:
+            if _truthy(resume_run, True):
                 command = command + " -resume"
             command = with_nextflow_java(command)
                 
@@ -1371,42 +1385,51 @@ python3 {shlex.quote(os.path.join(base_dir, "circular_plotter.py"))} -d {shlex.q
     
 @app.route("/taxa-report", methods = ["POST"])
 def taxa_report():
-    out_dir = request.form.get("out_dir")
-    if not out_dir:
+    raw_out = (request.form.get("out_dir") or "").strip()
+    if not raw_out:
         return jsonify({"exists": False})
-    tax_file = os.path.join(out_dir, "gtdbtk_out/classify/gtdbtk.bac120.summary.tsv")
-
-    if os.path.exists(tax_file):
-        df = pd.read_csv(tax_file, sep = "\t")
-        if all(col in df.columns for col in ['user_genome', 'classification', 'closest_genome_ani']):
-            df  = df[['user_genome', 'classification', 'closest_genome_ani']]
-
-            data = df.to_dict(orient="records")
-
-            table_html = """
-                <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
-                        <thead> 
-                            <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
-                        </thead>
-                        <tbody>
-                            {% for row in table %}
-                            <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                """
-               
-               
-          
-            return jsonify({
-                "exists": True, 
-                 "taxa_table": render_template_string(
-                    table_html, id="taxa-tab", tabnumber = "Table 2: Taxonomy classification table of genomes.", tabcaption="This classification was done by GDTBdk", table=data
-                )
-                })
-        else:
+    out_dir = os.path.abspath(raw_out)
+    try:
+        from gtdb_report import abundance_display_rows, load_gtdb_taxonomy, prepare_gtdb_tree, taxonomy_display_rows
+        extra_roots = [
+            os.path.join(base_dir, "work"),
+            os.path.join(base_dir, "bactflow_out", ".nextflow-work"),
+            _nf_work_dir(out_dir),
+            os.path.join(os.getcwd(), "work"),
+            os.path.join(os.environ.get("HOME") or "", "work"),
+            os.environ.get("NXF_WORK") or "",
+        ]
+        df = load_gtdb_taxonomy(out_dir, extra_roots=extra_roots)
+        tax_rows = taxonomy_display_rows(df) if df is not None and not df.empty else []
+        if not tax_rows:
             return jsonify({"exists": False})
-    else:
+        abund_rows = abundance_display_rows(df)
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        payload = {
+            "exists": True,
+            "n_genomes": len(tax_rows),
+            "taxa_table": render_template_string(table_html, id="taxa-tab", table=tax_rows),
+        }
+        if abund_rows:
+            payload["abund_table"] = render_template_string(table_html, id="taxa-abund-tab", table=abund_rows)
+        newick, tree_source = prepare_gtdb_tree(out_dir, extra_roots=extra_roots)
+        payload["has_tree"] = bool(newick)
+        payload["newick"] = newick or ""
+        payload["tree_source"] = tree_source or ""
+        return jsonify(payload)
+    except Exception as exc:
+        print(f"taxa-report failed: {exc}")
         return jsonify({"exists": False})
 
 

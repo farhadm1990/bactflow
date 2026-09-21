@@ -357,6 +357,12 @@ function run_wf(action){
         //now we start streatming here
        
         updateButtonStates("running");
+        quastShown = false;
+        baktaShown = false;
+        taxShown = false;
+        checkmShown = false;
+        checkmTreeShown = false;
+        gtdbTreeShown = false;
         connectToStream(action);
       
       
@@ -542,7 +548,7 @@ document.addEventListener("DOMContentLoaded", function(){
   });
 });
 
-// Silent QUAST lookup: never surface an error if the report is not ready yet.
+// Silent report lookup: never surface an error if a report is not ready yet.
 function hideQuastUi() {
   const quastDiv = document.getElementById("quastDiv");
   if (quastDiv) {
@@ -550,31 +556,214 @@ function hideQuastUi() {
   }
 }
 
-function checkForQuastReport(){
-  const form = document.getElementById("runForm");
+function formEl() {
+  return document.getElementById("runForm");
+}
+
+async function fetchJsonSafe(url, formData) {
+  try {
+    const res = await fetch(url, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    return data && typeof data === "object" ? data : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderCircFastaList(data, opts) {
+  const wrap = document.getElementById("circFastaDiv");
+  const list = document.getElementById("output-circ-fastas");
+  const hint = document.getElementById("circ-fasta-hint");
+  if (!wrap || !list) {
+    return;
+  }
+  const files = Array.isArray(data.files) ? data.files : [];
+  const circleOn = opts && opts.circleOn;
+  const runDone = opts && opts.runDone;
+  if (!data.exists || !files.length) {
+    if (circleOn && runDone) {
+      wrap.style.display = "block";
+      if (hint) {
+        hint.textContent = "Circulator finished but no FASTA files were found in out_dir/circulated_fasta.";
+      }
+      list.innerHTML = "";
+    } else {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  wrap.style.display = "block";
+  if (hint) {
+    hint.textContent = data.dir
+      ? `${files.length} circulated genome(s) in ${data.dir}`
+      : `${files.length} circulated genome(s)`;
+  }
+  list.innerHTML = files.map((name) => `<li><code>${escapeHtml(name)}</code></li>`).join("");
+}
+
+function showReport() {
+  const form = formEl();
   if (!form) {
-    hideQuastUi();
+    return;
+  }
+  const formData = new FormData(form);
+  const outDir = String(formData.get("out_dir") || "").trim();
+  if (!outDir) {
     return;
   }
 
-  fetch("/check-quast", {method: "POST", body: new FormData(form)})
-    .then((response) => {
-      if (!response.ok) {
-        return { exists: false };
+  Promise.all([
+    fetchJsonSafe("/check-quast", formData),
+    fetchJsonSafe("/check-bakta-ready", formData),
+    fetchJsonSafe("/circular", formData),
+    fetchJsonSafe("/taxa-report", formData),
+    fetchJsonSafe("/check-circ", formData),
+    fetchJsonSafe("/check-checkm", formData),
+  ]).then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData]) => {
+    const quastDiv = document.getElementById("quastDiv");
+    const baktaDiv = document.getElementById("baktaDiv");
+    const circDiv = document.getElementById("circDiv");
+    const circSpin = document.getElementById("spin-circ");
+    const taxDiv = document.getElementById("taxa_class");
+    const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
+    const checkmDiv = document.getElementById("checkmDiv");
+    const checkmTreeDiv = document.getElementById("checkmTreeDiv");
+
+    const circleOn = String(formData.get("circle_genome") || "") === "true";
+    const quastOn = String(formData.get("run_quast") || "") === "true";
+    const baktaOn = String(formData.get("bakta_annot") || "") === "true";
+    const checkmOn = String(formData.get("run_checkm") || "") === "true";
+    const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
+    renderCircFastaList(circFasta || {}, { circleOn, runDone });
+
+    const statusEl = document.getElementById("results-status-text");
+    const statusWrap = document.getElementById("resultsStatusDiv");
+    if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists))) {
+      const bits = [];
+      if (circleOn) {
+        bits.push(circFasta && circFasta.exists
+          ? `Circulated FASTAs: ${circFasta.count || (circFasta.files || []).length}`
+          : "Circulated FASTAs: missing");
       }
-      return response.json().catch(() => ({ exists: false }));
-    })
-    .then((data) => {
-      if (data && data.exists) {
-        return quastReport();
+      if (quastOn) {
+        bits.push(quastData.exists ? "QUAST: ready" : "QUAST: missing");
       }
-      hideQuastUi();
-    })
-    .catch(() => {
-      hideQuastUi();
-    });
+      if (baktaOn) {
+        bits.push((baktaReady.plot_ready || baktaReady.ready) ? "Bakta: ready" : "Bakta: missing");
+      }
+      if (checkmOn) {
+        bits.push(checkmData && checkmData.exists ? "CheckM: ready" : "CheckM: missing");
+      }
+      if (bits.length) {
+        statusEl.textContent = bits.join(" · ");
+        statusWrap.style.display = "block";
+      }
+    }
+
+    if (quastData.exists) {
+      if (quastDiv) {
+        quastDiv.style.display = "block";
+      }
+      if (!quastShown) {
+        quastShown = true;
+        quastReport();
+      }
+    } else if (quastDiv) {
+      quastDiv.style.display = "none";
+    }
+
+    const baktaPlotReady = baktaReady.plot_ready === true || baktaReady.ready === true;
+    if (baktaPlotReady) {
+      if (baktaDiv) {
+        baktaDiv.style.display = "block";
+      }
+      if (!baktaShown) {
+        baktaShown = true;
+        baktaReport();
+      }
+    } else if (baktaDiv) {
+      baktaDiv.style.display = "none";
+    }
+
+    refreshCircularPlotButton();
+
+    if (circPlt.plot && circDiv) {
+      circDiv.style.display = "block";
+      if (circSpin) {
+        circSpin.style.display = "none";
+      }
+      showCircularPlot(circPlt.plot);
+    }
+
+    if (taxData.exists) {
+      if (taxDiv) {
+        taxDiv.style.display = "block";
+      }
+      if (!taxShown) {
+        taxShown = true;
+        taxReport();
+      }
+      if (taxData.has_tree && taxData.newick) {
+        if (gtdbTreeDiv) {
+          gtdbTreeDiv.style.display = "block";
+        }
+        if (!gtdbTreeShown) {
+          gtdbTreeShown = true;
+          renderGtdbTree(taxData);
+        }
+      } else if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
+    } else {
+      if (taxDiv) {
+        taxDiv.style.display = "none";
+      }
+      if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
+    }
+
+    if (checkmData && checkmData.exists) {
+      if (checkmDiv) {
+        checkmDiv.style.display = "block";
+      }
+      if (!checkmShown) {
+        checkmShown = true;
+        renderCheckmTable(checkmData);
+      }
+      if (checkmData.has_tree && checkmData.newick) {
+        if (checkmTreeDiv) {
+          checkmTreeDiv.style.display = "block";
+        }
+        if (!checkmTreeShown) {
+          checkmTreeShown = true;
+          renderCheckmTree(checkmData);
+        }
+      } else if (checkmTreeDiv) {
+        checkmTreeDiv.style.display = "none";
+      }
+    } else {
+      if (checkmDiv) {
+        checkmDiv.style.display = "none";
+      }
+      if (checkmTreeDiv) {
+        checkmTreeDiv.style.display = "none";
+      }
+    }
+  }).catch((error) => console.error("Error checking assembly reports:", error));
 }
 
+function checkForQuastReport() {
+  showReport();
+}
 
 async function quastReport() {
   const form = document.getElementById("runForm");
@@ -634,10 +823,6 @@ async function quastReport() {
       }
     }
 
-    if (quastCheckInterval) {
-      clearInterval(quastCheckInterval);
-      quastCheckInterval = null;
-    }
     return true;
   } catch (err) {
     hideQuastUi();
@@ -645,8 +830,479 @@ async function quastReport() {
   }
 }
 
+async function taxReport() {
+  const form = formEl();
+  if (!form) {
+    return;
+  }
+  const formData = new FormData(form);
+  try {
+    const taxRes = await fetch("/taxa-report", { method: "POST", body: formData });
+    const taxDiv = document.getElementById("taxa_class");
+    const out = document.getElementById("output-taxa");
+    const abundOut = document.getElementById("output-taxa-abund");
+    const abundTitle = document.getElementById("taxa-abund-title");
+    const abundHint = document.getElementById("taxa-abund-hint");
+    const taxHint = document.getElementById("taxa-table-hint");
+    if (!taxRes.ok) {
+      if (taxDiv) {
+        taxDiv.style.display = "none";
+      }
+      const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
+      if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
+      return;
+    }
+    const taxData = await taxRes.json();
+    if (taxData.exists && taxData.taxa_table && out) {
+      if (taxDiv) {
+        taxDiv.style.display = "block";
+      }
+      if (taxHint) {
+        const n = taxData.n_genomes || "";
+        taxHint.textContent = n
+          ? `GTDB-Tk classification for ${n} genome(s).`
+          : "GTDB-Tk classification table.";
+      }
+      out.innerHTML = taxData.taxa_table;
+      const hasAbund = Boolean(taxData.abund_table && abundOut);
+      if (hasAbund) {
+        abundOut.style.display = "block";
+        if (abundTitle) {
+          abundTitle.style.display = "block";
+        }
+        if (abundHint) {
+          abundHint.style.display = "block";
+          abundHint.textContent = "Counts and percentages of classified genomes at each GTDB rank.";
+        }
+        abundOut.innerHTML = taxData.abund_table;
+      } else {
+        if (abundOut) {
+          abundOut.style.display = "none";
+          abundOut.innerHTML = "";
+        }
+        if (abundTitle) {
+          abundTitle.style.display = "none";
+        }
+        if (abundHint) {
+          abundHint.style.display = "none";
+        }
+      }
+      setTimeout(() => {
+        if (window.$ && $.fn && $.fn.DataTable) {
+          if ($.fn.DataTable.isDataTable("#taxa-tab")) {
+            $("#taxa-tab").DataTable().destroy();
+          }
+          $("#taxa-tab").DataTable({
+            paging: true,
+            pageLength: 10,
+            searching: true,
+            ordering: true,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+            scrollX: true
+          });
+          if (hasAbund) {
+            if ($.fn.DataTable.isDataTable("#taxa-abund-tab")) {
+              $("#taxa-abund-tab").DataTable().destroy();
+            }
+            $("#taxa-abund-tab").DataTable({
+              paging: true,
+              pageLength: 10,
+              searching: true,
+              ordering: true,
+              lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
+            });
+          }
+        }
+      }, 300);
+    } else {
+      if (taxDiv) {
+        taxDiv.style.display = "none";
+      }
+      const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
+      if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching taxa report:", error);
+  }
+}
 
-let quastCheckInterval = setInterval(checkForQuastReport, 5000);
+async function baktaReport() {
+  const form = formEl();
+  if (!form) {
+    return;
+  }
+  const formData = new FormData(form);
+  try {
+    const baktaResponse = await fetch("/check-bakta", { method: "POST", body: formData });
+    const baktaOutputDiv = document.getElementById("output-bakta");
+    if (!baktaResponse.ok || !baktaOutputDiv) {
+      return;
+    }
+    const baktaData = await baktaResponse.json();
+    if (baktaData.exists && baktaData.count_tab) {
+      baktaOutputDiv.innerHTML = baktaData.count_tab;
+      setTimeout(() => {
+        if (window.$ && $.fn && $.fn.DataTable) {
+          if ($.fn.DataTable.isDataTable("#bakta-tab")) {
+            $("#bakta-tab").DataTable().destroy();
+          }
+          $("#bakta-tab").DataTable({
+            paging: true,
+            pageLength: 10,
+            searching: true,
+            ordering: true,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
+          });
+        }
+      }, 300);
+    } else {
+      baktaOutputDiv.innerHTML = "<p>No gene count data available yet.</p>";
+    }
+  } catch (error) {
+    console.error("Error fetching Bakta report:", error);
+  }
+}
+
+function renderCheckmTable(data) {
+  const wrap = document.getElementById("checkmDiv");
+  const out = document.getElementById("output-checkm");
+  const hint = document.getElementById("checkm-table-hint");
+  if (!out) {
+    return;
+  }
+  if (!data || !data.exists || !data.checkm_table) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const n = data.n_genomes || "";
+    hint.textContent = n
+      ? `CheckM lineage QA for ${n} genome(s). Completeness, contamination, and marker lineage are from checkm_lineage.txt.`
+      : "CheckM lineage QA from checkm_lineage.txt.";
+  }
+  out.innerHTML = data.checkm_table;
+  setTimeout(() => {
+    if (!(window.$ && $.fn && $.fn.DataTable)) {
+      return;
+    }
+    if ($.fn.DataTable.isDataTable("#checkm-tab")) {
+      $("#checkm-tab").DataTable().destroy();
+    }
+    $("#checkm-tab").DataTable({
+      paging: true,
+      pageLength: 10,
+      searching: true,
+      ordering: true,
+      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+      scrollX: true
+    });
+  }, 300);
+}
+
+function renderCheckmTree(data) {
+  const wrap = document.getElementById("checkmTreeDiv");
+  const svg = document.getElementById("checkm-tree-svg");
+  const hint = document.getElementById("checkm-tree-hint");
+  if (!svg || !data || !data.has_tree || !data.newick) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    hint.textContent = data.tree_source === "taxon_tree.newick"
+      ? "Pruned CheckM taxon tree (taxon_tree.newick). Tips are species names; boxed labels are taxon ranks; edge numbers are branch lengths."
+      : "CheckM genome tree. Tips are species names; boxed labels are taxon ranks when present; edge numbers are branch lengths.";
+  }
+  if (typeof CheckmTreeViz === "undefined") {
+    svg.textContent = "Tree viewer failed to load.";
+    return;
+  }
+  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout(svg) || "rectangular");
+  document.querySelectorAll("#checkmTreeDiv .checkm-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout(svg) || "rectangular"));
+  });
+}
+
+function setCheckmTreeLayout(layout) {
+  const svg = document.getElementById("checkm-tree-svg");
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.setLayout(layout, svg);
+  document.querySelectorAll("#checkmTreeDiv .checkm-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === layout);
+  });
+}
+
+function downloadCheckmTreePng() {
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.downloadPng("checkm_taxon_tree.png", document.getElementById("checkm-tree-svg"));
+}
+
+function renderGtdbTree(data) {
+  const wrap = document.getElementById("gtdbTreeDiv");
+  const svg = document.getElementById("gtdb-tree-svg");
+  const hint = document.getElementById("gtdb-tree-hint");
+  if (!svg || !data || !data.has_tree || !data.newick) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const src = data.tree_source || "classify.tree";
+    hint.textContent = `Pruned GTDB-Tk tree (${src}). Tips are your genomes (species names); boxed labels are taxon ranks; edge numbers are branch lengths.`;
+  }
+  if (typeof CheckmTreeViz === "undefined") {
+    svg.textContent = "Tree viewer failed to load.";
+    return;
+  }
+  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout(svg) || "rectangular");
+  document.querySelectorAll("#gtdbTreeDiv .gtdb-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout(svg) || "rectangular"));
+  });
+}
+
+function setGtdbTreeLayout(layout) {
+  const svg = document.getElementById("gtdb-tree-svg");
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.setLayout(layout, svg);
+  document.querySelectorAll("#gtdbTreeDiv .gtdb-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === layout);
+  });
+}
+
+function downloadGtdbTreePng() {
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.downloadPng("gtdbtk_classify_tree.png", document.getElementById("gtdb-tree-svg"));
+}
+
+function showSectionError(id, message) {
+  const errorBox = document.getElementById(id);
+  if (!errorBox) {
+    return;
+  }
+  errorBox.style.display = "block";
+  errorBox.textContent = message || "An error occurred.";
+}
+
+function hideSectionError(id) {
+  const errorBox = document.getElementById(id);
+  if (errorBox) {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+}
+
+function downloadPlotImage(imgId, filename) {
+  const img = document.getElementById(imgId);
+  if (!img || !img.src) {
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = img.src;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function downloadCircularPlot() {
+  downloadPlotImage("circularImg", "circular_plot.png");
+}
+
+function selectedGeneTypes() {
+  const sel = document.getElementById("geneType");
+  if (!sel) {
+    return ["cds"];
+  }
+  const picked = Array.from(sel.selectedOptions).map((opt) => opt.value).filter(Boolean);
+  return picked.length ? picked : ["cds"];
+}
+
+function showCircularPlot(src) {
+  const img = document.getElementById("circularImg");
+  const bar = document.getElementById("circ-plot-bar");
+  const typeLabel = document.getElementById("circ-type-label");
+  if (typeLabel) {
+    typeLabel.textContent = `(${selectedGeneTypes().join(", ")})`;
+  }
+  if (img && src) {
+    img.src = src;
+    img.style.display = "block";
+  }
+  if (bar) {
+    bar.style.display = "flex";
+  }
+}
+
+async function refreshCircularPlotButton() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!baktaSel || baktaSel.value !== "true") {
+    return;
+  }
+  const form = formEl();
+  if (!form) {
+    return;
+  }
+  try {
+    const res = await fetch("/check-bakta-ready", { method: "POST", body: new FormData(form) });
+    const data = await res.json();
+    const plotReady = data.plot_ready === true || data.ready === true;
+    if (circBtn) {
+      circBtn.disabled = !plotReady;
+    }
+    if (circHint) {
+      const kinds = (data.plot_kinds && data.plot_kinds.length)
+        ? data.plot_kinds.join(", ")
+        : ".gbk/.gbff/.gff";
+      circHint.textContent = plotReady
+        ? `Annotation files ready (${data.plot_count || data.gbk_count || 0} file(s): ${kinds}). You can create the plot.`
+        : (data.plot_message || data.message || "Waiting for Bakta annotation files…");
+    }
+  } catch (_err) {
+    if (circBtn) {
+      circBtn.disabled = true;
+    }
+  }
+}
+
+function updateBaktaUI() {
+  const baktaSel = document.getElementById("bakta_annot");
+  const circularDiv = document.getElementById("circular-div");
+  const circBtn = document.getElementById("circ-plot-bt");
+  const circHint = document.getElementById("circ-plot-hint");
+  if (!baktaSel) {
+    return;
+  }
+  const enabled = baktaSel.value === "true";
+  const geneDiv = document.getElementById("genetype");
+  if (geneDiv) {
+    geneDiv.style.display = enabled ? "flex" : "none";
+  }
+  if (circularDiv) {
+    circularDiv.style.display = enabled ? "block" : "none";
+  }
+  if (!enabled) {
+    if (circBtn) {
+      circBtn.disabled = true;
+    }
+    if (circHint) {
+      circHint.textContent = "Enable Bakta annotation to use the circular plot.";
+    }
+    const circDiv = document.getElementById("circDiv");
+    if (circDiv) {
+      circDiv.style.display = "none";
+    }
+    return;
+  }
+  if (circBtn) {
+    circBtn.disabled = true;
+  }
+  if (circHint) {
+    circHint.textContent = "Checking for annotation files…";
+  }
+  refreshCircularPlotButton();
+}
+
+async function createCircularPlot() {
+  const form = formEl();
+  const circBtn = document.getElementById("circ-plot-bt");
+  if (!form) {
+    return;
+  }
+  if (circBtn && circBtn.disabled) {
+    await refreshCircularPlotButton();
+    if (circBtn.disabled) {
+      const hint = document.getElementById("circ-plot-hint");
+      alert(hint?.textContent || "Bakta annotation results are not available yet.");
+      return;
+    }
+  }
+  const formData = new FormData(form);
+  formData.set("generate", "true");
+  const circDiv = document.getElementById("circDiv");
+  const circSpin = document.getElementById("spin-circ");
+  const circImg = document.getElementById("circularImg");
+  const circBar = document.getElementById("circ-plot-bar");
+  hideSectionError("circ-error");
+  if (circDiv) {
+    circDiv.style.display = "block";
+  }
+  if (circSpin) {
+    circSpin.style.display = "flex";
+  }
+  if (circImg) {
+    circImg.style.display = "none";
+    circImg.removeAttribute("src");
+  }
+  if (circBar) {
+    circBar.style.display = "none";
+  }
+  jumpToSection("circDiv");
+  if (circBtn) {
+    circBtn.disabled = true;
+    circBtn.textContent = "Creating plot…";
+  }
+  try {
+    const circRes = await fetch("/circular", { method: "POST", body: formData });
+    const data = await circRes.json().catch(() => ({}));
+    if (circSpin) {
+      circSpin.style.display = "none";
+    }
+    if (!circRes.ok || !data.plot) {
+      const reason = data.reason === "no_bakta_dir"
+        ? "Bakta annotation output not found. Run assembly with Bakta enabled first."
+        : (data.error || "Could not create the circular plot.");
+      showSectionError("circ-error", reason);
+      return;
+    }
+    hideSectionError("circ-error");
+    showCircularPlot(data.plot);
+  } catch (error) {
+    if (circSpin) {
+      circSpin.style.display = "none";
+    }
+    showSectionError("circ-error", error.message || "An error occurred while creating the circular plot.");
+  } finally {
+    if (circBtn) {
+      circBtn.disabled = false;
+      circBtn.textContent = "Create circular plot";
+    }
+  }
+}
+
+let reportCheckInterval = setInterval(showReport, 5000);
+let quastShown = false;
+let baktaShown = false;
+let taxShown = false;
+let checkmShown = false;
+let checkmTreeShown = false;
+let gtdbTreeShown = false;
 
 
 
@@ -751,6 +1407,13 @@ toggler(motherId = "medaka_polish", childID = "tesnDiv")
 
 //bakta
 toggler("bakta_annot", "bakta_dbDiv")
+document.addEventListener("DOMContentLoaded", () => {
+  const baktaSel = document.getElementById("bakta_annot");
+  if (baktaSel) {
+    baktaSel.addEventListener("change", updateBaktaUI);
+    updateBaktaUI();
+  }
+});
 
 //gtdbtk
 toggler("tax_class", "gtdbtk_dbDiv")

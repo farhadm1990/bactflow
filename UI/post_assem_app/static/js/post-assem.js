@@ -189,6 +189,7 @@ function run_wf(action){
           taxShown = false;
           checkmShown = false;
           checkmTreeShown = false;
+          gtdbTreeShown = false;
           connectToStream(action);
         })
     
@@ -648,13 +649,13 @@ function showReport(){
       const circDiv  = document.getElementById("circDiv");
       const circSpin = document.getElementById("spin-circ");
       const taxDiv = document.getElementById("taxa_class");
+      const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
       const checkmDiv = document.getElementById("checkmDiv");
       const checkmTreeDiv = document.getElementById("checkmTreeDiv");
 
       const circleOn = String(formData.get("circle_genome") || "") === "true";
       const quastOn = String(formData.get("run_quast") || "") === "true";
       const baktaOn = String(formData.get("bakta_annot") || "") === "true";
-      const taxOn = String(formData.get("tax_class") || "") === "true";
       const checkmOn = String(formData.get("run_checkm") || "") === "true";
       const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
       renderCircFastaList(circFasta || {}, { circleOn, runDone });
@@ -673,9 +674,6 @@ function showReport(){
         }
         if (baktaOn) {
           bits.push((baktaReady.plot_ready || baktaReady.ready) ? "Bakta: ready" : "Bakta: missing");
-        }
-        if (taxOn) {
-          bits.push(taxData.exists ? "Taxonomy: ready" : "Taxonomy: missing");
         }
         if (checkmOn) {
           bits.push(checkmData && checkmData.exists ? "CheckM: ready" : "CheckM: missing");
@@ -729,8 +727,24 @@ function showReport(){
           taxShown = true;
           taxReport();
         }
-      } else if (taxDiv) {
-        taxDiv.style.display = "none";
+        if (taxData.has_tree && taxData.newick) {
+          if (gtdbTreeDiv) {
+            gtdbTreeDiv.style.display = "block";
+          }
+          if (!gtdbTreeShown) {
+            gtdbTreeShown = true;
+            renderGtdbTree(taxData);
+          }
+        } else if (gtdbTreeDiv) {
+          gtdbTreeDiv.style.display = "none";
+        }
+      } else {
+        if (taxDiv) {
+          taxDiv.style.display = "none";
+        }
+        if (gtdbTreeDiv) {
+          gtdbTreeDiv.style.display = "none";
+        }
       }
 
       if (checkmData && checkmData.exists) {
@@ -769,51 +783,99 @@ async function taxReport() {
   const formData = new FormData(form);
 
   try {
-    
-    let taxRes = await fetch("/taxa-report", { method: "POST", body: formData });
-    let taxDiv = document.getElementById("taxa_class");
-   
+    const taxRes = await fetch("/taxa-report", { method: "POST", body: formData });
+    const taxDiv = document.getElementById("taxa_class");
+    const taxOutputDiv = document.getElementById("output-taxa");
+    const abundOutputDiv = document.getElementById("output-taxa-abund");
+    const abundTitle = document.getElementById("taxa-abund-title");
+    const abundHint = document.getElementById("taxa-abund-hint");
+    const taxHint = document.getElementById("taxa-table-hint");
+
     if (!taxRes.ok) {
-      console.error("❌ Taxa report fetch failed:", taxRes.status, taxRes.statusText);
-      throw new Error(`HTTP error! Status: ${taxRes.status}`);
+      if (taxDiv) {
+        taxDiv.style.display = "none";
+      }
+      const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
+      if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
+      return;
     }
 
-    let taxData = await taxRes.json();
+    const taxData = await taxRes.json();
+    if (taxData.exists && taxData.taxa_table && taxOutputDiv) {
+      if (taxDiv) {
+        taxDiv.style.display = "block";
+      }
+      if (taxHint) {
+        const n = taxData.n_genomes || "";
+        taxHint.textContent = n
+          ? `GTDB-Tk classification for ${n} genome(s).`
+          : "GTDB-Tk classification table.";
+      }
+      taxOutputDiv.innerHTML = taxData.taxa_table;
+      const hasAbund = Boolean(taxData.abund_table && abundOutputDiv);
+      if (hasAbund) {
+        abundOutputDiv.style.display = "block";
+        if (abundTitle) {
+          abundTitle.style.display = "block";
+        }
+        if (abundHint) {
+          abundHint.style.display = "block";
+          abundHint.textContent = "Counts and percentages of classified genomes at each GTDB rank.";
+        }
+        abundOutputDiv.innerHTML = taxData.abund_table;
+      } else {
+        if (abundOutputDiv) {
+          abundOutputDiv.style.display = "none";
+          abundOutputDiv.innerHTML = "";
+        }
+        if (abundTitle) {
+          abundTitle.style.display = "none";
+        }
+        if (abundHint) {
+          abundHint.style.display = "none";
+        }
+      }
 
-    let taxautputDiv = document.getElementById("output-taxa");
-
-   
-    if (taxData.exists && taxData.taxa_table) {
-      taxDiv.style.display = "block";
-      taxautputDiv.innerHTML = taxData.taxa_table;
-      
       setTimeout(() => {
-        if ($.fn.DataTable) {
-          console.log("✅ Initializing DataTable for taxa...");
+        if (window.$ && $.fn && $.fn.DataTable) {
           if ($.fn.DataTable.isDataTable("#taxa-tab")) {
-            table.DataTable().destroy();
-        }
+            $("#taxa-tab").DataTable().destroy();
+          }
           $("#taxa-tab").DataTable({
-            "paging": true,
-            "pageLength": 10,
-            "searching": true,
-            "ordering": true,
-            "lengthMenu": [[10, 25, 50, -1], [10, 25, 50, "All"]],
-            "responsive": true
+            paging: true,
+            pageLength: 10,
+            searching: true,
+            ordering: true,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+            scrollX: true
           });
-        } else {
-          console.warn("⚠️ DataTables is not loaded.");
+          if (hasAbund) {
+            if ($.fn.DataTable.isDataTable("#taxa-abund-tab")) {
+              $("#taxa-abund-tab").DataTable().destroy();
+            }
+            $("#taxa-abund-tab").DataTable({
+              paging: true,
+              pageLength: 10,
+              searching: true,
+              ordering: true,
+              lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
+            });
+          }
         }
-      }, 500);
-
+      }, 300);
     } else {
-      console.warn("⚠️ No Taxa table found!");
-      taxautputDiv.innerHTML = `<p>No taxa table data available.</p>`;
+      if (taxDiv) {
+        taxDiv.style.display = "none";
+      }
+      const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
+      if (gtdbTreeDiv) {
+        gtdbTreeDiv.style.display = "none";
+      }
     }
-
   } catch (error) {
-    console.error("❌ Error fetching taxa report:", error);
-    alert("An error occurred while fetching the taxa report.");
+    console.error("Error fetching taxa report:", error);
   }
 }
 
@@ -881,18 +943,19 @@ function renderCheckmTree(data) {
     svg.textContent = "Tree viewer failed to load.";
     return;
   }
-  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout() || "rectangular");
-  document.querySelectorAll(".checkm-tree-toggle").forEach((btn) => {
-    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout() || "rectangular"));
+  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout(svg) || "rectangular");
+  document.querySelectorAll("#checkmTreeDiv .checkm-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout(svg) || "rectangular"));
   });
 }
 
 function setCheckmTreeLayout(layout) {
+  const svg = document.getElementById("checkm-tree-svg");
   if (typeof CheckmTreeViz === "undefined") {
     return;
   }
-  CheckmTreeViz.setLayout(layout);
-  document.querySelectorAll(".checkm-tree-toggle").forEach((btn) => {
+  CheckmTreeViz.setLayout(layout, svg);
+  document.querySelectorAll("#checkmTreeDiv .checkm-tree-toggle").forEach((btn) => {
     btn.classList.toggle("active", btn.getAttribute("data-layout") === layout);
   });
 }
@@ -901,7 +964,52 @@ function downloadCheckmTreePng() {
   if (typeof CheckmTreeViz === "undefined") {
     return;
   }
-  CheckmTreeViz.downloadPng("checkm_taxon_tree.png");
+  CheckmTreeViz.downloadPng("checkm_taxon_tree.png", document.getElementById("checkm-tree-svg"));
+}
+
+function renderGtdbTree(data) {
+  const wrap = document.getElementById("gtdbTreeDiv");
+  const svg = document.getElementById("gtdb-tree-svg");
+  const hint = document.getElementById("gtdb-tree-hint");
+  if (!svg || !data || !data.has_tree || !data.newick) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const src = data.tree_source || "classify.tree";
+    hint.textContent = `Pruned GTDB-Tk tree (${src}). Tips are your genomes (species names); boxed labels are taxon ranks; edge numbers are branch lengths.`;
+  }
+  if (typeof CheckmTreeViz === "undefined") {
+    svg.textContent = "Tree viewer failed to load.";
+    return;
+  }
+  CheckmTreeViz.render(svg, data.newick, CheckmTreeViz.getLayout(svg) || "rectangular");
+  document.querySelectorAll("#gtdbTreeDiv .gtdb-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === (CheckmTreeViz.getLayout(svg) || "rectangular"));
+  });
+}
+
+function setGtdbTreeLayout(layout) {
+  const svg = document.getElementById("gtdb-tree-svg");
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.setLayout(layout, svg);
+  document.querySelectorAll("#gtdbTreeDiv .gtdb-tree-toggle").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-layout") === layout);
+  });
+}
+
+function downloadGtdbTreePng() {
+  if (typeof CheckmTreeViz === "undefined") {
+    return;
+  }
+  CheckmTreeViz.downloadPng("gtdbtk_classify_tree.png", document.getElementById("gtdb-tree-svg"));
 }
 
 async function quastReport() {
@@ -1212,6 +1320,7 @@ let baktaShown = false;
 let taxShown = false;
 let checkmShown = false;
 let checkmTreeShown = false;
+let gtdbTreeShown = false;
 
 
 // gene annotation 

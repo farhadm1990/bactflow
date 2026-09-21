@@ -4,7 +4,7 @@ import sys, subprocess, importlib, os
 import pty
 import select
 
-from flask import Flask, send_from_directory, render_template, request, redirect, Response, stream_with_context, jsonify
+from flask import Flask, send_from_directory, render_template, render_template_string, request, redirect, Response, stream_with_context, jsonify
 import json
 
 from datetime import datetime, timezone
@@ -13,6 +13,8 @@ import numpy as np
 import os
 import subprocess
 import sys
+import shlex
+import base64
 from multiprocessing import Process, Manager, Queue
 import time
 import signal
@@ -31,6 +33,7 @@ IN_DOCKER = os.environ.get("BACTFLOW_IN_DOCKER") == "1" or os.path.exists("/.doc
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
+sys.path.insert(0, base_dir)
 
 BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
 
@@ -47,6 +50,16 @@ export NXF_ANSI_LOG=true
 
 def with_nextflow_java(command):
     return NF_JAVA_SETUP + "\n" + command
+
+
+def _truthy(value, default=False):
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _nf_work_dir(out_dir):
+    return os.path.join(out_dir, ".nextflow-work")
 
 
 def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
@@ -486,8 +499,11 @@ def run_bactflow():
                     fastq_dir, concat_reads, extension, pacbio_read_type
                 )
              
-            command = f"""if [ ! -d '{out_dir}' ]; then mkdir -p '{out_dir}'; fi && cd '{base_dir}' && \\
+            command = f"""mkdir -p '{out_dir}' '{_nf_work_dir(out_dir)}'
+                    export NXF_WORK='{_nf_work_dir(out_dir)}'
+                    cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
+                    -w '{_nf_work_dir(out_dir)}' \\
                     --setup_only {setup_only} \\
                     --fastq_dir '{fastq_dir or ""}' \\
                     --concat_reads {concat_reads} \\
@@ -522,16 +538,8 @@ def run_bactflow():
                     --run_quast {run_quast} \\
                     --genome_dir '{genome_dir}' \\
                     -ansi-log true"""
-            if resume_run:
+            if _truthy(resume_run, True):
                 command = command + " -resume"
-            command = command + f"""
-                    NF_EXIT=$?
-                    if [ $NF_EXIT -eq 0 ]; then
-                      echo "BactFlow: cleaning temporary Nextflow work files..."
-                      rm -rf '{out_dir}/.nextflow-work' '{base_dir}/work' 2>/dev/null || true
-                      "$BACTFLOW_NEXTFLOW_BIN" clean -f 2>/dev/null || true
-                    fi
-                    exit $NF_EXIT"""
             command = with_nextflow_java(command)
                 
             output_history[:] = []
@@ -873,6 +881,36 @@ def find_quast_dir(out_dir):
         return path
     return None
 
+
+def _run_bash(script):
+    return subprocess.run(
+        ["bash", "-lc", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+
+def _find_suffix_files(root, suffixes):
+    found = []
+    if not root or not os.path.isdir(root):
+        return found
+    for dirpath, _dirnames, names in os.walk(root):
+        for name in names:
+            low = name.lower()
+            if any(low.endswith(sfx) for sfx in suffixes):
+                found.append(os.path.join(dirpath, name))
+    return found
+
+
+def _selected_gene_types():
+    types = [t.strip() for t in request.form.getlist("gene_type") if t.strip()]
+    if not types:
+        single = (request.form.get("gene_type") or "cds").strip()
+        types = [single] if single else ["cds"]
+    return types
+
+
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():
     out_dir = request.form.get("out_dir")
@@ -899,6 +937,311 @@ def contig_report():
         if os.path.isfile(contig):
             return send_from_directory(quast_path, "icarus_viewers/contig_size_viewer.html")
     return ("", 204)
+
+
+@app.route("/check-circ", methods=["POST"])
+def check_circ():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False, "files": []})
+    circ_dir = os.path.join(out_dir, "circulated_fasta")
+    files = []
+    if os.path.isdir(circ_dir):
+        for name in sorted(os.listdir(circ_dir)):
+            low = name.lower()
+            if low.endswith((".fasta", ".fa", ".fna")):
+                files.append(name)
+    return jsonify({
+        "exists": bool(files),
+        "files": files,
+        "dir": circ_dir if files else None,
+        "count": len(files),
+    })
+
+
+@app.route("/check-bakta", methods=["POST"])
+def check_bakta():
+    out_dir = request.form.get("out_dir")
+    gene_type = ",".join(_selected_gene_types())
+    if not out_dir:
+        return jsonify({"exists": False})
+    bakta_path = os.path.join(out_dir, "bakta_out")
+    gene_count = os.path.join(out_dir, "gene_count.tsv")
+    if not os.path.isdir(bakta_path):
+        return jsonify({"exists": False})
+    try:
+        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
+            tsvs = _find_suffix_files(bakta_path, (".tsv",))
+            if not tsvs:
+                return jsonify({"exists": False})
+            command = f"""
+            cp {shlex.quote(bakta_path)}/*/*.tsv {shlex.quote(bakta_path)}
+            rm -f {shlex.quote(bakta_path)}/*inference.tsv {shlex.quote(bakta_path)}/*hypotheticals.tsv
+            mkdir -p {shlex.quote(bakta_path)}/genes && mv {shlex.quote(bakta_path)}/*.tsv {shlex.quote(bakta_path)}/genes
+
+            python {shlex.quote(os.path.join(base_dir, "gene_counter_bakta.py"))} -d {shlex.quote(bakta_path)}/genes -t {shlex.quote(gene_type)} -o {shlex.quote(out_dir)}/gene_count
+            """
+            subprocess.run(command, shell=True, text=True, check=True, capture_output=True)
+
+        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
+            return jsonify({"exists": False})
+
+        df = pd.read_csv(gene_count, sep="\t")
+        if df.empty:
+            return jsonify({"exists": False})
+        table_data = df.to_dict(orient="records")
+        table_html = """
+                <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                        <thead>
+                            <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table %}
+                            <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                """
+        return jsonify({
+            "exists": True,
+            "count_tab": render_template_string(
+                table_html,
+                id="bakta-tab",
+                table=table_data,
+            ),
+        })
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "exists": False,
+            "error": f"Gene counter failed with error code {e.returncode}",
+            "stderr": (e.stderr or "").strip(),
+            "stdout": (e.stdout or "").strip(),
+        })
+    except Exception:
+        return jsonify({"exists": False})
+
+
+@app.route("/check-bakta-ready", methods=["POST"])
+def check_bakta_ready():
+    out_dir = request.form.get("out_dir", "").strip()
+    if not out_dir:
+        return jsonify({
+            "ready": False,
+            "plot_ready": False,
+            "message": "Set an output directory first.",
+            "plot_message": "Set an output directory first.",
+        })
+
+    bakta_path = os.path.join(out_dir, "bakta_out")
+    if not os.path.isdir(bakta_path):
+        msg = "No Bakta output yet. Run BactFlow with Bakta enabled."
+        return jsonify({
+            "ready": False,
+            "plot_ready": False,
+            "message": msg,
+            "plot_message": msg,
+        })
+
+    plot_files = _find_suffix_files(bakta_path, (".gbff", ".gbk", ".gb", ".gff3", ".gff"))
+    plot_ready = len(plot_files) > 0
+    kinds = sorted({os.path.splitext(p)[1].lower() for p in plot_files})
+    return jsonify({
+        "ready": plot_ready,
+        "plot_ready": plot_ready,
+        "plot_count": len(plot_files),
+        "gbk_count": len(plot_files),
+        "plot_kinds": kinds,
+        "plot_message": None if plot_ready else (
+            "Bakta output exists but no .gbk/.gbff/.gff/.gff3 files were found."
+        ),
+        "message": None if plot_ready else (
+            "Bakta output exists but no .gbk/.gbff/.gff/.gff3 files were found."
+        ),
+    })
+
+
+@app.route("/circular", methods=["POST"])
+def circular():
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"plot": False, "reason": "missing_out_dir"}), 200
+    generate = str(request.form.get("generate", "false")).lower() == "true"
+    gbk_dir = os.path.join(out_dir, "bakta_out")
+    crc_plt = os.path.join(out_dir, "circular_plot.png")
+    params_file = os.path.join(out_dir, "circular_plot_params.json")
+
+    params = {
+        "add_gc": request.form.get("add_gc"),
+        "add_skew": request.form.get("add_skew"),
+        "dpi": int(request.form.get("dpi", 200)),
+        "figsize": int(request.form.get("figsize", 10)),
+        "interval": int(request.form.get("interval", 3)),
+        "f_color": request.form.get("f_color", "#1E90FF"),
+        "r_color": request.form.get("r_color", "#FF7261"),
+        "feature_types": ",".join(_selected_gene_types()),
+    }
+
+    last_params = {}
+    if os.path.exists(params_file):
+        try:
+            with open(params_file, "r") as f:
+                if os.path.getsize(params_file) > 0:
+                    last_params = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Error reading params file for the plot: {e}")
+
+    needs_regen = (not os.path.exists(crc_plt)) or params != last_params or generate
+    if generate and os.path.exists(crc_plt):
+        try:
+            os.remove(crc_plt)
+        except OSError:
+            pass
+        needs_regen = True
+
+    if needs_regen and not generate:
+        return jsonify({"plot": False, "reason": "not_generated"}), 200
+
+    if needs_regen:
+        if not os.path.isdir(gbk_dir):
+            return jsonify({"plot": False, "reason": "no_bakta_dir"}), 200
+        try:
+            with open(params_file, "w") as f:
+                json.dump(params, f, indent=4)
+        except Exception as e:
+            return jsonify({"plot": False, "error": f"Failed to write params: {e}"}), 500
+
+        command = f"""
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate bactflow
+python3 {shlex.quote(os.path.join(base_dir, "circular_plotter.py"))} -d {shlex.quote(gbk_dir)} -o {shlex.quote(out_dir)} \
+{"--add_gc" if params["add_gc"] == "True" else ""} \
+{"--add_skew" if params["add_skew"] == "True" else ""} \
+--dpi {params["dpi"]} \
+--figsize {params["figsize"]} \
+--interval {params["interval"]} \
+--f_color {shlex.quote(params["f_color"])} \
+--r_color {shlex.quote(params["r_color"])} \
+--feature_types {shlex.quote(params.get("feature_types") or "cds")}
+"""
+        try:
+            completed = _run_bash(command)
+        except Exception as e:
+            return jsonify({"plot": False, "error": str(e)}), 200
+        if completed.returncode != 0:
+            err = (completed.stderr or completed.stdout or "Circular plotter failed.").strip()
+            return jsonify({"plot": False, "error": err[-3000:]}), 200
+
+    if os.path.exists(crc_plt):
+        with open(crc_plt, "rb") as img_file:
+            img_base = base64.b64encode(img_file.read()).decode("utf-8")
+        return jsonify({"plot": f"data:image/png;base64,{img_base}"})
+    return jsonify({"plot": False, "reason": "not_found_after_generation"}), 200
+
+
+@app.route("/taxa-report", methods=["POST"])
+def taxa_report():
+    raw_out = (request.form.get("out_dir") or "").strip()
+    if not raw_out:
+        return jsonify({"exists": False})
+    out_dir = os.path.abspath(raw_out)
+    try:
+        from gtdb_report import abundance_display_rows, load_gtdb_taxonomy, prepare_gtdb_tree, taxonomy_display_rows
+        extra_roots = [
+            os.path.join(base_dir, "work"),
+            os.path.join(base_dir, "bactflow_out", ".nextflow-work"),
+            _nf_work_dir(out_dir),
+            os.path.join(os.getcwd(), "work"),
+            os.path.join(os.environ.get("HOME") or "", "work"),
+            os.environ.get("NXF_WORK") or "",
+        ]
+        df = load_gtdb_taxonomy(out_dir, extra_roots=extra_roots)
+        tax_rows = taxonomy_display_rows(df) if df is not None and not df.empty else []
+        if not tax_rows:
+            return jsonify({"exists": False})
+        abund_rows = abundance_display_rows(df)
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        payload = {
+            "exists": True,
+            "n_genomes": len(tax_rows),
+            "taxa_table": render_template_string(table_html, id="taxa-tab", table=tax_rows),
+        }
+        if abund_rows:
+            payload["abund_table"] = render_template_string(table_html, id="taxa-abund-tab", table=abund_rows)
+        newick, tree_source = prepare_gtdb_tree(out_dir, extra_roots=extra_roots)
+        payload["has_tree"] = bool(newick)
+        payload["newick"] = newick or ""
+        payload["tree_source"] = tree_source or ""
+        return jsonify(payload)
+    except Exception as exc:
+        print(f"taxa-report failed: {exc}")
+        return jsonify({"exists": False})
+
+
+@app.route("/check-checkm", methods=["POST"])
+def check_checkm():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False, "has_tree": False})
+    try:
+        from checkm_report import (
+            find_checkm_files,
+            load_gtdb_species_map,
+            parse_checkm_lineage_table,
+            prepare_checkm_tree,
+            read_text_if_nonempty,
+        )
+        lineage_path, taxon_path, genome_path = find_checkm_files(out_dir)
+        lineage_text = read_text_if_nonempty(lineage_path)
+        rows = parse_checkm_lineage_table(lineage_text) if lineage_text else []
+        if not rows:
+            return jsonify({"exists": False, "has_tree": False})
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        gtdb_map = load_gtdb_species_map(out_dir)
+        newick = ""
+        tree_source = ""
+        for path, kind in ((taxon_path, "taxon_tree.newick"), (genome_path, "genome_tree")):
+            raw = read_text_if_nonempty(path)
+            if not raw:
+                continue
+            prepared = prepare_checkm_tree(raw, rows, gtdb_map)
+            if prepared:
+                newick = prepared
+                tree_source = kind
+                break
+        return jsonify({
+            "exists": True,
+            "checkm_table": render_template_string(table_html, id="checkm-tab", table=rows),
+            "has_tree": bool(newick),
+            "newick": newick,
+            "tree_source": tree_source,
+            "n_genomes": len(rows),
+        })
+    except Exception as exc:
+        print(f"check-checkm failed: {exc}")
+        return jsonify({"exists": False, "has_tree": False})
+
 
 if __name__ == '__main__':
     # Docker: open via host browser hook. Local: webbrowser/xdg-open.

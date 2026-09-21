@@ -161,10 +161,27 @@ echo "Executing aligning..."
 gtdbtk align --identify_dir "${out_dir}/identify" --out_dir "${out_dir}/align" --cpus "${cpus}"
 
 echo "Executing classification..."
+classify_help="$(gtdbtk classify --help 2>&1 || true)"
 classify_extra=()
-if gtdbtk classify --help 2>&1 | grep -q -- '--skip_ani_screen'; then
+if echo "${classify_help}" | grep -q -- '--skip_ani_screen'; then
     classify_extra+=(--skip_ani_screen)
 fi
+# pplacer with many CPUs is OOM-killed: it maps ~80GB then forks, and Docker/cgroup
+# kills the process ("Killed") during "Caching likelihood information on reference tree".
+pplacer_cpus="${GTDBTK_PPLACER_CPUS:-1}"
+if ! [[ "${pplacer_cpus}" =~ ^[0-9]+$ ]] || [ "${pplacer_cpus}" -lt 1 ]; then
+    pplacer_cpus=1
+fi
+if echo "${classify_help}" | grep -q -- '--pplacer_cpus'; then
+    classify_extra+=(--pplacer_cpus "${pplacer_cpus}")
+fi
+scratch_dir="${out_dir}/pplacer_scratch"
+mkdir -p "${scratch_dir}"
+if echo "${classify_help}" | grep -q -- '--scratch_dir'; then
+    classify_extra+=(--scratch_dir "${scratch_dir}")
+fi
+echo "GTDB-Tk classify: --cpus ${cpus} --pplacer_cpus ${pplacer_cpus} --scratch_dir ${scratch_dir}"
+echo "Using a pplacer scratch file so the ~80 GB reference-tree cache is not held in RAM."
 gtdbtk classify --genome_dir "${genomes}" --align_dir "${out_dir}/align" --out_dir "${out_dir}/classify" -x "${extension}" --cpus "${cpus}" "${classify_extra[@]}"
 
 shopt -s nullglob
@@ -175,5 +192,27 @@ if [ "${#summaries[@]}" -eq 0 ]; then
     exit 1
 fi
 echo "GTDB-Tk summaries ready:"
-ls -l "${summaries[@]}"
+    ls -l "${summaries[@]}"
+# Copy summaries next to the process (Nextflow output glob) and into GTDBTK_PUBLISH_DIR
+# (the mounted results folder). Do not rely on publishDir of the huge identify/align tree.
+for f in "${summaries[@]}"
+do
+    base="$(basename "$f")"
+    case "${base}" in
+        *markers*) continue ;;
+    esac
+    cp -f "$f" "${out_dir}/classify/${base}"
+    cp -f "$f" "./${base}"
+    if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]
+    then
+        mkdir -p "${GTDBTK_PUBLISH_DIR}"
+        cp -f "$f" "${GTDBTK_PUBLISH_DIR}/${base}"
+    fi
+done
+if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]
+then
+    echo "Published GTDB-Tk summaries to ${GTDBTK_PUBLISH_DIR}"
+    ls -l "${GTDBTK_PUBLISH_DIR}"/*.summary.tsv
+fi
 echo "GTDB-Tk output directory: $(pwd)/${out_dir}"
+ls -l ./*.summary.tsv

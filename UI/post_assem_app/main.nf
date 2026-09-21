@@ -1,6 +1,5 @@
 nextflow.enable.dsl=2
 NXF_CONDA_ENABLED=true
-nextflow.preview.output=true
 params.help = false
 
 def helpMessage = """
@@ -852,7 +851,7 @@ process baktaAnnot {
 // taxonomy classification by gtdbtk
 process taxonomyGTDBTK {
     cpus params.cpus
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
+    publishDir "${params.out_dir}/gtdbtk_out/classify", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -860,14 +859,21 @@ process taxonomyGTDBTK {
     val cpus
     val genome_extension
     val gtdbtk_data_path
-    
+
+    when:
+    params.tax_class
+
     output:
-    path('gtdbtk_out')
+    path('*.summary.tsv'), emit: gtdbtk_summaries
 
     script:
+    def publish = "${params.out_dir}/gtdbtk_out/classify"
     """
     source \$(conda info --base)/etc/profile.d/conda.sh
     conda activate bactflow
+    set -euo pipefail
+    mkdir -p '${publish}'
+    export GTDBTK_PUBLISH_DIR='${publish}'
 
     src='${circ_fasta}'
     if [ -f "\$src" ]
@@ -875,11 +881,45 @@ process taxonomyGTDBTK {
         mkdir -p genomes_in
         cp "\$src" genomes_in/
         src=genomes_in
+    elif [ ! -d "\$src" ]
+    then
+        mkdir -p genomes_in
+        shopt -s nullglob
+        for fa in *.fasta *.fa *.fna
+        do
+            [ -f "\$fa" ] && cp "\$fa" genomes_in/
+        done
+        src=genomes_in
     fi
 
     bash ${projectDir}/gtdbtk.sh -g "\$src" -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}' -o gtdbtk_out
-    echo "taxonomyGTDBTK workdir \$(pwd)"
-    ls -la gtdbtk_out/classify || true
+
+    shopt -s nullglob
+    copied=0
+    for f in gtdbtk_out/classify/*.summary.tsv *.summary.tsv
+    do
+        [ -f "\$f" ] || continue
+        case "\$f" in
+            *markers*) continue ;;
+        esac
+        base="\$(basename "\$f")"
+        cp -f "\$f" "./\$base"
+        cp -f "\$f" '${publish}/'"\$base"
+        copied=1
+    done
+    for f in gtdbtk_out/classify/*.classify.tree gtdbtk_out/classify/*.decorated.tree
+    do
+        [ -f "\$f" ] || continue
+        cp -f "\$f" '${publish}/'"\$(basename "\$f")"
+    done
+    if [ "\$copied" -eq 0 ]
+    then
+        echo "ERROR: GTDB-Tk produced no summary TSV to publish into ${publish}" >&2
+        ls -la . gtdbtk_out gtdbtk_out/classify 2>/dev/null >&2 || true
+        exit 1
+    fi
+    echo "taxonomyGTDBTK published summaries to ${publish}"
+    ls -l '${publish}'/*.summary.tsv
     """
 }
 

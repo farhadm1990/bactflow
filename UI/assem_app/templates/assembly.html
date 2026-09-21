@@ -5,6 +5,8 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters5">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/post-assem.css') }}?v=assem-reports4">
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 {% endblock %}
 
 {% block content %}
@@ -295,13 +297,57 @@
                 <input
                 type="text"
                 class="form-control"
-                id="filePicker"
+                id="bakta_db_path"
                 name="bakta_data_path"
                 placeholder="/path/to/bakta/db"
                 webkitdirectory
                 directory
                 />
               </div>
+              </div>
+
+              <div id="genetype" style="display: none; flex-direction: column; width: 90%;">
+                <label for="geneType">Select <strong>Gene Types</strong> for the count table and circular plot</label>
+                <br>
+                <select class="form-select" multiple size="5" name="gene_type" style="background-color: rgb(255, 230, 0);" id="geneType">
+                  <option selected value="cds">cds</option>
+                  <option value="tRNA">tRNA</option>
+                  <option value="rRNA">rRNA</option>
+                  <option value="tmRNA">tmRNA</option>
+                  <option value="repeat_region">repeat_region</option>
+                </select>
+              </div>
+              <br>
+              <div id="circular-div" style="display: none; background-color: rgb(231, 243, 252); padding: 6px; border-radius: 2px;">
+                <h6>Tuning parameters for the circular genome plot</h6>
+                <br>
+                <label for="add-gc">Add GC content to the circular genome?</label>
+                <select class="form-select" name="add_gc" id="add-gc">
+                  <option selected value="True">True</option>
+                  <option value="False">False</option>
+                </select>
+                <label for="add-skew">Add GC-skew to the circular genome?</label>
+                <select class="form-select" name="add_skew" id="add-skew">
+                  <option selected value="True">True</option>
+                  <option value="False">False</option>
+                </select>
+                <label for="dpi" class="form-label">Resolution (dpi)</label>
+                <input type="number" class="form-control" id="dpi" name="dpi" value="200"/>
+                <label for="figsize" class="form-label">Plot size (inches)</label>
+                <input type="number" class="form-control" id="figsize" name="figsize" value="10"/>
+                <label for="interval" class="form-label">Segment width</label>
+                <input type="number" class="form-control" id="interval" name="interval" value="1"/>
+                <br>
+                <label class="form-label">Feature colors (forward / reverse)</label>
+                <div style="display: flex; gap: 10px;">
+                  <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c">
+                  <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3">
+                </div>
+                <br>
+                <button type="button" class="btn btn-primary w-100" id="circ-plot-bt" onclick="createCircularPlot()" disabled>
+                  Create circular plot
+                </button>
+                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled. The button activates when annotation files are ready.</p>
               </div>
 
             <div class="mb-3">
@@ -338,7 +384,7 @@
             </div>
            
             <div class="mb-3" id="checkm_dbDiv">
-              <label for="gtdbtk_data_path" class="form-label">CheckM database directory</label>
+              <label for="checkm_db" class="form-label">CheckM database directory</label>
               <div class="input-group">
                 <input
                 type="text"
@@ -379,7 +425,7 @@
         </div>
         <br>
         <div  style="display: flex; justify-content: center;">
-          <button type="button" style="background-color: burlywood;" onclick="checkForQuastReport()" class="btn" value="quast-rep" id="rep-bt">Show assembly report!</button>
+          <button type="button" style="background-color: burlywood;" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
         </div>
         
       </div> 
@@ -465,37 +511,138 @@
         </div>
       </div>
 
+      <div id="resultsStatusDiv" class="col-md-7" style="display: none; padding: 8px 16px; width: 100%;">
+        <p class="text-muted small mb-0" id="results-status-text"></p>
+      </div>
+
+      <div id="circFastaDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Circulated genomes</h4>
+        <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
+        <ul id="output-circ-fastas" style="margin: 10px 20px; color: darkslategrey;"></ul>
+      </div>
+
        <!-- Annotation Output Section -->
-       <div id="prokkaDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Abundance count table of annotated genomes across genomes: <strong>Prokka</strong></h4>
-        <div id="output-quast" style="border: 1px solid rgb(105, 105, 105);
+       <div id="baktaDiv" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Abundance count table of annotated genomes: <strong>(Bakta)</strong></h4>
+        <div id="output-bakta" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
               border-radius: 5px;
               height: 500px;
               width: 95%;
               overflow-y: auto;
-              white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-           
-      
         </div>
         <br>
-        <h4 class="text-left mb-3">Prevalance count (contingency) table of annotated genomes across genomes: <strong>Prokka</strong></h4>
-        <div id="contig-quast" style="border: 1px solid rgb(105, 105, 105);
+      </div>
+
+      <div id="circDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Circular plot of genomes: <strong id="circ-type-label">(selected gene types)</strong></h4>
+        <div id="circ-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="circ-plot-bar" style="display: none;">
+          <span class="bf-plot-bar-title">Circular genome plot</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadCircularPlot()">Download PNG</button>
+          </div>
+        </div>
+        <div id="output-circ" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 800px;
+              width: 95%;
+              overflow-y: auto;
+              background-color: #ffffff;
+              color: darkslategrey;">
+          <div id="spin-circ" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px; align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <br>
+            <h3 style="color: blueviolet;">Report is being created...</h3>
+          </div>
+          <img id="circularImg" src="" alt="Circular Genome Plot" style="max-width: 100%; height: auto;">
+        </div>
+        <br>
+      </div>
+
+      <div id="taxa_class" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Taxonomic classification <strong>(GTDBtk)</strong></h4>
+        <p class="text-muted small" id="taxa-table-hint" style="margin: 10px 20px;"></p>
+        <div id="output-taxa" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 420px;
+              width: 95%;
+              overflow-y: auto;
+              background-color: #ffffff;
+              color: darkslategrey;">
+        </div>
+        <h4 class="text-left mb-3" id="taxa-abund-title" style="display: none;">Taxon abundance <strong>(GTDBtk)</strong></h4>
+        <p class="text-muted small" id="taxa-abund-hint" style="margin: 10px 20px; display: none;"></p>
+        <div id="output-taxa-abund" style="display: none; border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 420px;
+              width: 95%;
+              overflow-y: auto;
+              background-color: #ffffff;
+              color: darkslategrey;">
+        </div>
+        <br>
+      </div>
+
+      <div id="gtdbTreeDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">GTDB-Tk classify tree</h4>
+        <p class="text-muted small" id="gtdb-tree-hint" style="margin: 10px 20px;"></p>
+        <div class="bf-plot-bar" id="gtdb-tree-bar">
+          <span class="bf-plot-bar-title">Phylogenetic placement</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm gtdb-tree-toggle active" data-layout="rectangular" onclick="setGtdbTreeLayout('rectangular')">Rectangular</button>
+            <button type="button" class="btn btn-sm gtdb-tree-toggle" data-layout="circular" onclick="setGtdbTreeLayout('circular')">Circular</button>
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadGtdbTreePng()">Download PNG</button>
+          </div>
+        </div>
+        <div id="output-gtdb-tree" class="checkm-tree-wrap">
+          <svg id="gtdb-tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GTDB-Tk classify tree"></svg>
+        </div>
+        <br>
+      </div>
+
+      <div id="checkmDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Genome completeness <strong>(CheckM)</strong></h4>
+        <p class="text-muted small" id="checkm-table-hint" style="margin: 10px 20px;"></p>
+        <div id="output-checkm" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
               margin: 10px;
               border-radius: 5px;
               height: 500px;
               width: 95%;
               overflow-y: auto;
-              white-space: pre-wrap;
               background-color: #ffffff;
               color: darkslategrey;">
-           
-       
         </div>
+        <br>
+      </div>
+
+      <div id="checkmTreeDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">CheckM taxon tree <strong>(taxon_tree.newick)</strong></h4>
+        <p class="text-muted small" id="checkm-tree-hint" style="margin: 10px 20px;"></p>
+        <div class="bf-plot-bar" id="checkm-tree-bar">
+          <span class="bf-plot-bar-title">Phylogenetic placement</span>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm checkm-tree-toggle active" data-layout="rectangular" onclick="setCheckmTreeLayout('rectangular')">Rectangular</button>
+            <button type="button" class="btn btn-sm checkm-tree-toggle" data-layout="circular" onclick="setCheckmTreeLayout('circular')">Circular</button>
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadCheckmTreePng()">Download PNG</button>
+          </div>
+        </div>
+        <div id="output-checkm-tree" class="checkm-tree-wrap">
+          <svg id="checkm-tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CheckM taxon tree"></svg>
+        </div>
+        <br>
       </div>
 
        </div> 
@@ -509,8 +656,10 @@
 
 
     <!-- scripts -->
+      <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
       <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-live1"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=pbsub1"> </script>
+      <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree3"></script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports4"> </script>
   
       
 {% endblock %}

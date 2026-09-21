@@ -30,6 +30,22 @@ table th:nth-child(30), td:nth-child(30){
     overflow-x: auto;
 }
 
+#output-taxa,
+#output-taxa-abund {
+    width: 95% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-x: auto;
+}
+
+#output-taxa .dataTables_wrapper,
+#output-taxa-abund .dataTables_wrapper,
+#output-taxa table.dataTable,
+#output-taxa-abund table.dataTable {
+    width: 100% !important;
+    max-width: 100%;
+}
+
 .dataTables_scrollHeadInner {
     width: 100% !important;
 }
@@ -177,4 +193,107 @@ table.dataTable thead th {
 
 #prev-tab tr:hover {
     background-color: #ddd;
+}
+
+#bakta-tab,
+#checkm-tab {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+#bakta-tab th,
+#checkm-tab th {
+    background-color: #404340;
+    color: white;
+    padding: 10px;
+    text-align: center;
+}
+
+#bakta-tab td,
+#checkm-tab td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+#bakta-tab tr:nth-child(even),
+#checkm-tab tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+#output-checkm {
+    white-space: normal !important;
+}
+
+.bf-plot-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 95%;
+    margin: 10px 10px 0;
+    padding: 8px 12px;
+    background: #f4f6f7;
+    border: 1px solid #696969;
+    border-bottom: 0;
+    box-sizing: border-box;
+}
+
+.bf-plot-bar-title {
+    font-weight: 600;
+    color: #2f4f4f;
+}
+
+.bf-plot-bar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.bf-dl-png {
+    border: 0;
+    color: #fff;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: #12b5a8;
+}
+
+.bf-dl-png:hover,
+.bf-dl-png:focus {
+    background: #0e968c;
+    color: #fff;
+}
+
+.checkm-tree-wrap {
+    border: 1px solid rgb(105, 105, 105);
+    border-top: 0;
+    margin: 0 10px 10px;
+    padding: 0;
+    width: 95%;
+    overflow: auto;
+    background: #f7faf8;
+    min-height: 420px;
+}
+
+#checkm-tree-svg {
+    display: block;
+    max-width: none;
+    margin: 0 auto;
+}
+
+.checkm-tree-toggle {
+    border: 1px solid #42756b;
+    background: #fff;
+    color: #42756b;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 4px 12px;
+}
+
+.checkm-tree-toggle.active {
+    background: #42756b;
+    color: #fff;
 }

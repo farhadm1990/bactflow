@@ -297,6 +297,7 @@ table.dataTable thead th {
 #baktaDiv,
 #circDiv,
 #taxa_class,
+#gtdbTreeDiv,
 #checkmDiv,
 #checkmTreeDiv,
 #snpsDiv,
@@ -404,6 +405,22 @@ table.dataTable thead th {
 
 #output-checkm {
     white-space: normal !important;
+}
+
+#output-taxa,
+#output-taxa-abund {
+    width: 95% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-x: auto;
+}
+
+#output-taxa .dataTables_wrapper,
+#output-taxa-abund .dataTables_wrapper,
+#output-taxa table.dataTable,
+#output-taxa-abund table.dataTable {
+    width: 100% !important;
+    max-width: 100%;
 }
 
 .checkm-tree-wrap {
