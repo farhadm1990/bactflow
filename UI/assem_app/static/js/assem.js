@@ -363,6 +363,7 @@ function run_wf(action){
         checkmShown = false;
         checkmTreeShown = false;
         gtdbTreeShown = false;
+        plasmidShown = false;
         connectToStream(action);
       
       
@@ -627,7 +628,8 @@ function showReport() {
     fetchJsonSafe("/taxa-report", formData),
     fetchJsonSafe("/check-circ", formData),
     fetchJsonSafe("/check-checkm", formData),
-  ]).then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData]) => {
+    fetchJsonSafe("/check-plasmids", formData),
+  ]).then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData, plasmidData]) => {
     const quastDiv = document.getElementById("quastDiv");
     const baktaDiv = document.getElementById("baktaDiv");
     const circDiv = document.getElementById("circDiv");
@@ -636,6 +638,7 @@ function showReport() {
     const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
     const checkmDiv = document.getElementById("checkmDiv");
     const checkmTreeDiv = document.getElementById("checkmTreeDiv");
+    const plasmidDiv = document.getElementById("plasmidDiv");
 
     const circleOn = String(formData.get("circle_genome") || "") === "true";
     const quastOn = String(formData.get("run_quast") || "") === "true";
@@ -757,6 +760,18 @@ function showReport() {
       if (checkmTreeDiv) {
         checkmTreeDiv.style.display = "none";
       }
+    }
+
+    if (plasmidData && plasmidData.exists) {
+      if (plasmidDiv) {
+        plasmidDiv.style.display = "block";
+      }
+      if (!plasmidShown) {
+        plasmidShown = true;
+        renderPlasmidTable(plasmidData);
+      }
+    } else if (plasmidDiv) {
+      plasmidDiv.style.display = "none";
     }
   }).catch((error) => console.error("Error checking assembly reports:", error));
 }
@@ -998,6 +1013,47 @@ function renderCheckmTable(data) {
       $("#checkm-tab").DataTable().destroy();
     }
     $("#checkm-tab").DataTable({
+      paging: true,
+      pageLength: 10,
+      searching: true,
+      ordering: true,
+      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+      scrollX: true
+    });
+  }, 300);
+}
+
+function renderPlasmidTable(data) {
+  const wrap = document.getElementById("plasmidDiv");
+  const out = document.getElementById("output-plasmids");
+  const hint = document.getElementById("plasmid-table-hint");
+  if (!out) {
+    return;
+  }
+  if (!data || !data.exists || !data.plasmid_table) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  if (hint) {
+    const n = data.n_plasmids || "";
+    hint.textContent = n
+      ? `geNomad plasmid / MGE calls for ${n} contig(s). FASTA sequences are in plasmid_out/plasmids.`
+      : "geNomad plasmid / MGE calls.";
+  }
+  out.innerHTML = data.plasmid_table;
+  setTimeout(() => {
+    if (!(window.$ && $.fn && $.fn.DataTable)) {
+      return;
+    }
+    if ($.fn.DataTable.isDataTable("#plasmid-tab")) {
+      $("#plasmid-tab").DataTable().destroy();
+    }
+    $("#plasmid-tab").DataTable({
       paging: true,
       pageLength: 10,
       searching: true,
@@ -1303,6 +1359,7 @@ let taxShown = false;
 let checkmShown = false;
 let checkmTreeShown = false;
 let gtdbTreeShown = false;
+let plasmidShown = false;
 
 
 
@@ -1420,3 +1477,6 @@ toggler("tax_class", "gtdbtk_dbDiv")
 
 //checkm
 toggler("run_checkm", "checkm_dbDiv")
+
+//plasmids
+toggler("run_plasmids", "genomad_dbDiv")

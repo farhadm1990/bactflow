@@ -24,7 +24,8 @@ const BactflowProcessEta = {
       quastcheck: "QUAST",
       baktaannot: "Bakta",
       taxonomygtdbtk: "GTDB-Tk",
-      checkmlineage: "CheckM"
+      checkmlineage: "CheckM",
+      plasmiddetect: "geNomad"
     };
     const key = this.normalizeName(name);
     if (labels[key]) {
@@ -67,7 +68,9 @@ const BactflowProcessEta = {
     quastcheck: 240,
     bakta: 900,
     gtdbtk: 600,
-    checkm: 600
+    checkm: 600,
+    plasmiddetect: 900,
+    genomad: 900
   },
 
   reset() {
@@ -768,7 +771,7 @@ const BactflowTerminal = {
     if (/Tip: you can|Check '\.nextflow\.log'|WORKFLOW OUTPUT DEFINITION|is available - Please consider/.test(t)) {
       return false;
     }
-    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
+    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|geNomad|plasmidDetect|Stream disconnected|process >|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
   },
 
   setStatus(text, kind) {

@@ -456,6 +456,8 @@ def run_bactflow():
             gtdbtk_data_path = request.form.get('gtdbtk_data_path', "")
             genome_dir = request.form.get("genome_dir")
             run_checkm = request.form.get("run_checkm", "false")
+            run_plasmids = request.form.get("run_plasmids", "false")
+            genomad_db = request.form.get("genomad_db", "")
             run_quast = request.form.get("run_quast", "true")
             resume_run = request.form.get("resume_run", "true")
             bakta_annot = request.form.get("bakta_annot", "false")
@@ -485,6 +487,7 @@ def run_bactflow():
             genome_dir = (genome_dir or "").strip()
             bakta_db = (bakta_db or "").strip()
             checkm_db = (checkm_db or "").strip()
+            genomad_db = (genomad_db or "").strip()
             gtdbtk_data_path = (gtdbtk_data_path or "").strip()
             short_read_dir = (short_read_dir or "").strip()
             extension = (extension or "").strip() or ".fastq.gz"
@@ -534,6 +537,8 @@ def run_bactflow():
                     --bakta_db '{bakta_db}' \\
                     --run_checkm {run_checkm} \\
                     --checkm_db '{checkm_db}' \\
+                    --run_plasmids {run_plasmids} \\
+                    --genomad_db '{genomad_db}' \\
                     --gtdbtk_data_path '{gtdbtk_data_path}' \\
                     --run_quast {run_quast} \\
                     --genome_dir '{genome_dir}' \\
@@ -1241,6 +1246,38 @@ def check_checkm():
     except Exception as exc:
         print(f"check-checkm failed: {exc}")
         return jsonify({"exists": False, "has_tree": False})
+
+
+@app.route("/check-plasmids", methods=["POST"])
+def check_plasmids():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False})
+    try:
+        from plasmid_report import plasmid_display_rows
+        rows = plasmid_display_rows(os.path.abspath(out_dir))
+        if not rows:
+            return jsonify({"exists": False})
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        return jsonify({
+            "exists": True,
+            "n_plasmids": len(rows),
+            "plasmid_table": render_template_string(table_html, id="plasmid-tab", table=rows),
+        })
+    except Exception as exc:
+        print(f"check-plasmids failed: {exc}")
+        return jsonify({"exists": False})
 
 
 if __name__ == '__main__':
