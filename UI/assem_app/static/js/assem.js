@@ -90,17 +90,30 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 // connect to stream when on assembly
 function connectToStream(action){
+  // Always (re)connect — a stale EventSource left old process lines on screen.
   if (eventSource){
-    console.log("Stream already connected");
-    return;
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    } catch (e) { /* ignore */ }
+    eventSource = null;
   }
 
   BactflowTerminal.init();
   let logBuffer = [];
   let flushTimer = null;
+  if (!window.__bactflowStreamGen) {
+    window.__bactflowStreamGen = 0;
+  }
+  const gen = ++window.__bactflowStreamGen;
 
   const flushLog = () => {
     flushTimer = null;
+    if (gen !== window.__bactflowStreamGen) {
+      logBuffer = [];
+      return;
+    }
     if (!logBuffer.length) {
       return;
     }
@@ -114,6 +127,9 @@ function connectToStream(action){
   }
   
   eventSource.onmessage = (event) =>{
+    if (gen !== window.__bactflowStreamGen) {
+      return;
+    }
     logBuffer.push(event.data);
     if (!flushTimer) {
       flushTimer = setTimeout(flushLog, 200);
@@ -122,6 +138,9 @@ function connectToStream(action){
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
+    if (gen !== window.__bactflowStreamGen) {
+      return;
+    }
     flushLog();
     BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
     BactflowTerminal.append("Stream disconnected.", true);
@@ -135,9 +154,96 @@ function connectToStream(action){
 //disconnect function
 function disconnectStream(){
   if(eventSource){
-    eventSource.close();
+    try {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    } catch (e) { /* ignore */ }
     eventSource = null;
   }
+  if (!window.__bactflowStreamGen) {
+    window.__bactflowStreamGen = 0;
+  }
+  window.__bactflowStreamGen += 1;
+}
+
+function clearResultPanels() {
+  const panelIds = [
+    "quastDiv",
+    "baktaDiv",
+    "circDiv",
+    "circFastaDiv",
+    "taxa_class",
+    "gtdbTreeDiv",
+    "checkmDiv",
+    "checkmTreeDiv",
+    "plasmidDiv",
+    "resultsStatusDiv",
+  ];
+  panelIds.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.style.display = "none";
+    }
+  });
+  const statusEl = document.getElementById("results-status-text");
+  if (statusEl) {
+    statusEl.textContent = "";
+  }
+  [
+    "output-plasmids",
+    "output-viruses",
+    "plasmid-summary",
+    "virus-summary",
+    "plasmid-table-hint",
+    "virus-table-hint",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.innerHTML = "";
+      if (id.endsWith("-hint")) {
+        node.textContent = "";
+      }
+    }
+  });
+  [
+    "plasmid-section",
+    "virus-section",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.style.display = "none";
+    }
+  });
+  [
+    "plasmid-chart-by-genome",
+    "plasmid-chart-scores",
+    "plasmid-chart-lengths",
+    "plasmid-chart-topology",
+    "virus-chart-by-genome",
+    "virus-chart-scores",
+    "virus-chart-lengths",
+    "virus-chart-topology",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.innerHTML = "";
+    }
+  });
+}
+
+function prepareFreshRunUI() {
+  disconnectStream();
+  clearResultPanels();
+  BactflowTerminal.clear();
+  BactflowTerminal.setStatus("Starting...", "run");
+  quastShown = false;
+  baktaShown = false;
+  taxShown = false;
+  checkmShown = false;
+  checkmTreeShown = false;
+  gtdbTreeShown = false;
+  plasmidShown = false;
 }
 
 // function update buttons
@@ -319,11 +425,12 @@ function run_wf(action){
   switch (action ){
     case "run":
       {
-        
+        prepareFreshRunUI();
+        updateButtonStates("running");
         fetch(`/run_bactflow?action-assem=${action}`, { method: "POST", body : formData })
         .then((response) => {
-          BactflowTerminal.clear();
         if(!response.ok) {
+          BactflowTerminal.clear();
           BactflowTerminal.append("Error starting BactFlow. It might already be running?!", true);
           BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
@@ -336,34 +443,6 @@ function run_wf(action){
         BactflowTerminal.append("Bactflow started :)", true);
         BactflowTerminal.setStatus("Running...", "run");
         jumpToSection("output-div");
-
-        // getting value of the setup only field
-        let setOnly = document.getElementById("setup_only").value;
-        // let progressBar = document.querySelector(".progress-bar");
-        // let progDiv = document.querySelector(".progress");
-          // progressBar.style.width = "0%";
-          // progressBar.setAttribute("aria-valuenow", "0");
-          // progressBar.innerText = "0%";
-        // if(setOnly === "false"){
-          // progDiv.style.display = "block";
-          // progressBar.style.width = "0%";
-          // progressBar.setAttribute("aria-valuenow", "0");
-          // progressBar.innerText = "0%";
-          // updateProgress();
-        // } else {
-        //   progDiv.style.display = "none";
-        // };
-        
-        //now we start streatming here
-       
-        updateButtonStates("running");
-        quastShown = false;
-        baktaShown = false;
-        taxShown = false;
-        checkmShown = false;
-        checkmTreeShown = false;
-        gtdbTreeShown = false;
-        plasmidShown = false;
         connectToStream(action);
       
       
@@ -372,6 +451,7 @@ function run_wf(action){
     .catch((error) => {
       BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
       BactflowTerminal.setStatus("Failed to start", "error");
+      updateButtonStates("stopped");
       jumpToSection("output-div");
       
     });
@@ -454,7 +534,9 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
  e.preventDefault();
 
   const action = e.submitter.value;
-  if (action !== "stop") {
+  if (action === "run") {
+    prepareFreshRunUI();
+  } else if (action !== "stop") {
     BactflowTerminal.clear();
   }
   const selectedAssembler = document.getElementById("assemblerDropdown").value;
@@ -649,7 +731,7 @@ function showReport() {
 
     const statusEl = document.getElementById("results-status-text");
     const statusWrap = document.getElementById("resultsStatusDiv");
-    if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists))) {
+    if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists) || (plasmidData && plasmidData.exists))) {
       const bits = [];
       if (circleOn) {
         bits.push(circFasta && circFasta.exists
@@ -664,6 +746,9 @@ function showReport() {
       }
       if (checkmOn) {
         bits.push(checkmData && checkmData.exists ? "CheckM: ready" : "CheckM: missing");
+      }
+      if (plasmidData && plasmidData.exists) {
+        bits.push("geNomad: ready");
       }
       if (bits.length) {
         statusEl.textContent = bits.join(" · ");
@@ -1024,13 +1109,13 @@ function renderCheckmTable(data) {
 }
 
 function renderPlasmidTable(data) {
-  const wrap = document.getElementById("plasmidDiv");
-  const out = document.getElementById("output-plasmids");
-  const hint = document.getElementById("plasmid-table-hint");
-  if (!out) {
+  if (window.PlasmidViz && typeof window.PlasmidViz.render === "function") {
+    window.PlasmidViz.render(data);
     return;
   }
-  if (!data || !data.exists || !data.plasmid_table) {
+  const wrap = document.getElementById("plasmidDiv");
+  const out = document.getElementById("output-plasmids");
+  if (!out || !data || !data.exists || !data.plasmid_table) {
     if (wrap) {
       wrap.style.display = "none";
     }
@@ -1039,29 +1124,7 @@ function renderPlasmidTable(data) {
   if (wrap) {
     wrap.style.display = "block";
   }
-  if (hint) {
-    const n = data.n_plasmids || "";
-    hint.textContent = n
-      ? `geNomad plasmid / MGE calls for ${n} contig(s). FASTA sequences are in plasmid_out/plasmids.`
-      : "geNomad plasmid / MGE calls.";
-  }
   out.innerHTML = data.plasmid_table;
-  setTimeout(() => {
-    if (!(window.$ && $.fn && $.fn.DataTable)) {
-      return;
-    }
-    if ($.fn.DataTable.isDataTable("#plasmid-tab")) {
-      $("#plasmid-tab").DataTable().destroy();
-    }
-    $("#plasmid-tab").DataTable({
-      paging: true,
-      pageLength: 10,
-      searching: true,
-      ordering: true,
-      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-      scrollX: true
-    });
-  }, 300);
 }
 
 function renderCheckmTree(data) {

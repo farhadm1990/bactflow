@@ -23,7 +23,8 @@ const BactflowProcessEta = {
       quastcheck: "QUAST",
       baktaannot: "Bakta",
       taxonomygtdbtk: "GTDB-Tk",
-      checkmlineage: "CheckM"
+      checkmlineage: "CheckM",
+      plasmiddetect: "geNomad"
     };
     const key = this.normalizeName(name);
     if (labels[key]) {
@@ -66,7 +67,9 @@ const BactflowProcessEta = {
     bakta: 2400,
     baktaannot: 2400,
     gtdbtk: 600,
-    checkm: 600
+    checkm: 600,
+    genomad: 900,
+    plasmiddetect: 900
   },
 
   reset() {
@@ -315,10 +318,17 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-    if (proc.percent > 0 && proc.percent < 100) {
-      return `running ${proc.percent}% · ${runFor}`;
+    const eta = this.computeEta(proc);
+    let etaBit = "";
+    if (eta && Number.isFinite(eta.seconds) && eta.seconds > 0 && eta.label !== "done") {
+      const rem = this.formatDuration(eta.seconds);
+      const clock = this.formatClockEta(eta.seconds);
+      etaBit = ` · ETA ${rem} (~${clock})`;
     }
-    return `running · ${runFor}`;
+    if (proc.percent > 0 && proc.percent < 100) {
+      return `running ${proc.percent}% · ${runFor}${etaBit}`;
+    }
+    return `running · ${runFor}${etaBit}`;
   },
 
   parse(line) {
@@ -631,7 +641,9 @@ const BactflowProcessEta = {
       [/Identifying marker|Executing gene calling|Running Prodigal|TIGRFAM|Pfam|Executing aligning|hmmalign|Masking columns|Executing classification|Using GTDB-Tk|gtdbtk /i, /taxonomy|gtdbtk/i],
       [/checkm lineage|checkm tree|checkm qa|CheckM /i, /checkm/i],
       [/Running circlator|circlator fixstart|Circulated genomes/i, /circul/i],
-      [/quast\.py|Running QUAST|QUAST:/i, /quast/i]
+      [/quast\.py|Running QUAST|QUAST:/i, /quast/i],
+      [/geNomad|plasmidDetect|plasmid_detect/i, /plasmid|genomad/i],
+      [/bakta /i, /bakta/i]
     ];
     let hit = false;
     for (const [re, nameRe] of rules) {
@@ -845,7 +857,7 @@ const BactflowTerminal = {
     if (/Tip: you can|Check '\.nextflow\.log'|WORKFLOW OUTPUT DEFINITION|is available - Please consider/.test(t)) {
       return false;
     }
-    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|Stream disconnected|process >|taxonomy|bakta|checkm|quast|Identifying marker|Executing gene|Executing align|Executing class|Prodigal|hmmalign|gtdbtk|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
+    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|geNomad|plasmidDetect|Stream disconnected|process >|taxonomy|bakta|checkm|quast|Identifying marker|Executing gene|Executing align|Executing class|Prodigal|hmmalign|gtdbtk|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
   },
 
   setStatus(text, kind) {

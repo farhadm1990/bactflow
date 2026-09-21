@@ -35,6 +35,8 @@ Options:
     --bakta_db              Directory to bakta database (required if bakta_annot is true)
     --run_checkm            If true, it runs checmk lineage and phylogenetic tree workflow.
     --checkm_db             An absolute path to the Checkm database.  
+    --run_plasmids          If true, it runs geNomad plasmid / MGE detection on assembled FASTAs.
+    --genomad_db            Absolute path to the geNomad database (genomad download-database DIR).
     --gtdbtk_data_path      Absolute path to the GDBtk database. 
     --run_quast             Post-assembly stats by Quaset, default true.
     --genome_dir            Path to already assembled genomes, only to run post-assembly tasks, e.g. taxonomy classification, gene annotations and quast or checkm 
@@ -225,6 +227,14 @@ workflow {
             params.genome_extension
 
         )
+        }
+        if (params.run_plasmids) {
+            plasmidDetect(
+                env_check,
+                circ_fasta,
+                params.genomad_db,
+                params.cpus
+            )
         }
 
         // quast stats
@@ -1024,6 +1034,99 @@ process checkm_lineage {
     [ -f taxon_tree.newick ] || : > taxon_tree.newick
     [ -f genome_tree.newick ] || : > genome_tree.newick
     [ -f genome_tree.tree ] || : > genome_tree.tree
+    """
+}
+
+process plasmidDetect {
+    cpus params.cpus
+    publishDir "${params.out_dir}/plasmid_out", mode: 'copy', overwrite: true
+
+    input:
+    path env_check
+    path circ_fasta
+    val genomad_db
+    val cpus
+
+    when:
+    params.run_plasmids
+
+    output:
+    path('plasmid_summary.tsv'), emit: plasmid_summary
+    path('virus_summary.tsv'), emit: virus_summary, optional: true
+    path('plasmids'), emit: plasmid_fastas, optional: true
+    path('viruses'), emit: virus_fastas, optional: true
+    path('summaries'), emit: genomad_summaries, optional: true
+
+    script:
+    def publish = "${params.out_dir}/plasmid_out"
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+    set -euo pipefail
+    export PATH="\${CONDA_PREFIX:-}/bin:\${PATH}"
+
+    src='${circ_fasta}'
+    if [ -f "\$src" ]
+    then
+        mkdir -p genomes_in
+        cp "\$src" genomes_in/
+        src=genomes_in
+    elif [ ! -d "\$src" ]
+    then
+        mkdir -p genomes_in
+        shopt -s nullglob
+        for fa in *.fasta *.fa *.fna
+        do
+            [ -f "\$fa" ] && cp "\$fa" genomes_in/
+        done
+        src=genomes_in
+    fi
+
+    bash ${projectDir}/plasmid_detect.sh -g "\$src" -c ${cpus} -d '${genomad_db}' -o plasmid_out
+
+    mkdir -p '${publish}' plasmids viruses summaries
+    if [ -f plasmid_out/plasmid_summary.tsv ]
+    then
+        cp -f plasmid_out/plasmid_summary.tsv ./plasmid_summary.tsv
+        cp -f plasmid_out/plasmid_summary.tsv '${publish}/plasmid_summary.tsv'
+    else
+        echo "ERROR: geNomad produced no plasmid_summary.tsv" >&2
+        ls -la plasmid_out 2>/dev/null >&2 || true
+        exit 1
+    fi
+    if [ -f plasmid_out/virus_summary.tsv ]
+    then
+        cp -f plasmid_out/virus_summary.tsv ./virus_summary.tsv
+        cp -f plasmid_out/virus_summary.tsv '${publish}/virus_summary.tsv'
+    else
+        : > ./virus_summary.tsv
+        : > '${publish}/virus_summary.tsv'
+    fi
+    if [ -d plasmid_out/summaries ]
+    then
+        cp -a plasmid_out/summaries/. summaries/ 2>/dev/null || true
+        mkdir -p '${publish}/summaries'
+        cp -a plasmid_out/summaries/. '${publish}/summaries/' 2>/dev/null || true
+    fi
+    if [ -f plasmid_out/genomes_scanned.txt ]
+    then
+        cp -f plasmid_out/genomes_scanned.txt ./genomes_scanned.txt
+        cp -f plasmid_out/genomes_scanned.txt '${publish}/genomes_scanned.txt'
+    fi
+    if [ -d plasmid_out/plasmids ]
+    then
+        cp -a plasmid_out/plasmids/. plasmids/ 2>/dev/null || true
+        mkdir -p '${publish}/plasmids'
+        cp -a plasmid_out/plasmids/. '${publish}/plasmids/' 2>/dev/null || true
+    fi
+    if [ -d plasmid_out/viruses ]
+    then
+        cp -a plasmid_out/viruses/. viruses/ 2>/dev/null || true
+        mkdir -p '${publish}/viruses'
+        cp -a plasmid_out/viruses/. '${publish}/viruses/' 2>/dev/null || true
+    fi
+    echo "plasmidDetect published summaries to ${publish}"
+    ls -l '${publish}/plasmid_summary.tsv' '${publish}/virus_summary.tsv' || true
     """
 }
 

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Slim assembly image: Flask + Nextflow + Flye/SPAdes/Unicycler + QUAST/Circlator.
+# Slim assembly image: Flask + Nextflow + Flye/SPAdes/Unicycler + QUAST/Circlator + geNomad.
 # BLAST and Pilon come from Debian / a single JRE (conda BLAST+OpenJDK add ~850MB).
 # Taxonomy tools (GTDB-Tk, CheckM, Bakta) and Medaka stay out of this image.
 # Build from this directory:
@@ -15,6 +15,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends binutils \
     && rm -rf /var/lib/apt/lists/*
 
+ENV CONDA_OVERRIDE_CUDA=""
 COPY environment.docker.yml /tmp/environment.yml
 
 RUN /bin/micromamba create -y -p /opt/conda/envs/bactflow -f /tmp/environment.yml \

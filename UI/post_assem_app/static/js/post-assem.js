@@ -117,6 +117,89 @@ function applyUserStopUI() {
   BactflowTerminal.setStatus(STOP_USER_MSG, "warn");
 }
 
+function clearResultPanels() {
+  const panelIds = [
+    "quastDiv",
+    "baktaDiv",
+    "circDiv",
+    "circFastaDiv",
+    "taxa_class",
+    "gtdbTreeDiv",
+    "checkmDiv",
+    "checkmTreeDiv",
+    "plasmidDiv",
+    "resultsStatusDiv",
+    "snpsDiv",
+    "svs",
+    "abundDiv",
+    "abundImgDiv",
+    "prevDiv",
+    "prevImgDiv",
+  ];
+  panelIds.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.style.display = "none";
+    }
+  });
+  const statusEl = document.getElementById("results-status-text");
+  if (statusEl) {
+    statusEl.textContent = "";
+  }
+  [
+    "output-plasmids",
+    "output-viruses",
+    "plasmid-summary",
+    "virus-summary",
+    "plasmid-table-hint",
+    "virus-table-hint",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.innerHTML = "";
+      if (id.endsWith("-hint")) {
+        node.textContent = "";
+      }
+    }
+  });
+  ["plasmid-section", "virus-section"].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.style.display = "none";
+    }
+  });
+  [
+    "plasmid-chart-by-genome",
+    "plasmid-chart-scores",
+    "plasmid-chart-lengths",
+    "plasmid-chart-topology",
+    "virus-chart-by-genome",
+    "virus-chart-scores",
+    "virus-chart-lengths",
+    "virus-chart-topology",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.innerHTML = "";
+    }
+  });
+}
+
+function prepareFreshRunUI() {
+  window.__bactflowUserStopped = false;
+  disconnectStream();
+  clearResultPanels();
+  BactflowTerminal.clear();
+  BactflowTerminal.setStatus("Starting...", "run");
+  quastShown = false;
+  baktaShown = false;
+  taxShown = false;
+  checkmShown = false;
+  checkmTreeShown = false;
+  gtdbTreeShown = false;
+  plasmidShown = false;
+}
+
 // function update buttons
 function updateButtonStates(status) {
   if (status === "running") {
@@ -158,16 +241,17 @@ function run_wf(action){
   switch (action){
     case "run":
       {
-        
+        prepareFreshRunUI();
+        updateButtonStates("running");
         fetch(`/run_bactflow?action-assem=${action}`, 
           { method: "POST", 
             body : formData }
           )
         .then(async (response) => {
           const message = await response.text();
-          BactflowTerminal.clear();
           if (!response.ok) {
             const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
+            BactflowTerminal.clear();
             BactflowTerminal.append(
               looksHtml
                 ? "Error starting BactFlow (server error). Restart the post-assembly app and try again."
@@ -183,13 +267,6 @@ function run_wf(action){
 
           BactflowTerminal.append("Bactflow started :)", true);
           BactflowTerminal.setStatus("Running...", "run");
-          updateButtonStates("running");
-          quastShown = false;
-          baktaShown = false;
-          taxShown = false;
-          checkmShown = false;
-          checkmTreeShown = false;
-          gtdbTreeShown = false;
           connectToStream(action);
         })
     
@@ -293,7 +370,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!action) {
       return;
     }
-    if (action !== "stop") {
+    if (action === "run") {
+      prepareFreshRunUI();
+      document.getElementById("run-bt").disabled = true;
+      document.getElementById("stop-bt").disabled = false;
+      document.getElementById("help-bt").disabled = true;
+    } else if (action !== "stop") {
       window.__bactflowUserStopped = false;
       BactflowTerminal.clear();
       document.getElementById("run-bt").disabled = true;
@@ -310,8 +392,7 @@ document.addEventListener("DOMContentLoaded", function () {
     runBt.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      window.__bactflowUserStopped = false;
-      BactflowTerminal.clear();
+      prepareFreshRunUI();
       document.getElementById("run-bt").disabled = true;
       document.getElementById("stop-bt").disabled = false;
       document.getElementById("help-bt").disabled = true;
@@ -635,15 +716,16 @@ function showReport(){
     return;
   }
 
-  Promise.all([
+    Promise.all([
     fetchJsonSafe("/check-quast", formData),
     fetchJsonSafe("/check-bakta-ready", formData),
     fetchJsonSafe("/circular", formData),
     fetchJsonSafe("/taxa-report", formData),
     fetchJsonSafe("/check-circ", formData),
     fetchJsonSafe("/check-checkm", formData),
+    fetchJsonSafe("/check-plasmids", formData),
   ])
-    .then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData]) => {
+    .then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData, plasmidData]) => {
       const quastDiv = document.getElementById("quastDiv");
       const baktaDiv = document.getElementById("baktaDiv");
       const circDiv  = document.getElementById("circDiv");
@@ -652,6 +734,7 @@ function showReport(){
       const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
       const checkmDiv = document.getElementById("checkmDiv");
       const checkmTreeDiv = document.getElementById("checkmTreeDiv");
+      const plasmidDiv = document.getElementById("plasmidDiv");
 
       const circleOn = String(formData.get("circle_genome") || "") === "true";
       const quastOn = String(formData.get("run_quast") || "") === "true";
@@ -662,7 +745,7 @@ function showReport(){
 
       const statusEl = document.getElementById("results-status-text");
       const statusWrap = document.getElementById("resultsStatusDiv");
-      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists))) {
+      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists) || (plasmidData && plasmidData.exists))) {
         const bits = [];
         if (circleOn) {
           bits.push(circFasta && circFasta.exists
@@ -677,6 +760,9 @@ function showReport(){
         }
         if (checkmOn) {
           bits.push(checkmData && checkmData.exists ? "CheckM: ready" : "CheckM: missing");
+        }
+        if (plasmidData && plasmidData.exists) {
+          bits.push("geNomad: ready");
         }
         if (bits.length) {
           statusEl.textContent = bits.join(" · ");
@@ -774,8 +860,39 @@ function showReport(){
           checkmTreeDiv.style.display = "none";
         }
       }
+
+      if (plasmidData && plasmidData.exists) {
+        if (plasmidDiv) {
+          plasmidDiv.style.display = "block";
+        }
+        if (!plasmidShown) {
+          plasmidShown = true;
+          renderPlasmidTable(plasmidData);
+        }
+      } else if (plasmidDiv) {
+        plasmidDiv.style.display = "none";
+      }
     })
     .catch((error) => console.error("Error checking post-assembly reports:", error));
+}
+
+function renderPlasmidTable(data) {
+  if (window.PlasmidViz && typeof window.PlasmidViz.render === "function") {
+    window.PlasmidViz.render(data);
+    return;
+  }
+  const wrap = document.getElementById("plasmidDiv");
+  const out = document.getElementById("output-plasmids");
+  if (!out || !data || !data.exists || !data.plasmid_table) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  out.innerHTML = data.plasmid_table;
 }
 
 async function taxReport() {
@@ -1321,6 +1438,7 @@ let taxShown = false;
 let checkmShown = false;
 let checkmTreeShown = false;
 let gtdbTreeShown = false;
+let plasmidShown = false;
 
 
 // gene annotation 
@@ -1990,3 +2108,6 @@ toggler("tax_class", "gtdbtk_dbDiv")
 
 //checkm
 toggler("run_checkm", "checkm_dbDiv")
+
+// geNomad plasmids
+toggler("run_plasmids", "genomad_dbDiv")

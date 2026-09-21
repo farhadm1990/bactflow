@@ -295,10 +295,17 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-    if (proc.percent > 0 && proc.percent < 100) {
-      return `running ${proc.percent}% · ${runFor}`;
+    const eta = this.computeEta(proc);
+    let etaBit = "";
+    if (eta && Number.isFinite(eta.seconds) && eta.seconds > 0 && eta.label !== "done") {
+      const rem = this.formatDuration(eta.seconds);
+      const clock = this.formatClockEta(eta.seconds);
+      etaBit = ` · ETA ${rem} (~${clock})`;
     }
-    return `running · ${runFor}`;
+    if (proc.percent > 0 && proc.percent < 100) {
+      return `running ${proc.percent}% · ${runFor}${etaBit}`;
+    }
+    return `running · ${runFor}${etaBit}`;
   },
 
   parse(line) {
@@ -607,7 +614,11 @@ const BactflowProcessEta = {
       [/running Unicycler|unicycler/i, /unicycler/i],
       [/running Flye|flye /i, /flye|pacbio/i],
       [/Running circlator|circlator fixstart/i, /circul/i],
-      [/quast\.py|Running QUAST/i, /quast/i]
+      [/quast\.py|Running QUAST/i, /quast/i],
+      [/geNomad|plasmidDetect|plasmid_detect/i, /plasmid|genomad/i],
+      [/checkm /i, /checkm/i],
+      [/gtdbtk|GTDB-Tk/i, /gtdb|taxonomy/i],
+      [/bakta /i, /bakta/i]
     ];
     let hit = false;
     for (const [re, nameRe] of rules) {

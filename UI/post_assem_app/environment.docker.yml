@@ -7,6 +7,8 @@ dependencies:
   - python=3.11
   - libopenblas
   - checkm-genome=1.2.4
+  # geNomad plasmid / MGE detection
+  - genomad=1.11.1
   # 2.6.1 is the newest GTDB-Tk that still supports R226. 2.7+ needs R232.
   - gtdbtk=2.6.1
   - pplacer=1.1.alpha19

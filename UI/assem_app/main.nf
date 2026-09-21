@@ -1396,7 +1396,10 @@ process plasmidDetect {
 
     output:
     path('plasmid_summary.tsv'), emit: plasmid_summary
+    path('virus_summary.tsv'), emit: virus_summary, optional: true
     path('plasmids'), emit: plasmid_fastas, optional: true
+    path('viruses'), emit: virus_fastas, optional: true
+    path('summaries'), emit: genomad_summaries, optional: true
 
     script:
     def publish = "${params.out_dir}/plasmid_out"
@@ -1425,7 +1428,7 @@ process plasmidDetect {
 
     bash ${projectDir}/plasmid_detect.sh -g "\$src" -c ${cpus} -d '${genomad_db}' -o plasmid_out
 
-    mkdir -p '${publish}' plasmids
+    mkdir -p '${publish}' plasmids viruses summaries
     if [ -f plasmid_out/plasmid_summary.tsv ]
     then
         cp -f plasmid_out/plasmid_summary.tsv ./plasmid_summary.tsv
@@ -1435,14 +1438,39 @@ process plasmidDetect {
         ls -la plasmid_out 2>/dev/null >&2 || true
         exit 1
     fi
+    if [ -f plasmid_out/virus_summary.tsv ]
+    then
+        cp -f plasmid_out/virus_summary.tsv ./virus_summary.tsv
+        cp -f plasmid_out/virus_summary.tsv '${publish}/virus_summary.tsv'
+    else
+        : > ./virus_summary.tsv
+        : > '${publish}/virus_summary.tsv'
+    fi
+    if [ -d plasmid_out/summaries ]
+    then
+        cp -a plasmid_out/summaries/. summaries/ 2>/dev/null || true
+        mkdir -p '${publish}/summaries'
+        cp -a plasmid_out/summaries/. '${publish}/summaries/' 2>/dev/null || true
+    fi
+    if [ -f plasmid_out/genomes_scanned.txt ]
+    then
+        cp -f plasmid_out/genomes_scanned.txt ./genomes_scanned.txt
+        cp -f plasmid_out/genomes_scanned.txt '${publish}/genomes_scanned.txt'
+    fi
     if [ -d plasmid_out/plasmids ]
     then
         cp -a plasmid_out/plasmids/. plasmids/ 2>/dev/null || true
         mkdir -p '${publish}/plasmids'
         cp -a plasmid_out/plasmids/. '${publish}/plasmids/' 2>/dev/null || true
     fi
-    echo "plasmidDetect published summary to ${publish}"
-    ls -l '${publish}/plasmid_summary.tsv' || true
+    if [ -d plasmid_out/viruses ]
+    then
+        cp -a plasmid_out/viruses/. viruses/ 2>/dev/null || true
+        mkdir -p '${publish}/viruses'
+        cp -a plasmid_out/viruses/. '${publish}/viruses/' 2>/dev/null || true
+    fi
+    echo "plasmidDetect published summaries to ${publish}"
+    ls -l '${publish}/plasmid_summary.tsv' '${publish}/virus_summary.tsv' || true
     """
 }
 

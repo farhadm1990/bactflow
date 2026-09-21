@@ -5,6 +5,8 @@ channels:
   - nodefaults
 dependencies:
   - python=3.11
+  # geNomad plasmid / MGE detection
+  - genomad=1.11.1
   - flye=2.9.6
   - spades=4.3.0
   - unicycler=0.5.1

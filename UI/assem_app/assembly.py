@@ -1254,10 +1254,24 @@ def check_plasmids():
     if not out_dir:
         return jsonify({"exists": False})
     try:
-        from plasmid_report import plasmid_display_rows
-        rows = plasmid_display_rows(os.path.abspath(out_dir))
-        if not rows:
+        from plasmid_report import (
+            find_plasmid_summary,
+            find_virus_summary,
+            genomad_run_complete,
+            genomad_scanned_genomes,
+            plasmid_chart_payload,
+            plasmid_display_rows,
+            virus_chart_payload,
+            virus_display_rows,
+        )
+        abs_out = os.path.abspath(out_dir)
+        if not genomad_run_complete(abs_out):
             return jsonify({"exists": False})
+        rows = plasmid_display_rows(abs_out)
+        virus_rows = virus_display_rows(abs_out)
+        genomes = genomad_scanned_genomes(abs_out)
+        has_plasmid_summary = bool(find_plasmid_summary(abs_out))
+        has_virus_summary = bool(find_virus_summary(abs_out))
         table_html = """
             <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
                 <thead>
@@ -1270,11 +1284,27 @@ def check_plasmids():
                 </tbody>
             </table>
         """
-        return jsonify({
+        payload = {
             "exists": True,
             "n_plasmids": len(rows),
-            "plasmid_table": render_template_string(table_html, id="plasmid-tab", table=rows),
-        })
+            "n_viruses": len(virus_rows),
+            "genomes": genomes,
+            "plasmid_empty": len(rows) == 0 and (has_plasmid_summary or has_virus_summary),
+            "virus_empty": len(virus_rows) == 0 and (has_plasmid_summary or has_virus_summary),
+            "plasmid_table": "",
+            "virus_table": "",
+            "charts": plasmid_chart_payload(rows) if rows else None,
+            "virus_charts": virus_chart_payload(virus_rows) if virus_rows else None,
+        }
+        if rows:
+            payload["plasmid_table"] = render_template_string(
+                table_html, id="plasmid-tab", table=rows
+            )
+        if virus_rows:
+            payload["virus_table"] = render_template_string(
+                table_html, id="virus-tab", table=virus_rows
+            )
+        return jsonify(payload)
     except Exception as exc:
         print(f"check-plasmids failed: {exc}")
         return jsonify({"exists": False})

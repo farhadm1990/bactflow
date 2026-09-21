@@ -6,7 +6,7 @@
  
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix12">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=layout-fix13">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=meters-top1">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
@@ -218,6 +218,29 @@
                   webkitdirectory
                   directory/>
               
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label for="run_plasmids" class="form-label">Plasmid / virus detection? <strong>(geNomad)</strong></label>
+                <select class="form-select" id="run_plasmids" name="run_plasmids">
+                  <option value="true">True</option>
+                  <option value="false" selected>False</option>
+                </select>
+                <p class="text-muted small mt-1 mb-0">Uses geNomad from the bactflow env. Point this at a local database from <code>genomad download-database DIR</code>.</p>
+              </div>
+
+              <div class="mb-3" id="genomad_dbDiv">
+                <label for="genomad_db" class="form-label">geNomad database directory</label>
+                <div class="input-group">
+                  <input
+                  type="text"
+                  class="form-control"
+                  id="genomad_db"
+                  name="genomad_db"
+                  placeholder="genomad download-database /path/to/genomad_db"
+                  webkitdirectory
+                  directory/>
                 </div>
               </div>
 
@@ -579,6 +602,55 @@
         </div>
         <br>
       </div>
+
+      <div id="plasmidDiv" class="col-md-7" style="overflow-y: auto; background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">MGE detection <strong>(geNomad)</strong></h4>
+
+        <div id="plasmid-section" style="display: none;">
+          <h5 class="text-left mb-2" style="margin: 10px 20px;">Plasmids</h5>
+          <p class="text-muted small" id="plasmid-table-hint" style="margin: 10px 20px;"></p>
+          <div id="plasmid-summary" class="plasmid-summary" aria-label="Plasmid summary"></div>
+          <div class="plasmid-charts">
+            <div id="plasmid-chart-by-genome" class="plasmid-chart"></div>
+            <div id="plasmid-chart-scores" class="plasmid-chart"></div>
+            <div id="plasmid-chart-lengths" class="plasmid-chart"></div>
+            <div id="plasmid-chart-topology" class="plasmid-chart"></div>
+          </div>
+          <div id="output-plasmids" style="border: 1px solid rgb(105, 105, 105);
+                padding: 10px;
+                margin: 10px;
+                border-radius: 5px;
+                height: 500px;
+                width: 95%;
+                overflow-y: auto;
+                background-color: #ffffff;
+                color: darkslategrey;">
+          </div>
+        </div>
+
+        <div id="virus-section" style="display: none;">
+          <h5 class="text-left mb-2" style="margin: 20px 20px 10px;">Viruses / proviruses</h5>
+          <p class="text-muted small" id="virus-table-hint" style="margin: 10px 20px;"></p>
+          <div id="virus-summary" class="plasmid-summary" aria-label="Virus summary"></div>
+          <div class="plasmid-charts">
+            <div id="virus-chart-by-genome" class="plasmid-chart"></div>
+            <div id="virus-chart-scores" class="plasmid-chart"></div>
+            <div id="virus-chart-lengths" class="plasmid-chart"></div>
+            <div id="virus-chart-topology" class="plasmid-chart"></div>
+          </div>
+          <div id="output-viruses" style="border: 1px solid rgb(105, 105, 105);
+                padding: 10px;
+                margin: 10px;
+                border-radius: 5px;
+                height: 500px;
+                width: 95%;
+                overflow-y: auto;
+                background-color: #ffffff;
+                color: darkslategrey;">
+          </div>
+        </div>
+        <br>
+      </div>
       <br>
       <hr>
       <br>
@@ -768,9 +840,10 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-live1"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-live3"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree3"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix25"></script>
+<script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=plasmid3"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix29"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

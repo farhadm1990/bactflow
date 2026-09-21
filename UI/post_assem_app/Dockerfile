@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Slim post-assembly image: QUAST, Bakta, GTDB-Tk, CheckM, Medaka VC, R plots.
+# Slim post-assembly image: QUAST, Bakta, GTDB-Tk, CheckM, geNomad, Medaka VC, R plots.
 # Assemblers (Flye/SPAdes/Unicycler) live in the assembly image; databases stay on the host.
 # Build from this directory:
 #   cd UI/post_assem_app

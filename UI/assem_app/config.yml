@@ -28,6 +28,8 @@ dependencies:
   - medaka=2.2.1
   - minimap2=2.28
   - checkm-genome=1.2.4
+  # geNomad plasmid / MGE detection (pulls mmseqs2, tensorflow, etc.)
+  - genomad=1.11.1
   - flye=2.9.6
   - bwa=0.7.19
   - mummer=3.23

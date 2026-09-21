@@ -300,6 +300,7 @@ table.dataTable thead th {
 #gtdbTreeDiv,
 #checkmDiv,
 #checkmTreeDiv,
+#plasmidDiv,
 #snpsDiv,
 #svs,
 #output-div {
@@ -464,4 +465,49 @@ table.dataTable thead th {
     background: #42756b;
     color: #fff;
     border-color: #42756b;
+}
+
+.plasmid-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 20px 12px;
+}
+
+.plasmid-stat {
+    flex: 1 1 140px;
+    min-width: 120px;
+    background: #fff;
+    border: 1px solid #c5d5d0;
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.plasmid-stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #264653;
+    line-height: 1.2;
+}
+
+.plasmid-stat-label {
+    font-size: 0.8rem;
+    color: #5a6b66;
+    margin-top: 2px;
+}
+
+.plasmid-charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 0 10px 16px;
+    width: 95%;
+}
+
+.plasmid-chart {
+    min-height: 280px;
+    background: #fff;
+    border: 1px solid #c5d5d0;
+    border-radius: 6px;
+    padding: 4px;
 }
