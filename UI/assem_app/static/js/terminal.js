@@ -78,11 +78,13 @@ const BactflowProcessEta = {
     this.hashToProc.clear();
     this.hashToName.clear();
     this.durations.clear();
+    this.loadLearnedDurations();
     this.workflow = { startedAt: null, percent: 0, completed: 0, total: 0 };
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
+    this.clearPanel(typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null);
   },
 
   ensureTick(terminal) {
@@ -112,6 +114,115 @@ const BactflowProcessEta = {
     return 180;
   },
 
+  loadLearnedDurations() {
+    try {
+      const raw = localStorage.getItem("bactflow_process_durations_v1");
+      if (!raw) {
+        return;
+      }
+      const obj = JSON.parse(raw);
+      Object.entries(obj || {}).forEach(([k, v]) => {
+        const sec = Number(v);
+        if (k && Number.isFinite(sec) && sec >= 20) {
+          this.durations.set(k, sec);
+        }
+      });
+    } catch (e) { /* ignore */ }
+  },
+
+  saveLearnedDurations() {
+    try {
+      const obj = {};
+      this.durations.forEach((v, k) => {
+        obj[k] = Math.round(v);
+      });
+      localStorage.setItem("bactflow_process_durations_v1", JSON.stringify(obj));
+    } catch (e) { /* ignore */ }
+  },
+
+  ensurePanel(terminal) {
+    if (!terminal) {
+      return;
+    }
+    if (!terminal.processPanelEl) {
+      terminal.processPanelEl = document.getElementById("bf-process-panel");
+    }
+    if (!terminal.processListEl) {
+      terminal.processListEl = document.getElementById("bf-process-list");
+    }
+    if (!terminal.processOverallFillEl) {
+      terminal.processOverallFillEl = document.getElementById("bf-process-overall-fill");
+    }
+    if (!terminal.processOverallMetaEl) {
+      terminal.processOverallMetaEl = document.getElementById("bf-process-overall-meta");
+    }
+    if (terminal.processPanelEl) {
+      terminal.processPanelEl.style.display = "block";
+    }
+  },
+
+  clearPanel(terminal) {
+    const panel = (terminal && terminal.processPanelEl) || document.getElementById("bf-process-panel");
+    const list = (terminal && terminal.processListEl) || document.getElementById("bf-process-list");
+    const fill = (terminal && terminal.processOverallFillEl) || document.getElementById("bf-process-overall-fill");
+    const meta = (terminal && terminal.processOverallMetaEl) || document.getElementById("bf-process-overall-meta");
+    if (list) {
+      list.replaceChildren();
+    }
+    if (fill) {
+      fill.style.width = "0%";
+      fill.className = "bf-process-fill is-workflow";
+    }
+    if (meta) {
+      meta.textContent = "—";
+    }
+    if (panel) {
+      panel.style.display = "none";
+    }
+  },
+
+  displayPercent(proc) {
+    if (!proc || proc.id === "_executor") {
+      return 0;
+    }
+    if (proc.done || proc.cached) {
+      return 100;
+    }
+    if (this.isWaiting(proc)) {
+      return 0;
+    }
+    if (proc.percent > 0 && proc.percent < 100) {
+      return Math.max(1, Math.min(99, proc.percent));
+    }
+    if (proc.total > 0) {
+      const p = (Math.max(0, proc.completed) / proc.total) * 100;
+      if (p >= 100) {
+        return 99;
+      }
+      return Math.max(1, Math.min(99, Math.round(p)));
+    }
+    const elapsed = this.elapsedSeconds(proc);
+    const expected = Math.max(30, this.hintFor(proc.name) || 180);
+    const p = 95 * (1 - Math.exp(-elapsed / expected));
+    return Math.max(2, Math.min(95, Math.round(p)));
+  },
+
+  remainingSeconds(proc) {
+    if (!proc || proc.done) {
+      return 0;
+    }
+    if (this.isWaiting(proc)) {
+      return null;
+    }
+    const pct = this.displayPercent(proc);
+    const elapsed = this.elapsedSeconds(proc);
+    if (pct >= 5 && pct < 100) {
+      return Math.max(1, elapsed * (100 - pct) / pct);
+    }
+    const expected = Math.max(30, this.hintFor(proc.name) || 180);
+    return Math.max(1, expected - elapsed);
+  },
+
   stopTick() {
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
@@ -129,6 +240,7 @@ const BactflowProcessEta = {
     proc.percent = 100;
     if (!proc.cached && proc.frozenElapsed >= 45) {
       this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
+      this.saveLearnedDurations();
     }
   },
 
@@ -295,17 +407,12 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-    const eta = this.computeEta(proc);
-    let etaBit = "";
-    if (eta && Number.isFinite(eta.seconds) && eta.seconds > 0 && eta.label !== "done") {
-      const rem = this.formatDuration(eta.seconds);
-      const clock = this.formatClockEta(eta.seconds);
-      etaBit = ` · ETA ${rem} (~${clock})`;
+    const rem = this.remainingSeconds(proc);
+    const pct = this.displayPercent(proc);
+    if (rem != null && rem > 0) {
+      return `${pct}% · ${runFor} · ETA ${this.formatDuration(rem)} (~${this.formatClockEta(rem)})`;
     }
-    if (proc.percent > 0 && proc.percent < 100) {
-      return `running ${proc.percent}% · ${runFor}${etaBit}`;
-    }
-    return `running · ${runFor}${etaBit}`;
+    return `${pct}% · ${runFor}`;
   },
 
   parse(line) {
@@ -569,39 +676,99 @@ const BactflowProcessEta = {
   },
 
   renderRow(proc, className) {
-    if (!proc.row) {
+    if (!proc || proc.id === "_executor") {
       return;
     }
-    const name = document.createElement("span");
-    name.className = "log-proc-name";
-    name.textContent = this.displayName(proc);
-
-    const meta = document.createElement("span");
-    meta.className = "log-eta" + (proc.done ? " is-done" : this.isWaiting(proc) ? " is-wait" : "");
-    if (proc.id === "_executor") {
-      meta.textContent = proc.tag ? ` > ${proc.tag}` : "";
-    } else if (this.isWaiting(proc)) {
-      meta.textContent = ` ${this.etaPrefix(proc)}`;
-    } else if (proc.done) {
-      const cacheNote = proc.cached ? " · cached" : "";
-      meta.textContent = ` ${this.etaPrefix(proc)}${cacheNote} ✔`;
-    } else {
-      const pctBit = (proc.percent > 0 || proc.total > 0)
-        ? ` [${String(proc.percent).padStart(3, " ")}%] ${proc.completed} of ${proc.total}`
-        : " · running";
-      meta.textContent = `${pctBit} · ${this.etaPrefix(proc)}`;
+    const terminal = typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null;
+    this.ensurePanel(terminal);
+    const list = terminal && terminal.processListEl;
+    if (!list) {
+      return;
+    }
+    if (!proc.row || !proc.row.isConnected) {
+      proc.row = document.createElement("div");
+      proc.row.className = "bf-proc-card";
+      proc.row.dataset.bfProcess = proc.id;
+      list.appendChild(proc.row);
     }
 
-    proc.row.replaceChildren(name, meta);
-    proc.row.className = "log-line " + className;
+    const pct = this.displayPercent(proc);
+    const waiting = this.isWaiting(proc);
+    const state = proc.done ? (proc.cached ? "cached" : "done") : waiting ? "wait" : "run";
+    proc.row.className = "bf-proc-card" + (state === "done" || state === "cached" ? " is-done" : state === "run" ? " is-run" : "");
+
+    const tag = proc.tag ? ` (${proc.tag})` : "";
+    const title = this.prettyName(proc.name) + tag;
+    const badgeLabel = state === "cached" ? "cached" : state === "done" ? "done" : state === "wait" ? "queued" : "running";
+    let meta = "";
+    if (proc.done) {
+      meta = `finished in ${this.formatDuration(proc.frozenElapsed || 0)}`;
+    } else if (waiting) {
+      meta = `queued · ${this.formatDuration(this.elapsedSeconds(proc))}`;
+    } else {
+      const rem = this.remainingSeconds(proc);
+      const runFor = this.formatDuration(this.elapsedSeconds(proc));
+      meta = rem != null
+        ? `elapsed ${runFor} · ETA ${this.formatDuration(rem)} (~${this.formatClockEta(rem)})`
+        : `elapsed ${runFor}`;
+      if (proc.total > 0) {
+        meta = `${proc.completed}/${proc.total} · ` + meta;
+      }
+    }
+
+    proc.row.innerHTML = `
+      <div class="bf-proc-head">
+        <div>
+          <span class="bf-proc-name"></span>
+          <span class="bf-proc-badge is-${state}"></span>
+        </div>
+        <span class="bf-proc-pct"></span>
+      </div>
+      <div class="bf-process-track"><div class="bf-process-fill is-${state}"></div></div>
+      <div class="bf-proc-meta" style="margin-top:5px;"></div>
+    `;
+    proc.row.querySelector(".bf-proc-name").textContent = title;
+    proc.row.querySelector(".bf-proc-badge").textContent = badgeLabel;
+    proc.row.querySelector(".bf-proc-pct").textContent = `${pct}%`;
+    proc.row.querySelector(".bf-process-fill").style.width = (waiting ? 100 : pct) + "%";
+    proc.row.querySelector(".bf-proc-meta").textContent = meta;
+    this.renderWorkflowBar(terminal);
+  },
+
+  renderWorkflowBar(terminal) {
+    if (!terminal) {
+      return;
+    }
+    this.ensurePanel(terminal);
+    const fill = terminal.processOverallFillEl;
+    const meta = terminal.processOverallMetaEl;
+    if (!fill || !meta) {
+      return;
+    }
+    const procs = [...this.processes.values()].filter((p) => p.id !== "_executor");
+    let pct = 0;
+    if (this.workflow.total > 0) {
+      pct = Math.max(0, Math.min(100, this.workflow.percent || Math.round(100 * this.workflow.completed / this.workflow.total)));
+      meta.textContent = `${this.workflow.completed}/${this.workflow.total} · ${pct}%`;
+    } else if (procs.length) {
+      const sum = procs.reduce((acc, p) => acc + this.displayPercent(p), 0);
+      pct = Math.round(sum / procs.length);
+      const done = procs.filter((p) => p.done).length;
+      meta.textContent = `${done}/${procs.length} tasks · ${pct}%`;
+    } else {
+      meta.textContent = "—";
+    }
+    fill.style.width = pct + "%";
+    fill.className = "bf-process-fill is-workflow" + (pct >= 100 ? " is-done" : "");
   },
 
   refreshAll(terminal) {
     this.processes.forEach((proc) => {
-      if (proc.row && !proc.done) {
-        this.renderRow(proc, terminal.classify(proc.lastLine));
+      if (proc.row && proc.id !== "_executor") {
+        this.renderRow(proc, terminal ? terminal.classify(proc.lastLine) : "log-process");
       }
     });
+    this.renderWorkflowBar(terminal);
     if (this.allDone()) {
       this.stopTick();
     }
@@ -670,31 +837,25 @@ const BactflowProcessEta = {
     const proc = this.upsert(parsed);
     proc.lastLine = line;
 
-    if (!proc.row) {
-      proc.row = document.createElement("div");
-      proc.row.dataset.bfProcess = proc.id;
-      terminal.logEl.appendChild(proc.row);
+    if (proc.id !== "_executor") {
+      this.renderRow(proc, className);
+    } else {
+      this.renderWorkflowBar(terminal);
     }
 
-    this.renderRow(proc, className);
-
-    while (terminal.logEl.childNodes.length > terminal.maxLines) {
-      terminal.logEl.removeChild(terminal.logEl.firstChild);
-    }
-    terminal.logEl.scrollTop = terminal.logEl.scrollHeight;
-
-    const shown = this.displayName(proc);
+    const shown = this.prettyName(proc.name);
     if (proc.id === "_executor") {
       terminal.setStatus(`executor > ${proc.tag}`, "run");
     } else if (proc.done) {
       terminal.setStatus(`${shown} · done in ${this.formatDuration(proc.frozenElapsed || 0)}`, "ok");
       if (this.allDone()) {
         this.stopTick();
+        this.renderWorkflowBar(terminal);
       }
     } else if (this.isWaiting(proc)) {
-      terminal.setStatus(`${shown} · waiting · ${this.formatDuration(this.elapsedSeconds(proc))}`, "run");
+      terminal.setStatus(`${shown} · queued`, "run");
     } else {
-      terminal.setStatus(`${shown} · ${this.etaPrefix(proc)}`, "run");
+      terminal.setStatus(`${shown} · ${this.displayPercent(proc)}%`, "run");
     }
 
     return true;
@@ -710,6 +871,11 @@ const BactflowTerminal = {
   init() {
     this.logEl = document.getElementById("output-bactflow");
     this.statusEl = document.getElementById("bf-status");
+    this.processPanelEl = document.getElementById("bf-process-panel");
+    this.processListEl = document.getElementById("bf-process-list");
+    this.processOverallFillEl = document.getElementById("bf-process-overall-fill");
+    this.processOverallMetaEl = document.getElementById("bf-process-overall-meta");
+    BactflowProcessEta.loadLearnedDurations();
     const toggle = document.getElementById("logVerbose");
     if (toggle) {
       this.quiet = !toggle.checked;
@@ -798,6 +964,7 @@ const BactflowTerminal = {
       this.logEl.replaceChildren();
     }
     BactflowProcessEta.reset();
+    BactflowProcessEta.clearPanel(this);
     this.setStatus("Ready", "");
   },
 

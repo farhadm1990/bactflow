@@ -1,0 +1,642 @@
+/* Helix Console — BactFlow genomic workstation theme */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+  --hx-canvas: #0f1419;
+  --hx-panel: #1a222c;
+  --hx-panel-2: #222b37;
+  --hx-border: #2a3441;
+  --hx-border-soft: #354252;
+  --hx-text: #e7edf4;
+  --hx-muted: #9aa8b5;
+  --hx-accent: #2dd4bf;
+  --hx-accent-dim: #1aa894;
+  --hx-accent-ink: #062822;
+  --hx-warn: #e5c07b;
+  --hx-ok: #89d185;
+  --hx-danger: #f14c4c;
+  --hx-info: #4fc1ff;
+  --hx-radius: 8px;
+  --hx-font: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --hx-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  --hx-rail: 32%;
+  --hx-topbar: 56px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body.helix-shell {
+  background: var(--hx-canvas) !important;
+  color: var(--hx-text);
+  font-family: var(--hx-font);
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+body.helix-shell a {
+  color: var(--hx-accent);
+}
+
+body.helix-shell a:hover {
+  color: #7eefe0;
+}
+
+body.helix-shell code {
+  font-family: var(--hx-mono);
+  color: var(--hx-warn);
+  background: rgba(229, 192, 123, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+body.helix-shell .text-muted {
+  color: var(--hx-muted) !important;
+}
+
+/* —— Top bar —— */
+.hx-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1040;
+  height: var(--hx-topbar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #161d27 0%, #121820 100%);
+  border-bottom: 1px solid var(--hx-border);
+}
+
+.hx-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  text-decoration: none !important;
+  min-width: 0;
+}
+
+.hx-brand-name {
+  font-family: var(--hx-mono);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  color: var(--hx-text);
+}
+
+.hx-brand-module {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hx-accent);
+}
+
+.hx-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hx-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--hx-border);
+  background: var(--hx-panel);
+}
+
+/* —— App shell —— */
+.hx-shell {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.hx-row {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch;
+  margin: 0 !important;
+  min-height: calc(100vh - var(--hx-topbar));
+}
+
+.hx-rail {
+  flex: 0 0 var(--hx-rail);
+  width: var(--hx-rail) !important;
+  max-width: var(--hx-rail) !important;
+  height: calc(100vh - var(--hx-topbar));
+  position: sticky;
+  top: var(--hx-topbar);
+  display: flex;
+  flex-direction: column;
+  background: var(--hx-panel);
+  border-right: 1px solid var(--hx-border);
+  overflow: hidden;
+  z-index: 2;
+}
+
+.hx-rail-title {
+  margin: 0;
+  padding: 14px 16px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hx-muted);
+  border-bottom: 1px solid var(--hx-border);
+}
+
+.hx-rail-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 12px 16px;
+  box-sizing: border-box;
+}
+
+.hx-actions {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
+  background: #141b24;
+  border-top: 1px solid var(--hx-border);
+}
+
+.hx-actions .btn {
+  font-family: var(--hx-font);
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--hx-border);
+  padding: 8px 10px;
+}
+
+.hx-actions #run-bt,
+.hx-actions .btn-hx-primary {
+  background: var(--hx-accent) !important;
+  border-color: var(--hx-accent-dim) !important;
+  color: var(--hx-accent-ink) !important;
+}
+
+.hx-actions #run-bt:hover:not(:disabled),
+.hx-actions .btn-hx-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.hx-actions #stop-bt {
+  background: transparent !important;
+  border-color: var(--hx-danger) !important;
+  color: var(--hx-danger) !important;
+}
+
+.hx-actions #help-bt {
+  background: var(--hx-panel-2) !important;
+  color: var(--hx-text) !important;
+}
+
+.hx-actions #rep-bt,
+.hx-actions .btn-hx-secondary {
+  grid-column: 1 / -1;
+  background: transparent !important;
+  border-color: var(--hx-accent) !important;
+  color: var(--hx-accent) !important;
+}
+
+.hx-actions .btn:disabled {
+  opacity: 0.45;
+}
+
+.hx-stage {
+  flex: 1 1 auto;
+  width: calc(100% - var(--hx-rail)) !important;
+  max-width: none !important;
+  min-width: 0;
+  height: calc(100vh - var(--hx-topbar));
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 14px 28px;
+  box-sizing: border-box;
+  background: var(--hx-canvas);
+}
+
+/* —— Config sections (Bootstrap cards → quiet blocks) —— */
+body.helix-shell .card {
+  background: var(--hx-panel-2) !important;
+  border: 1px solid var(--hx-border) !important;
+  border-radius: var(--hx-radius) !important;
+  color: var(--hx-text);
+  margin-bottom: 12px !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+body.helix-shell .card-header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--hx-border) !important;
+  color: var(--hx-text) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 10px 14px !important;
+}
+
+body.helix-shell .card-header h4,
+body.helix-shell .card-header h6,
+body.helix-shell .card-header .mb-0 {
+  margin: 0 !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hx-accent) !important;
+}
+
+body.helix-shell .card-body {
+  background: transparent !important;
+  color: var(--hx-text);
+  padding: 12px 14px 14px !important;
+}
+
+body.helix-shell .form-label {
+  color: var(--hx-text);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+body.helix-shell .form-text,
+body.helix-shell .text-muted.small {
+  color: var(--hx-muted) !important;
+}
+
+body.helix-shell .form-control,
+body.helix-shell .form-select {
+  background: var(--hx-canvas) !important;
+  border: 1px solid var(--hx-border) !important;
+  color: var(--hx-text) !important;
+  border-radius: 6px !important;
+  font-family: var(--hx-font);
+}
+
+body.helix-shell .form-control:focus,
+body.helix-shell .form-select:focus {
+  border-color: var(--hx-accent) !important;
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.22) !important;
+}
+
+body.helix-shell .form-control::placeholder {
+  color: #6b7a8a;
+}
+
+body.helix-shell .form-select option {
+  background: var(--hx-panel);
+  color: var(--hx-text);
+}
+
+body.helix-shell hr {
+  border-color: var(--hx-border) !important;
+  opacity: 1;
+}
+
+body.helix-shell .input-group-text {
+  background: var(--hx-panel);
+  border-color: var(--hx-border);
+  color: var(--hx-muted);
+}
+
+body.helix-shell .alert-info {
+  background: rgba(79, 193, 255, 0.1);
+  border: 1px solid rgba(79, 193, 255, 0.35);
+  color: var(--hx-text);
+}
+
+body.helix-shell .alert-danger {
+  background: rgba(241, 76, 76, 0.12);
+  border: 1px solid rgba(241, 76, 76, 0.4);
+  color: #ffb4b4;
+}
+
+/* —— Results panels —— */
+body.helix-shell .hx-stage > .col-md-7,
+body.helix-shell .hx-stage > .col-md-9,
+body.helix-shell .bf-results-col > .col-md-7,
+body.helix-shell .bf-results-col > div[id$="Div"],
+body.helix-shell #quastDiv,
+body.helix-shell #baktaDiv,
+body.helix-shell #circDiv,
+body.helix-shell #taxa_class,
+body.helix-shell #gtdbTreeDiv,
+body.helix-shell #checkmDiv,
+body.helix-shell #checkmTreeDiv,
+body.helix-shell #plasmidDiv,
+body.helix-shell #circFastaDiv,
+body.helix-shell #resultsStatusDiv,
+body.helix-shell #snpsDiv,
+body.helix-shell #svs,
+body.helix-shell #abundDiv,
+body.helix-shell #abundImgDiv,
+body.helix-shell #prevDiv,
+body.helix-shell #prevImgDiv {
+  background: var(--hx-panel) !important;
+  border: 1px solid var(--hx-border) !important;
+  border-radius: var(--hx-radius);
+  color: var(--hx-text);
+  margin-bottom: 12px;
+  padding: 12px 4px 8px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+body.helix-shell .hx-stage h4,
+body.helix-shell .hx-stage h5,
+body.helix-shell .bf-results-col h4,
+body.helix-shell .bf-results-col h5 {
+  color: var(--hx-text);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  padding-left: 12px;
+}
+
+body.helix-shell .hx-stage [id^="output-"],
+body.helix-shell .bf-results-col [id^="output-"] {
+  background: var(--hx-canvas) !important;
+  border-color: var(--hx-border) !important;
+  color: var(--hx-text) !important;
+}
+
+/* —— Terminal alignment with tokens —— */
+body.helix-shell .bf-terminal-wrap {
+  border-color: var(--hx-border) !important;
+  border-radius: var(--hx-radius) !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+body.helix-shell .bf-meters {
+  border-color: var(--hx-border) !important;
+  border-radius: var(--hx-radius) !important;
+  background: var(--hx-panel) !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  width: 100% !important;
+}
+
+/* —— Plasmid / report chrome —— */
+body.helix-shell .plasmid-stat {
+  background: var(--hx-canvas);
+  border-color: var(--hx-border);
+}
+
+body.helix-shell .plasmid-stat-value {
+  color: var(--hx-accent);
+}
+
+body.helix-shell .plasmid-stat-label {
+  color: var(--hx-muted);
+}
+
+body.helix-shell .plasmid-chart {
+  background: var(--hx-canvas);
+  border-color: var(--hx-border);
+}
+
+body.helix-shell .bf-plot-bar {
+  background: var(--hx-panel-2);
+  border-color: var(--hx-border);
+  color: var(--hx-text);
+}
+
+body.helix-shell .checkm-tree-wrap {
+  background: var(--hx-canvas) !important;
+  border-color: var(--hx-border) !important;
+}
+
+body.helix-shell .checkm-tree-toggle,
+body.helix-shell .gtdb-tree-toggle {
+  border-color: var(--hx-accent);
+  color: var(--hx-accent);
+  background: transparent;
+}
+
+body.helix-shell .checkm-tree-toggle.active,
+body.helix-shell .gtdb-tree-toggle.active {
+  background: var(--hx-accent);
+  color: var(--hx-accent-ink);
+  border-color: var(--hx-accent);
+}
+
+body.helix-shell .bf-dl-png {
+  background: var(--hx-accent) !important;
+  color: var(--hx-accent-ink) !important;
+  border-radius: 6px !important;
+}
+
+body.helix-shell .btn-hx-primary {
+  background: var(--hx-accent) !important;
+  border-color: var(--hx-accent-dim) !important;
+  color: var(--hx-accent-ink) !important;
+  font-weight: 600;
+}
+
+body.helix-shell .btn-hx-secondary {
+  background: transparent !important;
+  border: 1px solid var(--hx-accent) !important;
+  color: var(--hx-accent) !important;
+  font-weight: 600;
+}
+
+body.helix-shell .btn-outline-danger {
+  border-color: var(--hx-danger) !important;
+  color: var(--hx-danger) !important;
+  background: transparent !important;
+}
+
+body.helix-shell .form-range {
+  accent-color: var(--hx-accent);
+}
+
+body.helix-shell #prokka-tab tr:nth-child(even),
+body.helix-shell #taxa-tab tr:nth-child(even),
+body.helix-shell #plasmid-tab tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+body.helix-shell #prokka-tab tr:hover,
+body.helix-shell #taxa-tab tr:hover,
+body.helix-shell #plasmid-tab tr:hover {
+  background-color: rgba(45, 212, 191, 0.1) !important;
+}
+
+body.helix-shell .vcf-chrom-summary {
+  background: var(--hx-canvas) !important;
+  border: 1px solid var(--hx-border);
+  color: var(--hx-muted);
+}
+
+/* —— DataTables dark —— */
+body.helix-shell table.dataTable,
+body.helix-shell table.display,
+body.helix-shell .table {
+  color: var(--hx-text) !important;
+  background: var(--hx-canvas) !important;
+  border-color: var(--hx-border) !important;
+}
+
+body.helix-shell table.dataTable thead th,
+body.helix-shell table.dataTable thead td,
+body.helix-shell .table thead th {
+  background: var(--hx-panel-2) !important;
+  color: var(--hx-accent) !important;
+  border-color: var(--hx-border) !important;
+  font-family: var(--hx-mono);
+  font-size: 12px;
+}
+
+body.helix-shell table.dataTable tbody td,
+body.helix-shell .table td {
+  border-color: var(--hx-border) !important;
+  background: transparent !important;
+  color: var(--hx-text) !important;
+  font-family: var(--hx-mono);
+  font-size: 12px;
+}
+
+body.helix-shell table.dataTable.stripe tbody tr.odd,
+body.helix-shell table.dataTable.display tbody tr.odd {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+body.helix-shell table.dataTable.hover tbody tr:hover,
+body.helix-shell table.dataTable.display tbody tr:hover {
+  background: rgba(45, 212, 191, 0.08) !important;
+}
+
+body.helix-shell .dataTables_wrapper .dataTables_length,
+body.helix-shell .dataTables_wrapper .dataTables_filter,
+body.helix-shell .dataTables_wrapper .dataTables_info,
+body.helix-shell .dataTables_wrapper .dataTables_paginate {
+  color: var(--hx-muted) !important;
+  font-family: var(--hx-font);
+}
+
+body.helix-shell .dataTables_wrapper .dataTables_filter input,
+body.helix-shell .dataTables_wrapper .dataTables_length select {
+  background: var(--hx-canvas) !important;
+  border: 1px solid var(--hx-border) !important;
+  color: var(--hx-text) !important;
+  border-radius: 6px;
+}
+
+body.helix-shell .dataTables_wrapper .dataTables_paginate .paginate_button {
+  color: var(--hx-muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+
+body.helix-shell .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+body.helix-shell .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+  background: var(--hx-accent) !important;
+  color: var(--hx-accent-ink) !important;
+  border-color: var(--hx-accent) !important;
+}
+
+body.helix-shell .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+  background: var(--hx-panel-2) !important;
+  color: var(--hx-text) !important;
+  border-color: var(--hx-border) !important;
+}
+
+body.helix-shell .tabdiv {
+  background: var(--hx-canvas) !important;
+  border-color: var(--hx-border) !important;
+}
+
+body.helix-shell .table-title {
+  border-color: var(--hx-border) !important;
+  color: var(--hx-text);
+}
+
+/* —— Select2 —— */
+body.helix-shell .select2-container--default .select2-selection--single,
+body.helix-shell .select2-container--default .select2-selection--multiple {
+  background: var(--hx-canvas);
+  border-color: var(--hx-border);
+  color: var(--hx-text);
+}
+
+body.helix-shell .select2-dropdown {
+  background: var(--hx-panel);
+  border-color: var(--hx-border);
+  color: var(--hx-text);
+}
+
+body.helix-shell .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+  background: var(--hx-accent);
+  color: var(--hx-accent-ink);
+}
+
+/* —— Footer —— */
+body.helix-shell > footer,
+body.helix-shell footer.bg-dark {
+  background: #0c1015 !important;
+  border-top: 1px solid var(--hx-border);
+  color: var(--hx-muted) !important;
+  margin-top: 0 !important;
+  padding: 18px 12px !important;
+}
+
+body.helix-shell footer a {
+  color: var(--hx-accent) !important;
+}
+
+/* —— Plotly embeds —— */
+body.helix-shell .js-plotly-plot .plotly .main-svg {
+  background: transparent !important;
+}
+
+/* —— Legacy layout bridges —— */
+body.helix-shell #input-side {
+  background: var(--hx-panel) !important;
+  border-right-color: var(--hx-border) !important;
+}
+
+body.helix-shell .bf-results-col {
+  background: var(--hx-canvas) !important;
+}
+
+body.helix-shell .bf-side-scroll {
+  padding-bottom: 8px;
+}
+
+@media (max-width: 992px) {
+  :root {
+    --hx-rail: 100%;
+  }
+
+  .hx-row {
+    flex-wrap: wrap !important;
+  }
+
+  .hx-rail {
+    position: relative;
+    top: 0;
+    height: auto;
+    max-height: none;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100%;
+  }
+
+  .hx-stage {
+    width: 100% !important;
+    height: auto;
+    min-height: 60vh;
+  }
+}

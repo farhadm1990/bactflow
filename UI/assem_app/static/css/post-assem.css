@@ -8,11 +8,11 @@ table th:nth-child(30), td:nth-child(30){
 .tabdiv {
     overflow-x: auto; 
     width: 100% !important;
-    border: solid 1px rgb(150, 150, 150); 
+    border: solid 1px var(--hx-border, #2a3441); 
     border-radius: 2px;
     margin: 5px 5px 5px 5px;
     flex: auto;
-    background-color: rgb(241, 246, 247);
+    background-color: var(--hx-canvas, #0f1419);
     padding: 5px;
 }
 
@@ -87,7 +87,7 @@ table.dataTable thead th {
 }
 
 #prokka-tab tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: rgba(255,255,255,0.03);
 }
 
 #prokka-tab tr:hover {
@@ -123,7 +123,7 @@ table.dataTable thead th {
 }
 
 #taxa-tab tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: rgba(255,255,255,0.03);
 }
 
 #taxa-tab tr:hover {
@@ -156,7 +156,7 @@ table.dataTable thead th {
 }
 
 #abund-tab tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: rgba(255,255,255,0.03);
 }
 
 #abund-tab tr:hover {
@@ -189,7 +189,7 @@ table.dataTable thead th {
 }
 
 #prev-tab tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: rgba(255,255,255,0.03);
 }
 
 #prev-tab tr:hover {
@@ -226,7 +226,7 @@ table.dataTable thead th {
 #bakta-tab tr:nth-child(even),
 #checkm-tab tr:nth-child(even),
 #plasmid-tab tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: rgba(255,255,255,0.03);
 }
 
 #output-checkm,
@@ -242,7 +242,7 @@ table.dataTable thead th {
     width: 95%;
     margin: 10px 10px 0;
     padding: 8px 12px;
-    background: #f4f6f7;
+    background: var(--hx-panel-2, #222b37);
     border: 1px solid #696969;
     border-bottom: 0;
     box-sizing: border-box;
@@ -250,7 +250,7 @@ table.dataTable thead th {
 
 .bf-plot-bar-title {
     font-weight: 600;
-    color: #2f4f4f;
+    color: var(--hx-text, #e7edf4);
 }
 
 .bf-plot-bar-actions {
@@ -264,12 +264,12 @@ table.dataTable thead th {
     font-weight: 600;
     padding: 4px 12px;
     border-radius: 999px;
-    background: #12b5a8;
+    background: var(--hx-accent, #2dd4bf);
 }
 
 .bf-dl-png:hover,
 .bf-dl-png:focus {
-    background: #0e968c;
+    background: var(--hx-accent-dim, #1aa894);
     color: #fff;
 }
 
@@ -280,7 +280,7 @@ table.dataTable thead th {
     padding: 0;
     width: 95%;
     overflow: auto;
-    background: #f7faf8;
+    background: var(--hx-canvas, #0f1419);
     min-height: 420px;
 }
 
@@ -291,16 +291,16 @@ table.dataTable thead th {
 }
 
 .checkm-tree-toggle {
-    border: 1px solid #42756b;
-    background: #fff;
-    color: #42756b;
+    border: 1px solid var(--hx-accent, #2dd4bf);
+    background: var(--hx-canvas, #0f1419);
+    color: var(--hx-accent, #2dd4bf);
     font-weight: 600;
     border-radius: 999px;
     padding: 4px 12px;
 }
 
 .checkm-tree-toggle.active {
-    background: #42756b;
+    background: var(--hx-accent, #2dd4bf);
     color: #fff;
 }
 
@@ -314,8 +314,8 @@ table.dataTable thead th {
 .plasmid-stat {
     flex: 1 1 140px;
     min-width: 120px;
-    background: #fff;
-    border: 1px solid #c5d5d0;
+    background: var(--hx-canvas, #0f1419);
+    border: 1px solid var(--hx-border, #2a3441);
     border-radius: 6px;
     padding: 10px 12px;
 }
@@ -323,13 +323,13 @@ table.dataTable thead th {
 .plasmid-stat-value {
     font-size: 1.25rem;
     font-weight: 700;
-    color: #264653;
+    color: var(--hx-accent, #2dd4bf);
     line-height: 1.2;
 }
 
 .plasmid-stat-label {
     font-size: 0.8rem;
-    color: #5a6b66;
+    color: var(--hx-muted, #9aa8b5);
     margin-top: 2px;
 }
 
@@ -343,9 +343,8 @@ table.dataTable thead th {
 
 .plasmid-chart {
     min-height: 280px;
-    background: #fff;
-    border: 1px solid #c5d5d0;
+    background: var(--hx-canvas, #0f1419);
+    border: 1px solid var(--hx-border, #2a3441);
     border-radius: 6px;
     padding: 4px;
-}
 }
