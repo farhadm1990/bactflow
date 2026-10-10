@@ -323,7 +323,7 @@ def _safe_sample_filename(sample: str) -> str:
     return f"{name}.fastq"
 
 
-def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1) -> list[Path]:
+def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1, on_progress=None) -> list[Path]:
     resolved, _note = resolve_fastq_dir(str(fastq_dir))
     root = Path(resolved)
 
@@ -366,10 +366,15 @@ def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1
         return dest
 
     written = []
+    total = len(jobs)
+    if on_progress:
+        on_progress(0, total)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(_run, job) for job in jobs]
         for fut in as_completed(futures):
             written.append(fut.result())
+            if on_progress:
+                on_progress(len(written), total)
 
     written = sorted(written, key=lambda p: p.name.lower())
     for leftover in (root / "concatenated_fq_are_ready", pooled_dir / "concatenated_fq_are_ready"):

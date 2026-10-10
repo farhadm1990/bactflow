@@ -5,19 +5,38 @@
 {% block extra_head %}
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix1">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd1">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd13">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
+<script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
 
 {% block content %}
+<div class="rd-plasma" aria-hidden="true">
+  <i></i><i></i><i></i><i></i>
+  <svg viewBox="0 0 2400 600" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="rd-wave-grad" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="#8b5cf6"/>
+        <stop offset="0.35" stop-color="#22d3ee"/>
+        <stop offset="0.65" stop-color="#22c55e"/>
+        <stop offset="1" stop-color="#8b5cf6"/>
+      </linearGradient>
+    </defs>
+    <path stroke-width="2.5" d="M0 300 C300 140 300 140 600 300 S900 460 1200 300 S1500 140 1800 300 S2100 460 2400 300"/>
+    <path stroke-width="1.5" opacity=".7" d="M0 330 C300 200 300 200 600 330 S900 470 1200 330 S1500 200 1800 330 S2100 470 2400 330"/>
+    <path stroke-width="1" opacity=".55" d="M0 270 C300 90 300 90 600 270 S900 430 1200 270 S1500 90 1800 270 S2100 430 2400 270"/>
+    <path stroke-width="6" opacity=".18" d="M0 360 C300 250 300 250 600 360 S900 500 1200 360 S1500 250 1800 360 S2100 500 2400 360"/>
+  </svg>
+</div>
 
 <form id="postForm">
+
 <div class="rd-app">
 
-  <aside class="rd-nav" aria-label="BactFlow navigation">
+  <aside class="rd-nav rd-nav-setup" aria-label="Analysis setup">
     <a class="rd-brand" href="https://github.com/farhadm1990/bactflow" target="_blank" rel="noopener noreferrer">
       <img class="rd-brand-mark" src="{{ url_for('static', filename='images/logo.png') }}" alt="">
       <div class="rd-brand-text">
@@ -25,176 +44,8 @@
         <span>From reads to insights.</span>
       </div>
     </a>
-    <nav class="rd-nav-list">
-      <button type="button" class="rd-nav-btn is-active" data-view="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10h6V4H4v6zm10 10h6v-6h-6v6zM4 20h6v-6H4v6zm10-10h6V4h-6v6z"/></svg> Run Overview</button>
-      <button type="button" class="rd-nav-btn" data-view="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.5"/></svg> Analysis Setup</button>
-      <button type="button" class="rd-nav-btn" data-view="results"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5M4 19h16M8 15v4M12 11v8M16 8v11"/></svg> Results</button>
-      <button type="button" class="rd-nav-btn" data-view="data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg> Data</button>
-      <button type="button" class="rd-nav-btn" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg> Settings</button>
-    </nav>
-    <div class="rd-nav-foot">
-      <div class="rd-gpu"><span class="rd-gpu-dot"></span><span id="rd-gpu-label">GPU Ready · Docker + Nextflow</span></div>
-      <div class="rd-user">
-        <div class="rd-user-avatar">FP</div>
-        <div><div>Farhad Panah</div><small>Operator</small></div>
-      </div>
-    </div>
-  </aside>
-
-  <div class="rd-main">
-    <header class="rd-top">
-      <div>
-        <h1>Genomics Analysis</h1>
-        <p class="rd-sub">Post-assembly pipeline</p>
-        <div class="rd-runmeta">
-          <span class="rd-run-id" id="rd-run-id">#—</span>
-          <span class="rd-badge is-ready" id="rd-run-badge">Ready</span>
-          <span>Nextflow · live</span>
-          <span>1 sample(s)</span>
-          <span id="rd-header-elapsed">Elapsed —</span>
-        </div>
-      </div>
-      <div class="rd-top-actions">
-        <button type="button" class="rd-icon-btn" title="Notifications" aria-label="Notifications">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
-        </button>
-        <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View logs</button>
-      </div>
-    </header>
-
-    <div class="rd-views">
-
-      <section class="rd-view is-active" id="rd-view-overview">
-        <div class="rd-center">
-          <div class="rd-card">
-            <div class="rd-card-title"><h3>Pipeline flow</h3></div>
-            
-              <div class="rd-pipeline">
-                <div class="rd-pipeline-track">
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">1</div><div class="rd-stage-name">Environment Setup</div><div class="rd-stage-meta">Waiting</div></div>
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">2</div><div class="rd-stage-name">QUAST</div><div class="rd-stage-meta">Waiting</div></div>
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">3</div><div class="rd-stage-name">Bakta</div><div class="rd-stage-meta">Waiting</div></div>
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">4</div><div class="rd-stage-name">GTDB-Tk</div><div class="rd-stage-meta">Waiting</div></div>
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">5</div><div class="rd-stage-name">CheckM</div><div class="rd-stage-meta">Waiting</div></div>
-                  <div class="rd-stage is-wait" data-fixed="1"><div class="rd-stage-node">6</div><div class="rd-stage-name">geNomad</div><div class="rd-stage-meta">Waiting</div></div>
-                </div>
-              </div>
-          </div>
-
-          <div class="rd-card">
-            <div class="rd-task">
-              <div class="rd-ring" id="rd-task-ring" style="--rd-pct:0">
-                <div class="rd-ring-inner"><strong id="rd-task-ring-pct">0%</strong><span>progress</span></div>
-              </div>
-              <div>
-                <div class="rd-task-head">
-                  <div>
-                    <h3 id="rd-task-title">Ready</h3>
-                    <p id="rd-task-desc">Start a run from Analysis Setup to populate live progress.</p>
-                  </div>
-                </div>
-                <div class="rd-metrics">
-                  <div class="rd-metric"><label>Elapsed</label><strong id="rd-m-elapsed">—</strong></div>
-                  <div class="rd-metric"><label>ETA</label><strong id="rd-m-eta">—</strong></div>
-                  <div class="rd-metric"><label>Total</label><strong id="rd-m-total">0</strong></div>
-                  <div class="rd-metric"><label>Completed</label><strong id="rd-m-done">0</strong></div>
-                  <div class="rd-metric"><label>Running</label><strong id="rd-m-run">0</strong></div>
-                  <div class="rd-metric"><label>Failed</label><strong id="rd-m-fail">0</strong></div>
-                </div>
-                <div class="rd-bar"><i id="rd-task-bar"></i></div>
-                <div class="rd-task-list" id="rd-task-list"></div>
-                <div class="rd-deps">
-                  <h4>Dependent processes</h4>
-                  <div id="rd-task-deps"></div>
-                </div>
-                <div id="bf-process-panel" class="bf-process-panel" style="display:none;" aria-live="polite">
-                  <div class="bf-process-overall">
-                    <div class="bf-process-overall-head">
-                      <span class="bf-process-overall-title">Workflow progress</span>
-                      <span id="bf-process-overall-meta" class="bf-process-overall-meta">—</span>
-                    </div>
-                    <div class="bf-process-track">
-                      <div id="bf-process-overall-fill" class="bf-process-fill is-workflow"></div>
-                    </div>
-                  </div>
-                  <div id="bf-process-list" class="bf-process-list"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="rd-card rd-logs">
-            <div class="rd-logs-bar">
-              <div class="rd-tabs">
-                <button type="button" class="rd-tab is-active" data-logtab="live">Live logs</button>
-                <button type="button" class="rd-tab" data-logtab="term">Terminal</button>
-              </div>
-              <div class="rd-logs-tools">
-                <label><input type="checkbox" id="rd-autoscroll"> Auto-scroll</label>
-                <button type="button" class="rd-chip-btn" id="rd-download-log">Download</button>
-                <label class="bf-verbose" style="margin:0;"><input type="checkbox" id="logVerbose"> Verbose</label>
-              </div>
-            </div>
-            <div class="rd-logs-body">
-              <div id="bf-status" class="bf-status">Ready</div>
-              <div id="output-div" class="bf-terminal-wrap" style="display:flex; flex-direction:column; width:100%; height:100%; overflow:hidden;">
-                <div id="output-bactflow" class="bf-terminal-body"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <aside class="rd-right">
-          <div class="rd-card">
-            <h3>Run summary</h3>
-            <div class="rd-summary-list">
-              <div class="rd-summary-row is-done"><span>Completed</span><div class="track"><i id="rd-sum-done-bar"></i></div><strong id="rd-sum-done">0</strong></div>
-              <div class="rd-summary-row is-run"><span>Running</span><div class="track"><i id="rd-sum-run-bar"></i></div><strong id="rd-sum-run">0</strong></div>
-              <div class="rd-summary-row is-wait"><span>Waiting</span><div class="track"><i id="rd-sum-wait-bar"></i></div><strong id="rd-sum-wait">0</strong></div>
-              <div class="rd-summary-row is-fail"><span>Failed</span><div class="track"><i id="rd-sum-fail-bar"></i></div><strong id="rd-sum-fail">0</strong></div>
-            </div>
-          </div>
-          <div class="rd-card">
-            <h3>Estimated completion</h3>
-            <div class="rd-eta-value" id="rd-eta-big">—</div>
-            <div class="rd-eta-sub" id="rd-eta-sub">Start a run to estimate</div>
-            <svg class="rd-sparkline" id="rd-eta-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
-          </div>
-          <div class="rd-card">
-            <h3>Resource usage</h3>
-            <div class="rd-gauges">
-              <div class="rd-gauge">
-                <div class="rd-gauge-ring" id="rd-cpu-ring" style="--rd-pct:0"><strong id="rd-cpu-pct">0%</strong></div>
-                <label>CPU</label>
-              </div>
-              <div class="rd-gauge">
-                <div class="rd-gauge-ring is-ram" id="rd-ram-ring" style="--rd-pct:0"><strong id="rd-ram-pct">0%</strong></div>
-                <label>Memory</label>
-              </div>
-            </div>
-            <div class="rd-legacy-meters" aria-hidden="true">
-              <div class="bf-meter-fill" id="bf-cpu-fill"></div>
-              <div class="bf-meter-job" id="bf-cpu-job"></div>
-              <span id="bf-cpu-val">—</span>
-              <div class="bf-meter-fill" id="bf-ram-fill"></div>
-              <div class="bf-meter-job" id="bf-ram-job"></div>
-              <span id="bf-ram-val">—</span>
-              <svg id="bf-cpu-spark" viewBox="0 0 120 24"></svg>
-              <svg id="bf-ram-spark" viewBox="0 0 120 24"></svg>
-            </div>
-          </div>
-          <div class="rd-card">
-            <h3>Nextflow</h3>
-            <div class="rd-nf">Version detected from live logs.<br><code id="rd-nf-ver">—</code></div>
-          </div>
-          <div class="rd-brand-card">Better data.<br>Deeper insights.<br><span>BactFlow</span></div>
-        </aside>
-      </section>
-
-      <section class="rd-view" id="rd-view-setup">
-        <div class="rd-setup-wrap">
-          <div class="rd-setup-rail">
-            <div class="rd-setup-scroll">
+    <div class="rd-nav-btn is-active rd-setup-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg> Analysis Setup</div>
+    <div class="rd-setup-scroll">
 <!-- Genome Parameters -->
           <div class="card mb-7">
             <div class="card-header d-flex align-items-center">
@@ -396,8 +247,8 @@
               <div class="mb-3">
                 <label for="resume_run" class="form-label"><strong>Resume the run from interupted point?</strong> </label>
                 <select class="form-select" id="resume_run" name="resume_run">
-                  <option value="true" selected>True</option>
-                  <option value="false" >False</option>
+                  <option value="true">True</option>
+                  <option value="false" selected>False</option>
                 </select>
               </div>
 
@@ -511,22 +362,104 @@
           <p id="strain-finder-hint" class="text-muted small mb-0 mt-2" style="text-align: center;">Fill both the enzyme file and the gene annotation directory to activate strain finder.</p>
         </div>
       </div>
-            </div>
-            <div class="rd-setup-actions hx-actions bf-bactflow-actions" role="group" aria-label="BactFlow actions">
-              <button type="button" class="btn" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
-              <button type="button" class="btn" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
-              <button type="button" class="btn" name="action-assem" value="help" id="help-bt">Help!</button>
-              <button type="button" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display the results!</button>
-            </div>
-          </div>
-          <div class="rd-setup-hint">
-            <p class="rd-empty">Configure genomes, annotation, taxonomy, plasmids, SNPs, and strain finder here. Start the run, then use <strong>Run Overview</strong> for the live dashboard.</p>
+    </div>
+    <div class="rd-nav-foot">
+      <div class="rd-user-menu" id="rd-user-menu" role="menu">
+        <a href="https://github.com/farhadm1990" target="_blank" rel="noopener noreferrer" role="menuitem">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+        <a class="is-linkedin" href="https://www.linkedin.com/in/farhadmp/" target="_blank" rel="noopener noreferrer" role="menuitem">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.15C0 .51.53 0 1.18 0h13.64C15.47 0 16 .51 16 1.15v13.7c0 .64-.53 1.15-1.18 1.15H1.18C.53 16 0 15.49 0 14.85zm4.94 12.24V6.17H2.54v7.22zm-1.2-8.2c.84 0 1.36-.56 1.36-1.25-.02-.71-.52-1.25-1.34-1.25-.82 0-1.36.54-1.36 1.25 0 .7.52 1.25 1.33 1.25zm4.91 8.2V9.36c0-.22.02-.43.08-.59.17-.43.57-.88 1.23-.88.87 0 1.22.66 1.22 1.63v3.87h2.4V9.25c0-2.22-1.18-3.25-2.76-3.25-1.28 0-1.85.7-2.17 1.19V6.17h-2.4c.03.68 0 7.22 0 7.22z"/></svg>
+          LinkedIn
+        </a>
+      </div>
+      <button type="button" class="rd-user" id="rd-user-btn" aria-haspopup="true" aria-expanded="false">
+        <span class="rd-user-avatar">FP</span>
+        <span><span>Farhad Panah</span><small>Operator</small></span>
+        <svg class="rd-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="rd-main">
+    <header class="rd-top">
+      <div>
+        <h1>Genomics analysis: Post-assembly</h1>
+        <p class="rd-sub">Post-assembly pipeline · Nextflow</p>
+      </div>
+      <div class="rd-top-stats">
+        <span class="rd-status is-idle" id="rd-run-badge">Idle</span>
+        <div class="rd-top-stat"><label>Run</label><strong class="rd-run-id" id="rd-run-id">#—</strong></div>
+        <div class="rd-top-stat"><label>Started</label><strong id="rd-header-started">—</strong></div>
+        <div class="rd-top-stat"><label>Elapsed</label><strong id="rd-header-elapsed">—</strong></div>
+        <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View logs</button>
+      </div>
+    </header>
+
+    <div class="rd-body">
+      <div class="rd-center">
+
+        <div class="rd-card rd-flow-card">
+          <div class="rd-pipeline">
+            <div class="rd-pipeline-track" id="rd-pipeline-track"></div>
           </div>
         </div>
-      </section>
 
-      <section class="rd-view" id="rd-view-results">
-        <div class="rd-results-pane bf-results-col" id="assem-results-pane">
+        <div class="rd-card">
+          <div class="rd-task-head">
+            <h3 id="rd-task-title">Ready</h3>
+            <p id="rd-task-desc">Choose options in Analysis Setup, then run BactFlow.</p>
+          </div>
+          <div class="rd-task">
+            <div class="rd-ring" id="rd-task-ring" style="--rd-pct:0">
+              <div class="rd-ring-inner"><strong id="rd-task-ring-pct">0%</strong><span id="rd-task-ring-sub">—</span></div>
+            </div>
+            <div class="rd-task-main">
+              <div class="rd-metrics">
+                <div class="rd-metric"><label>Elapsed time</label><strong id="rd-m-elapsed">0s</strong><small id="rd-m-elapsed-sub">waiting for run</small></div>
+                <div class="rd-metric"><label>ETA</label><strong id="rd-m-eta">—</strong><small id="rd-m-eta-sub"></small></div>
+                <div class="rd-metric"><label>Started</label><strong id="rd-m-started">—</strong><small id="rd-m-started-sub">not started yet</small></div>
+                <div class="rd-metric"><label>CPU / Memory</label><strong id="rd-m-res">—</strong><small>system, live</small></div>
+              </div>
+              <div class="rd-bar"><i id="rd-task-bar"></i></div>
+            </div>
+          </div>
+          <div id="bf-process-panel" class="bf-process-panel" style="display:none;" aria-live="polite">
+            <div class="bf-process-overall">
+              <div class="bf-process-overall-head">
+                <span class="bf-process-overall-title">Workflow progress</span>
+                <span id="bf-process-overall-meta" class="bf-process-overall-meta">—</span>
+              </div>
+              <div class="bf-process-track">
+                <div id="bf-process-overall-fill" class="bf-process-fill is-workflow"></div>
+              </div>
+            </div>
+            <div id="bf-process-list" class="bf-process-list"></div>
+          </div>
+        </div>
+
+        <div class="rd-card rd-logs">
+          <div class="rd-logs-bar">
+            <div class="rd-tabs">
+              <button type="button" class="rd-tab is-active" data-logtab="live">Live log</button>
+            </div>
+            <div class="rd-logs-tools">
+              <label><input type="checkbox" id="logVerbose"> Verbose</label>
+              <label><input type="checkbox" id="rd-autoscroll"> Auto-scroll</label>
+              <button type="button" class="rd-chip-btn" id="rd-download-log">Download</button>
+            </div>
+          </div>
+          <div class="rd-logs-body">
+            <div id="bf-status" class="bf-status">Ready</div>
+            <div id="output-div" class="bf-terminal-wrap" style="display:flex;">
+              <div id="output-bactflow" class="bf-terminal-body"></div>
+            </div>
+          </div>
+        </div>
+
+        <section class="rd-card rd-results" id="rd-results">
+          <div class="rd-results-body bf-results-col" id="assem-results-pane">
 <div id="circFastaDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Circulated genomes</h4>
         <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
@@ -909,30 +842,78 @@
       
         </div>
         <br>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="rd-right">
+        <div class="rd-card">
+          <h3>Pipeline progress</h3>
+          <div class="rd-progress-list" id="rd-progress-list"></div>
         </div>
-      </section>
+        <div class="rd-card">
+          <h3>Run summary</h3>
+          <div class="rd-summary-list">
+            <div class="rd-summary-row is-total"><span>Total processes</span><strong id="rd-sum-total">0</strong></div>
+            <div class="rd-summary-row is-done"><span>Completed</span><strong id="rd-sum-done">0</strong></div>
+            <div class="rd-summary-row is-run"><span>Running</span><strong id="rd-sum-run">0</strong></div>
+            <div class="rd-summary-row is-wait"><span>Waiting</span><strong id="rd-sum-wait">0</strong></div>
+            <div class="rd-summary-row is-fail"><span>Failed</span><strong id="rd-sum-fail">0</strong></div>
+          </div>
+        </div>
+        <div class="rd-card">
+          <h3>Resource usage</h3>
+          <div class="rd-gauges">
+            <div class="rd-gauge">
+              <div class="rd-gauge-ring" id="rd-cpu-ring" style="--rd-pct:0"><strong id="rd-cpu-pct">0%</strong></div>
+              <label>CPU</label>
+              <small id="rd-cpu-sub"></small>
+            </div>
+            <div class="rd-gauge">
+              <div class="rd-gauge-ring is-ram" id="rd-ram-ring" style="--rd-pct:0"><strong id="rd-ram-pct">0%</strong></div>
+              <label>Memory</label>
+              <small id="rd-ram-sub"></small>
+            </div>
+          </div>
+          <div class="rd-legacy-meters" aria-hidden="true">
+            <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+            <div class="bf-meter-job" id="bf-cpu-job"></div>
+            <span id="bf-cpu-val">—</span>
+            <div class="bf-meter-fill" id="bf-ram-fill"></div>
+            <div class="bf-meter-job" id="bf-ram-job"></div>
+            <span id="bf-ram-val">—</span>
+            <svg id="bf-cpu-spark" viewBox="0 0 120 24"></svg>
+            <svg id="bf-ram-spark" viewBox="0 0 120 24"></svg>
+          </div>
+        </div>
+        <div class="rd-card">
+          <h3>Nextflow</h3>
+          <div class="rd-nf"><code id="rd-nf-ver">—</code><br>Detected from the live log.</div>
+        </div>
+      </aside>
+    </div>
 
-      <section class="rd-view" id="rd-view-data">
-        <div class="rd-card"><p class="rd-empty">Genome and database paths are set in <strong>Analysis Setup</strong>. Tables and plots appear under <strong>Results</strong>.</p></div>
-      </section>
-
-      <section class="rd-view" id="rd-view-settings">
-        <div class="rd-card"><p class="rd-empty">CPUs, GPUs, resume, and install-only options are in <strong>Analysis Setup</strong>.</p></div>
-      </section>
-
+    <div class="rd-action-bar hx-actions" role="group" aria-label="BactFlow actions">
+      <button type="button" class="btn" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
+      <button type="button" class="btn" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
+      <button type="button" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
+      <button type="button" class="btn" name="action-assem" value="help" id="help-bt">Help!</button>
+      <button type="button" class="btn" id="rd-theme-bt" title="Switch theme">Theme</button>
     </div>
   </div>
 </div>
+
 </form>
 
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars1"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd1"></script>
-<script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree3"></script>
-<script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix1"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix29"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars4"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd12"></script>
+<script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
+<script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix30"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

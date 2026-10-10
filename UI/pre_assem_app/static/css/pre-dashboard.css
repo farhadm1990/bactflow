@@ -1,0 +1,265 @@
+/* Pre-assembly additions on top of run-dashboard.css */
+
+/* —— Action bar: visible buttons share the full width —— */
+.rd-action-bar.pre-actions {
+  display: flex;
+}
+
+.rd-action-bar.pre-actions .btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.rd-action-bar.pre-actions .btn[style*="display: none"] {
+  flex: 0 0 0;
+}
+
+.rd-action-bar #read-cat,
+.rd-action-bar #illumina-filter-bt {
+  background: linear-gradient(90deg, #22d3ee, #3b82f6) !important;
+  color: #041018 !important;
+  border: 0 !important;
+}
+
+.rd-action-bar #read-stat {
+  background: transparent !important;
+  color: var(--rd-cyan) !important;
+  border-color: rgba(34, 211, 238, 0.45) !important;
+}
+
+.rd-action-bar #vis-bt {
+  background: transparent !important;
+  color: #a78bfa !important;
+  border-color: rgba(167, 139, 250, 0.5) !important;
+}
+
+@media (max-width: 900px) {
+  .rd-action-bar.pre-actions {
+    flex-wrap: wrap;
+  }
+  .rd-action-bar.pre-actions .btn {
+    flex: 1 1 40%;
+  }
+}
+
+/* —— Install notice in Analysis Setup —— */
+.pre-install {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08) !important;
+  color: var(--rd-text) !important;
+  font-size: 0.85rem;
+}
+
+.pre-install .form-label {
+  display: block;
+  margin: 0 0 10px;
+}
+
+.pre-install #install-bt {
+  background: linear-gradient(90deg, #f59e0b, #f97316) !important;
+  color: #1a1004 !important;
+  border: 0 !important;
+  font-weight: 650;
+}
+
+.pre-install #installing p {
+  margin: 0 0 6px;
+}
+
+/* —— Results —— */
+#pre-results-pane > * + * {
+  margin-top: 12px;
+}
+
+#pre-results-pane h4 {
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--rd-text);
+}
+
+.pre-block,
+.pre-output,
+.pre-plot {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pre-output {
+  padding: 12px;
+  border: 1px solid var(--rd-border);
+  border-radius: 10px;
+  background: var(--rd-panel-2);
+  color: var(--rd-text);
+  overflow: auto;
+}
+
+.pre-block .form-label {
+  margin-top: 12px;
+  color: var(--rd-text);
+}
+
+.pre-trim-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 16px 0 4px;
+}
+
+#fastq-ls-div #trim-list {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto !important;
+  min-width: 220px;
+  margin: 0 auto;
+  flex: 0 0 auto;
+}
+
+.pre-value {
+  color: var(--rd-cyan);
+  font-family: var(--rd-mono);
+}
+
+.pre-spin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 10px;
+  color: var(--rd-muted);
+}
+
+.pre-spin .spinner-grow {
+  width: 64px;
+  height: 64px;
+  color: var(--rd-violet);
+}
+
+.pre-spin h6 {
+  margin: 0;
+  color: var(--rd-muted);
+}
+
+.pre-plot {
+  height: 80vh;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--rd-border);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--rd-panel-2);
+  overflow: auto;
+}
+
+#pre-results-pane .bf-plot-bar {
+  width: 100%;
+  margin: 12px 0 0;
+  border: 1px solid var(--rd-border);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--rd-panel);
+}
+
+#pre-results-pane .bf-plot-bar + .pre-plot {
+  margin-top: 0;
+}
+
+#pre-results-pane .bf-plot-bar-title {
+  color: var(--rd-text);
+}
+
+#pre-results-pane .bf-plot-error {
+  width: 100%;
+  margin: 0;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: var(--rd-text) !important;
+}
+
+#pre-results-pane .bf-plot-error.is-ok {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(20, 184, 166, 0.12)) !important;
+  border-color: rgba(20, 184, 166, 0.55) !important;
+  color: var(--rd-green) !important;
+  box-shadow: 0 0 28px rgba(20, 184, 166, 0.18);
+}
+
+.pre-ranges {
+  gap: 32px;
+  flex-wrap: wrap;
+  padding: 10px 4px 4px;
+}
+
+.pre-ranges > div {
+  flex: 1 1 240px;
+}
+
+.pre-ranges .form-label {
+  color: var(--rd-muted);
+  font-size: 0.82rem;
+}
+
+/* —— Tables: same uniform rows as the other modules —— */
+#pre-results-pane .dataTables_wrapper {
+  overflow-x: auto;
+  color: var(--rd-text);
+}
+
+body.helix-shell #pre-results-pane table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--hx-text);
+  --bs-table-striped-bg: transparent;
+  --bs-table-striped-color: var(--hx-text);
+  --bs-table-accent-bg: transparent;
+  --bs-table-hover-bg: rgba(45, 212, 191, 0.08);
+  --bs-table-hover-color: var(--hx-text);
+  --bs-table-border-color: var(--hx-border);
+  box-shadow: none;
+  font-family: inherit;
+}
+
+body.helix-shell #pre-results-pane table tbody tr:nth-child(n),
+body.helix-shell #pre-results-pane table tbody tr:nth-child(n) > * {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--hx-text) !important;
+  border-color: var(--hx-border) !important;
+}
+
+body.helix-shell #pre-results-pane table tbody tr:nth-child(n):hover > * {
+  background-color: rgba(45, 212, 191, 0.08) !important;
+}
+
+body.helix-shell #pre-results-pane table thead th {
+  background: var(--rd-panel) !important;
+  color: var(--hx-text) !important;
+  border-color: var(--hx-border) !important;
+  box-shadow: none !important;
+  white-space: nowrap;
+}
+
+body.helix-shell #pre-results-pane table tbody tr.low-seqs > * {
+  background-color: rgba(239, 68, 68, 0.22) !important;
+  color: #fecaca !important;
+}
+
+html[data-theme="light"] body.helix-shell #pre-results-pane table tbody tr.low-seqs > * {
+  color: #991b1b !important;
+}
+
+#pre-results-pane .dataTables_wrapper .dataTables_length,
+#pre-results-pane .dataTables_wrapper .dataTables_filter,
+#pre-results-pane .dataTables_wrapper .dataTables_info,
+#pre-results-pane .dataTables_wrapper .dataTables_paginate {
+  color: var(--rd-muted) !important;
+}
+
+#pre-results-pane .dataTables_wrapper .dataTables_paginate .paginate_button {
+  color: var(--rd-text) !important;
+}
+

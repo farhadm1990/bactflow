@@ -17,22 +17,15 @@ function checkBactFlow(){
     .then(response => response.json())
     .then(data => {
       const noInstallDiv = document.getElementById("notInstalled");
-      const InstalledDiv = document.getElementById("Installed");
       const spinDiv = document.getElementById("installing");
       const instBtn = document.getElementById("install-bt");
       
       console.log(data.status);//for debugging
       if(data.status === "success" && data.installed){
         console.log("✅ BactFlow detected!");//for debugging
-        InstalledDiv.innerHTML = `✅ Bactflow is installed`;
-        InstalledDiv.style.backgroundColor = "white";
-        InstalledDiv.style.display = "flex";
-        InstalledDiv.style.color="white";
-        InstalledDiv.style.width = "auto";
-        InstalledDiv.style.padding = "10px 20px";
-        spinDiv.style.display = "none";
-        instBtn.style.display = "none";
-        noInstallDiv.style.display = "none";
+        if (spinDiv) spinDiv.style.display = "none";
+        if (instBtn) instBtn.style.display = "none";
+        if (noInstallDiv) noInstallDiv.style.display = "none";
       } else if(data.status === "success" && !data.installed){
         console.log("⏳ BactFlow not installed yet. Checking again...");
         noInstallDiv.style.display = "block";
@@ -52,14 +45,12 @@ document.addEventListener("DOMContentLoaded", function(){
 
 // install button 
 const instBtn = document.getElementById('install-bt');
-instBtn.addEventListener("click", function(){
+if (instBtn) instBtn.addEventListener("click", function(){
 
   // const outputDiv = document.getElementById("install-output");
   const spinDiv = document.getElementById("installing");
   const form = document.getElementById('preForm');
   const formData = new FormData(form);
-  const noInstallDiv = document.getElementById("notInstalled");
-  const InstalledDiv = document.getElementById("Installed");
   const instBtn = document.getElementById("install-bt");
   
 
@@ -81,8 +72,6 @@ instBtn.addEventListener("click", function(){
    
 })
   .catch((error) => {
-
-  outputDiv.innerHTML += "<br>Error: Installation request failed!";
   console.error(error);
 })
 
@@ -104,9 +93,9 @@ function trimList(){
   const formData = preFormData();
   const fastqSpin = document.getElementById("spin-fastq");
   const trimBt = document.getElementById("trim-list");
-  fastqSpin.style.display = "block";
-  trimBt.style.width = "auto";
-  trimBt.style.height = "auto";
+  if (fastqSpin) {
+    fastqSpin.style.display = "inline-block";
+  }
 
   fetch("/trim-list", {
     method: "POST",
@@ -124,23 +113,23 @@ function trimList(){
    
    
     if (data.status == "completed"){
-      fastqSpin.style.display = "none";
-      // trimBt.style.display = "block";
+      if (fastqSpin) {
+        fastqSpin.style.display = "none";
+      }
       trimBt.innerHTML = "Trimming completed";
-      trimBt.style.width = "auto";
       trimBt.style.backgroundColor = "green";
       trimBt.style.color = "white";
     } else {  
       trimBt.innerHTML = "Error trimming";
-      trimBt.style.width = "auto";
       trimBt.style.backgroundColor = "red";
     }
   }
   )
   .catch(error => {
      console.error("Error trimming list:", error);
-    fastqSpin.style.display = "none";
-    trimBt.style.display = "block";
+    if (fastqSpin) {
+      fastqSpin.style.display = "none";
+    }
     trimBt.innerHTML = "❌ Error Trimming";
     trimBt.classList.remove("btn-warning", "btn-success");
     trimBt.classList.add("btn-danger");
@@ -284,7 +273,27 @@ function convertToMB(sizeText) {
   return size; // Return MB
 }
 
+function syncFilterFields() {
+  const filterOn = ((document.getElementById("read_filter") || {}).value || "false") === "true";
+  const illumina = selectedPlatform() === "illumina";
+  const lengthEl = document.getElementById("min_length");
+  const qualityEl = document.getElementById("min_quality");
+  const hiddenFilter = document.getElementById("illumina_filter");
+  const hiddenLen = document.getElementById("illumina_min_length");
+  const hiddenQual = document.getElementById("illumina_min_quality");
+  if (hiddenFilter) {
+    hiddenFilter.value = illumina && filterOn ? "true" : "false";
+  }
+  if (hiddenLen && lengthEl) {
+    hiddenLen.value = lengthEl.value;
+  }
+  if (hiddenQual && qualityEl) {
+    hiddenQual.value = qualityEl.value;
+  }
+}
+
 function preFormData() {
+  syncFilterFields();
   const form = document.getElementById("preForm");
   const formData = new FormData(form);
   if ((formData.get("read_platform") || "") === "illumina") {
@@ -393,6 +402,21 @@ function resolvePlotPlatform(declared) {
   return "ont";
 }
 
+function applyFilterDefaults(platform) {
+  const lengthEl = document.getElementById("min_length");
+  const qualityEl = document.getElementById("min_quality");
+  if (!lengthEl || !qualityEl) {
+    return;
+  }
+  if (platform === "illumina") {
+    lengthEl.value = "80";
+    qualityEl.value = "30";
+  } else {
+    lengthEl.value = "1000";
+    qualityEl.value = "16";
+  }
+}
+
 function updatePlatformUI() {
   const platform = selectedPlatform();
   const illumina = platform === "illumina";
@@ -401,10 +425,15 @@ function updatePlatformUI() {
   const concatSel = document.getElementById("concat_reads");
   const catBtn = document.getElementById("read-cat");
   const filterBtn = document.getElementById("illumina-filter-bt");
-  const filterGroup = document.getElementById("illuminaFilterGroup");
-  const filterParams = document.getElementById("illuminaFilterParams");
+  const filterGroup = document.getElementById("readFilterGroup");
+  const filterParams = document.getElementById("readFilterParams");
+  const filterSel = document.getElementById("read_filter");
   const pacbioKindGroup = document.getElementById("pacbioKindGroup");
-  const filterOn = (document.getElementById("illumina_filter") || {}).value === "true";
+  const concatOn = (concatSel || {}).value === "true";
+  const filterOn = (filterSel || {}).value === "true";
+  const title = document.getElementById("readFilterTitle");
+  const label = document.getElementById("readFilterLabel");
+  const hint = document.getElementById("readFilterHint");
 
   if (concatGroup) {
     concatGroup.style.display = illumina ? "none" : "";
@@ -416,28 +445,48 @@ function updatePlatformUI() {
     concatSel.value = "false";
   }
   if (concatSel && (platform === "ont" || platform === "pacbio") && lastReadPlatform !== platform) {
-    // Keep concat off by default for long-read platforms.
     concatSel.value = "false";
   }
   if (catBtn) {
-    catBtn.style.display = illumina ? "none" : "";
+    catBtn.style.display = "";
   }
-  if (filterBtn) {
-    filterBtn.style.display = illumina ? "" : "none";
+  const statBtn = document.getElementById("read-stat");
+  const visBtn = document.getElementById("vis-bt");
+  if (statBtn) {
+    statBtn.style.display = "";
+  }
+  if (visBtn) {
+    visBtn.style.display = "";
   }
   if (filterGroup) {
-    filterGroup.style.display = illumina ? "" : "none";
+    filterGroup.style.display = "";
   }
   if (filterParams) {
-    filterParams.style.display = illumina && filterOn ? "" : "none";
+    filterParams.style.display = filterOn ? "" : "none";
+  }
+  if (filterBtn) {
+    filterBtn.style.display = filterOn ? "" : "none";
+  }
+  if (title) {
+    title.textContent = illumina ? "Illumina length & quality filter" : "Read filter";
+  }
+  if (label) {
+    label.textContent = illumina ? "Filter Illumina reads" : "Filter reads";
+  }
+  if (hint) {
+    hint.textContent = illumina
+      ? "Paired R1/R2 files are filtered together and unpaired reads are dropped."
+      : "Reads shorter than this length or below this quality are dropped.";
   }
   if (pacbioKindGroup) {
     pacbioKindGroup.style.display = pacbio ? "" : "none";
   }
   if (lastReadPlatform !== null && lastReadPlatform !== platform) {
+    applyFilterDefaults(platform);
     clearResultsPane();
     setPlotChrome(resolvePlotPlatform(platform));
   }
+  syncFilterFields();
   lastReadPlatform = platform;
 }
 
@@ -447,24 +496,31 @@ function showNotice(msg, isError) {
     return;
   }
   el.style.display = "block";
-  el.style.background = isError ? "#fdeeee" : "#e8f7f4";
-  el.style.color = isError ? "#8b1e1e" : "#0e5f58";
-  el.style.borderColor = isError ? "#e0a0a0" : "#12b5a8";
+  el.style.background = "";
+  el.style.color = "";
+  el.style.borderColor = "";
+  el.classList.toggle("is-ok", !isError);
+  el.classList.toggle("is-error", !!isError);
   el.innerHTML = msg;
 }
 
 function filterIllumina() {
+  filterReads();
+}
+
+function filterReads() {
   const btn = document.getElementById("illumina-filter-bt");
-  const filterSel = document.getElementById("illumina_filter");
-  if (filterSel) {
-    filterSel.value = "true";
+  const filterSel = document.getElementById("read_filter");
+  if (!filterSel || filterSel.value !== "true") {
+    return;
   }
   updatePlatformUI();
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Filtering…";
   }
-  fetch("/filter-illumina", {
+  const path = selectedPlatform() === "illumina" ? "/filter-illumina" : "/filter-long-reads";
+  fetch(path, {
     method: "POST",
     body: preFormData()
   })
@@ -472,14 +528,14 @@ function filterIllumina() {
     .then((data) => {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = "<strong>Filter Illumina reads</strong>";
+        btn.innerHTML = "<strong>Filter reads</strong>";
       }
-      showNotice(data.message || "Illumina reads filtered.", false);
+      showNotice(data.message || "Reads filtered.", false);
     })
     .catch((error) => {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = "<strong>Filter Illumina reads</strong>";
+        btn.innerHTML = "<strong>Filter reads</strong>";
       }
       showNotice(error.message || String(error), true);
     });
@@ -812,28 +868,22 @@ function read_vis(){
 // function update buttons
 function updateButtonStates(status) {
   if (status === "running") {
-    runButton.disabled = true;
-    stopButton.disabled = false;
-    helpButton.disabled = true; // Optional: disable help while running
+    if (runButton) runButton.disabled = true;
+    if (stopButton) stopButton.disabled = false;
+    if (helpButton) helpButton.disabled = true;
   } else if (status === "stopped") {
-    runButton.disabled = false;
-    stopButton.disabled = true;
-    helpButton.disabled = false;
+    if (runButton) runButton.disabled = false;
+    if (stopButton) stopButton.disabled = true;
+    if (helpButton) helpButton.disabled = false;
   } 
 }
 
-document.getElementById("preForm").addEventListener("submit", (e) => {
- e.preventDefault();
- outputDiv.innerHTML = "";
-
-  const action = e.submitter.value;
-
-  document.getElementById('run-bt').disabled = true;
-  document.getElementById('stop-bt').disabled = false; 
-  document.getElementById('help-bt').disabled = true;
-
-  run_wf(action);
-});
+const preFormEl = document.getElementById("preForm");
+if (preFormEl) {
+  preFormEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+  });
+}
 
 // saving inputs in the local storage to prevent refereshing
 function restoreFormData(){
@@ -879,15 +929,23 @@ function clearFormData(){
 
 document.addEventListener("DOMContentLoaded", function(){
   restoreFormData(); //from local storage
+  const readFilter = document.getElementById("read_filter");
+  const oldIllumina = document.getElementById("illumina_filter");
+  if (readFilter && oldIllumina && oldIllumina.value === "true" && readFilter.value !== "true") {
+    readFilter.value = "true";
+  }
   updatePlatformUI();
   const platform = document.getElementById("read_platform");
-  const illuminaFilter = document.getElementById("illumina_filter");
   const pacbioKind = document.getElementById("pacbio_read_kind");
   if (platform) {
     platform.addEventListener("change", updatePlatformUI);
   }
-  if (illuminaFilter) {
-    illuminaFilter.addEventListener("change", updatePlatformUI);
+  if (readFilter) {
+    readFilter.addEventListener("change", updatePlatformUI);
+  }
+  const concatReads = document.getElementById("concat_reads");
+  if (concatReads) {
+    concatReads.addEventListener("change", updatePlatformUI);
   }
   if (pacbioKind) {
     pacbioKind.addEventListener("change", () => {

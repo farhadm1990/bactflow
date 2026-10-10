@@ -221,6 +221,47 @@
     return Math.abs(a.x - b.x) < (a.w + b.w) / 2 + g && Math.abs(a.y - b.y) < (a.h + b.h) / 2 + g;
   }
 
+  function kindWeight(kind) {
+    if (kind === "tip") {
+      return 0.08;
+    }
+    if (kind === "len") {
+      return 1.4;
+    }
+    return 0.85;
+  }
+
+  function pairGap(a, b) {
+    if (a.kind === "len" || b.kind === "len") {
+      return 14;
+    }
+    return 10;
+  }
+
+  function lengthBox(x, y, value) {
+    const text = formatLen(value);
+    const w = Math.ceil(measureTextWidth(text, "9px ui-monospace, Menlo, monospace") + 8);
+    return {
+      kind: "len",
+      ax: x,
+      ay: y,
+      x,
+      y,
+      w: Math.max(24, w),
+      h: 13,
+      text
+    };
+  }
+
+  function drawLenLabel(box) {
+    return `<text x="${box.x.toFixed(1)}" y="${(box.y + 3.2).toFixed(1)}" text-anchor="middle"
+      font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#6a8078">${esc(box.text)}</text>`;
+  }
+
+  function isTipNode(n) {
+    return !(n && n.children && n.children.length);
+  }
+
   function resolveLabelCollisions(boxes, bounds) {
     const pad = 8;
     for (let iter = 0; iter < 90; iter += 1) {
@@ -229,7 +270,8 @@
         for (let j = i + 1; j < boxes.length; j += 1) {
           const a = boxes[i];
           const b = boxes[j];
-          if (!boxesOverlap(a, b, 10)) {
+          const gap = pairGap(a, b);
+          if (!boxesOverlap(a, b, gap)) {
             continue;
           }
           let dx = a.x - b.x;
@@ -238,14 +280,17 @@
             dx = 0.6;
             dy = (i % 2 === 0 ? 1 : -1) * 0.8;
           }
+          if (a.kind === "len" || b.kind === "len") {
+            dy += (dy >= 0 ? 1 : -1) * 6;
+          }
           const len = Math.hypot(dx, dy) || 1;
-          const overlapX = (a.w + b.w) / 2 + 10 - Math.abs(a.x - b.x);
-          const overlapY = (a.h + b.h) / 2 + 10 - Math.abs(a.y - b.y);
+          const overlapX = (a.w + b.w) / 2 + gap - Math.abs(a.x - b.x);
+          const overlapY = (a.h + b.h) / 2 + gap - Math.abs(a.y - b.y);
           const push = Math.max(1.5, Math.min(overlapX, overlapY) / 2 + 1);
           const ux = dx / len;
           const uy = dy / len;
-          const wa = a.kind === "tip" ? 0.12 : 1;
-          const wb = b.kind === "tip" ? 0.12 : 1;
+          const wa = kindWeight(a.kind);
+          const wb = kindWeight(b.kind);
           a.x += ux * push * wa;
           a.y += uy * push * wa;
           b.x -= ux * push * wb;
@@ -283,8 +328,8 @@
     const innerW = Math.max(minInnerW, width - pad.l - pad.r);
     const innerH = height - pad.t - pad.b;
     const maxD = maxDepthDist(root, 0) || 1;
-    const minNamed = 88;
-    const minChild = 36;
+    const minNamed = 108;
+    const minChild = 52;
     tips.forEach((t, i) => {
       t.y = pad.t + ((i + 0.5) * innerH) / Math.max(tips.length, 1);
     });
@@ -318,9 +363,9 @@
     const tips = tipsOf(root);
     const named = maxNamedChain(root);
     const longest = tips.reduce((m, t) => Math.max(m, (parseTaxon(t.name).label || "").length), 8);
-    const labelR = Math.max(90, Math.min(220, longest * 7.2));
-    const minNamed = 56;
-    const minChild = 30;
+    const labelR = Math.max(110, Math.min(260, longest * 7.6 + 24));
+    const minNamed = 68;
+    const minChild = 40;
     const needR = 24 + named * minNamed + Math.max(tips.length, 1) * 8 + 70;
     size = Math.max(size, Math.ceil((needR + labelR + 80) * 2));
     const cx = size / 2;
@@ -388,15 +433,22 @@
       parts.push(`<line x1="${n.x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${n.x.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="#2f4f4f" stroke-width="1.6"/>`);
       n.children.forEach((c) => {
         parts.push(`<line x1="${n.x.toFixed(1)}" y1="${c.y.toFixed(1)}" x2="${c.x.toFixed(1)}" y2="${c.y.toFixed(1)}" stroke="#2f4f4f" stroke-width="1.6"/>`);
-        const dx = c.x - n.x;
-        if (dx > 36 && c.length != null) {
-          const mx = n.x + dx / 2;
-          parts.push(`<text x="${mx.toFixed(1)}" y="${(c.y - 5).toFixed(1)}" text-anchor="middle"
-            font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#6a8078">${esc(formatLen(c.length))}</text>`);
-        }
       });
     });
     const labels = [];
+    walk(root, (n) => {
+      if (!n.children || !n.children.length) {
+        return;
+      }
+      n.children.forEach((c) => {
+        const dx = c.x - n.x;
+        if (dx <= 48 || c.length == null) {
+          return;
+        }
+        const t = isTipNode(c) ? 0.28 : (isNamedInternal(c) ? 0.34 : 0.5);
+        labels.push(lengthBox(n.x + dx * t, c.y - 14, c.length));
+      });
+    });
     walk(root, (n) => {
       if (n.children && n.children.length) {
         if (!parseTaxon(n.name).label) {
@@ -409,7 +461,7 @@
           ax: n.x,
           ay: n.y,
           x: n.x,
-          y: n.y - 20,
+          y: n.y - 36,
           w: st.w,
           h: st.h,
           text: st.text,
@@ -423,7 +475,7 @@
         kind: "tip",
         ax: n.x,
         ay: n.y,
-        x: n.x + 12 + st.w / 2,
+        x: n.x + 18 + st.w / 2,
         y: n.y,
         w: st.w,
         h: 18,
@@ -435,6 +487,10 @@
     });
     resolveLabelCollisions(labels, { x0: 4, y0: 28, x1: meta.width - 4, y1: meta.height - 4 });
     labels.forEach((box) => {
+      if (box.kind === "len") {
+        parts.push(drawLenLabel(box));
+        return;
+      }
       if (box.tip) {
         parts.push(`<text x="${(box.x - box.w / 2).toFixed(1)}" y="${(box.y + 4).toFixed(1)}"
           font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill="#1b2e2a">${esc(box.text)}</text>`);
@@ -477,16 +533,30 @@
         const px = meta.cx + n.r * Math.cos(c.angle);
         const py = meta.cy + n.r * Math.sin(c.angle);
         parts.push(polarLine(px, py, c.x, c.y));
-        const mx = (px + c.x) / 2;
-        const my = (py + c.y) / 2;
-        const dist = Math.hypot(c.x - px, c.y - py);
-        if (dist > 34 && c.length != null) {
-          parts.push(`<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle"
-            font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#6a8078">${esc(formatLen(c.length))}</text>`);
-        }
       });
     });
     const labels = [];
+    walk(root, (n) => {
+      if (!n.children || !n.children.length) {
+        return;
+      }
+      n.children.forEach((c) => {
+        const px = meta.cx + n.r * Math.cos(c.angle);
+        const py = meta.cy + n.r * Math.sin(c.angle);
+        const dist = Math.hypot(c.x - px, c.y - py);
+        if (dist <= 42 || c.length == null) {
+          return;
+        }
+        const t = isTipNode(c) ? 0.28 : (isNamedInternal(c) ? 0.34 : 0.5);
+        const ang = c.angle || 0;
+        const perp = ang + Math.PI / 2;
+        labels.push(lengthBox(
+          px + (c.x - px) * t + Math.cos(perp) * 10,
+          py + (c.y - py) * t + Math.sin(perp) * 10,
+          c.length
+        ));
+      });
+    });
     let side = 1;
     walk(root, (n) => {
       if (n.children && n.children.length) {
@@ -515,21 +585,42 @@
       }
       const tip = parseTaxon(n.name);
       const angle = n.angle;
-      let deg = (angle * 180) / Math.PI;
-      let anchor = "start";
-      const lx = n.x + Math.cos(angle) * 12;
-      const ly = n.y + Math.sin(angle) * 12;
-      if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
-        deg += 180;
-        anchor = "end";
-      }
+      const dir = (angle > Math.PI / 2 || angle < -Math.PI / 2) ? -1 : 1;
+      const lx = n.x + Math.cos(angle) * 20;
+      const ly = n.y + Math.sin(angle) * 20;
+      const w = Math.ceil(measureTextWidth(tip.label, "italic 12px Georgia, 'Times New Roman', serif") + 10);
+      labels.push({
+        kind: "tip",
+        tip: true,
+        angle,
+        ax: n.x,
+        ay: n.y,
+        x: lx + Math.cos(angle) * dir * (w / 2),
+        y: ly + Math.sin(angle) * dir * (w / 2),
+        w,
+        h: 16,
+        text: tip.label
+      });
       parts.push(`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="4" fill="#c45c26" stroke="#fff" stroke-width="1"/>`);
-      parts.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle"
-        transform="rotate(${deg.toFixed(2)} ${lx.toFixed(1)} ${ly.toFixed(1)})"
-        font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic" fill="#1b2e2a">${esc(tip.label)}</text>`);
     });
     resolveLabelCollisions(labels, { x0: 8, y0: 28, x1: meta.width - 8, y1: meta.height - 8 });
-    labels.forEach((box) => parts.push(drawTaxonBox(box)));
+    labels.forEach((box) => {
+      if (box.kind === "len") {
+        parts.push(drawLenLabel(box));
+        return;
+      }
+      if (box.tip) {
+        let deg = (box.angle * 180) / Math.PI;
+        if (box.angle > Math.PI / 2 || box.angle < -Math.PI / 2) {
+          deg += 180;
+        }
+        parts.push(`<text x="${box.x.toFixed(1)}" y="${box.y.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          transform="rotate(${deg.toFixed(2)} ${box.x.toFixed(1)} ${box.y.toFixed(1)})"
+          font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic" fill="#1b2e2a">${esc(box.text)}</text>`);
+        return;
+      }
+      parts.push(drawTaxonBox(box));
+    });
     parts.push(`<text x="16" y="22" font-family="system-ui, sans-serif" font-size="11" fill="#5b6e68">Circular tree · boxed names are taxon ranks · italic tips are species · numbers are branch lengths</text>`);
     return parts.join("");
   }

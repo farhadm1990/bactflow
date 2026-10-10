@@ -965,8 +965,7 @@ async function taxReport() {
             pageLength: 10,
             searching: true,
             ordering: true,
-            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-            scrollX: true
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
           });
           if (hasAbund) {
             if ($.fn.DataTable.isDataTable("#taxa-abund-tab")) {
@@ -1031,8 +1030,7 @@ function renderCheckmTable(data) {
       pageLength: 10,
       searching: true,
       ordering: true,
-      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-      scrollX: true
+      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
     });
   }, 300);
 }
@@ -1579,7 +1577,6 @@ function renderVariantTables(container, data, idPrefix) {
         searching: true,
         ordering: true,
         lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-        scrollX: true,
         order: [[1, "asc"]],
       });
     });

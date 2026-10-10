@@ -189,9 +189,37 @@ def _start_worker_process(proc):
         proc.start()
 
 
+_TASK_DONE_RE = re.compile(
+    r"Task completed > TaskHandler\[.*?name: (?P<name>.+?); status: (?P<status>\w+); exit: (?P<exit>[^;]+);.*?workDir: (?P<wd>[^\]\s]+)"
+)
+
+
+def _task_completed_line(line):
+    """Turn a DEBUG 'Task completed' record into the progress line the UI parses."""
+    m = _TASK_DONE_RE.search(line or "")
+    if not m or m.group("status") != "COMPLETED" or m.group("exit").strip() != "0":
+        return None
+    parts = m.group("wd").rstrip("/").split("/")
+    if len(parts) < 2:
+        return None
+    task_hash = f"{parts[-2]}/{parts[-1][:6]}"
+    return f"[{task_hash}] process > {m.group('name').strip()} [100%] 1 of 1 \u2714"
+
+
+def _file_identity(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
 def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
     """Forward process status/completion lines from .nextflow.log (PTY often misses them)."""
     log_path = os.path.join(work_root, ".nextflow.log")
+    # Nextflow renames the previous run's log at startup; only follow the new file.
+    stale = _file_identity(log_path)
+    current = None
     pos = 0
     skip_re = re.compile(
         r"\[Task monitor\]|TaskPollingMonitor|\bDEBUG\b",
@@ -207,17 +235,32 @@ def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
         re.IGNORECASE,
     )
     while not stop_event.is_set():
-        if os.path.isfile(log_path):
+        ident = _file_identity(log_path)
+        if ident is not None and ident != stale:
+            if ident != current:
+                current = ident
+                pos = 0
             try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                with open(log_path, "rb") as handle:
+                    if os.fstat(handle.fileno()).st_size < pos:
+                        pos = 0
                     handle.seek(pos)
-                    chunk = handle.read()
-                    pos = handle.tell()
+                    data = handle.read()
             except OSError:
-                chunk = ""
+                data = b""
+            end = data.rfind(b"\n") + 1
+            pos += end
+            chunk = data[:end].decode("utf-8", errors="replace")
             for raw in chunk.splitlines():
                 line = clean_log_line(raw)
                 if not line or line in seen_lines:
+                    continue
+                done_line = _task_completed_line(line)
+                if done_line:
+                    if done_line not in seen_lines:
+                        seen_lines.add(line)
+                        seen_lines.add(done_line)
+                        output_queue.put(done_line)
                     continue
                 if skip_re.search(line):
                     continue
@@ -677,7 +720,7 @@ def run_bactflow():
             genome_dir = request.form.get("genome_dir")
             run_checkm = request.form.get("run_checkm", "false")
             run_quast = request.form.get("run_quast", "true")
-            resume_run = request.form.get("resume_run", "true")
+            resume_run = request.form.get("resume_run", "false")
             run_bakta = request.form.get("bakta_annot", "false")
             bakta_db = request.form.get("bakta_data_path", "")
             run_plasmids = request.form.get("run_plasmids", "false")
@@ -708,7 +751,7 @@ def run_bactflow():
                     --genomad_db '{genomad_db}' \\
                     --genome_dir '{genome_dir}' \\
                     -ansi-log true"""
-            if _truthy(resume_run, True):
+            if _truthy(resume_run, False):
                 command = command + " -resume"
             command = with_nextflow_java(command)
                 

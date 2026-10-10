@@ -56,11 +56,10 @@ workflow {
 
         
         if(params.setup_only){
-            def env_check =  envSetUP()
-            testify(env_check)
+            def env_check = testify(envSetUP())
         } else {
-            def env_check =  envSetUP()
-            testify(env_check)
+            // Every later step waits for the environment check, not just the setup.
+            def env_check = testify(envSetUP())
 
         def pooled_out
         def dedup_fastq
@@ -259,7 +258,7 @@ workflow {
 
 
 process envSetUP {
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false  
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true  
     output:
     path('environment_created'), emit: env_check//, optional: true //to prevent stoping if it failed
 
@@ -565,7 +564,7 @@ process assembly_flye1 {
   //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
 
     input:
     path env_check
@@ -663,7 +662,7 @@ process assembly_flye2 {
    // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true
 
     input:
     path env_check

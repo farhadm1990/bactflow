@@ -204,7 +204,6 @@ body.helix-shell .text-muted {
 
 .hx-actions #rep-bt,
 .hx-actions .btn-hx-secondary {
-  grid-column: 1 / -1;
   background: transparent !important;
   border-color: var(--hx-accent) !important;
   color: var(--hx-accent) !important;

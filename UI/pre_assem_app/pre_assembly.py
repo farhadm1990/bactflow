@@ -7,6 +7,7 @@ import concurrent.futures
 import plotly as py
 from Bio import SeqIO
 import json
+import io
 import gzip
 from datetime import datetime, timezone
 import pandas as pd
@@ -70,6 +71,45 @@ def list_fastq_files(directory, recurse=False):
     return list_read_files(directory, recurse=recurse)
 
 
+_progress_lock = threading.Lock()
+_progress = {"job": "", "done": 0, "total": 0, "running": False}
+
+
+def progress_begin(job, total):
+    with _progress_lock:
+        _progress.update({
+            "job": job,
+            "done": 0,
+            "total": max(0, int(total or 0)),
+            "running": True,
+        })
+
+
+def progress_set(done, total=None):
+    with _progress_lock:
+        if total is not None:
+            _progress["total"] = max(0, int(total or 0))
+        _progress["done"] = max(0, min(_progress["total"], int(done or 0)))
+
+
+def progress_tick(n=1):
+    with _progress_lock:
+        _progress["done"] = min(_progress["total"], _progress["done"] + int(n or 1))
+
+
+def progress_finish():
+    with _progress_lock:
+        if _progress["total"] <= 0:
+            _progress["total"] = max(1, _progress["done"])
+        _progress["done"] = _progress["total"]
+        _progress["running"] = False
+
+
+def progress_snapshot():
+    with _progress_lock:
+        return dict(_progress)
+
+
 def stats_error(message, status=400):
     return jsonify({"error": message, "message": message, "html_output": ""}), status
 
@@ -125,7 +165,14 @@ def concat_enabled(form):
 
 
 def illumina_filter_enabled(form):
-    return is_illumina_form(form) and (form.get("illumina_filter") or "false").lower() == "true"
+    flag = (form.get("illumina_filter") or form.get("read_filter") or "false").lower()
+    return is_illumina_form(form) and flag == "true"
+
+
+def long_read_filter_enabled(form):
+    if is_illumina_form(form):
+        return False
+    return (form.get("read_filter") or "false").lower() == "true"
 
 
 IN_DOCKER = os.environ.get("BACTFLOW_IN_DOCKER") == "1" or os.path.exists("/.dockerenv")
@@ -176,7 +223,7 @@ def pair_illumina_files(fastq_files):
     return pairs, singles
 
 
-def run_illumina_filter(form):
+def run_illumina_filter(form, report_progress=False):
     fastq_dir = (form.get("fastq_dir") or "").strip()
     out_dir = (form.get("out_dir") or "./bactflow_out").strip()
     try:
@@ -184,13 +231,13 @@ def run_illumina_filter(form):
     except ValueError:
         cpus = 1
     try:
-        min_len = max(1, int(float(form.get("illumina_min_length") or 50)))
+        min_len = max(1, int(float(form.get("illumina_min_length") or form.get("min_length") or 80)))
     except ValueError:
-        min_len = 50
+        min_len = 80
     try:
-        min_qual = float(form.get("illumina_min_quality") or 20)
+        min_qual = float(form.get("illumina_min_quality") or form.get("min_quality") or 30)
     except ValueError:
-        min_qual = 20.0
+        min_qual = 30.0
 
     if not fastq_dir or not os.path.isdir(fastq_dir):
         return None, "Choose an existing FASTQ directory first."
@@ -210,6 +257,9 @@ def run_illumina_filter(form):
             with open(marker, "r", encoding="utf-8") as handle:
                 meta = json.load(handle)
             if meta.get("fingerprint") == fingerprint and list_fastq_files(dest):
+                if report_progress:
+                    progress_begin("ilfilter", 1)
+                    progress_finish()
                 return dest, None
         except (OSError, json.JSONDecodeError, ValueError):
             pass
@@ -226,6 +276,8 @@ def run_illumina_filter(form):
             pass
 
     pairs, singles = pair_illumina_files(fastq_files)
+    if report_progress:
+        progress_begin("ilfilter", len(pairs) + len(singles))
 
     def seqkit_seq(src, dst):
         return (
@@ -268,6 +320,8 @@ def run_illumina_filter(form):
                 moved = True
         if not moved:
             return fail(f"{sample}: pairing produced no FASTQ files.")
+        if report_progress:
+            progress_tick()
 
     for path in singles:
         name = os.path.basename(path)
@@ -277,6 +331,8 @@ def run_illumina_filter(form):
         err = run_seqkit(seqkit_seq(path, dst))
         if err:
             return fail(err)
+        if report_progress:
+            progress_tick()
 
     shutil.rmtree(work, ignore_errors=True)
 
@@ -286,16 +342,16 @@ def run_illumina_filter(form):
 
     with open(marker, "w", encoding="utf-8") as handle:
         json.dump({"fingerprint": fingerprint, "files": [os.path.basename(p) for p in kept]}, handle)
+    if report_progress:
+        progress_finish()
     return dest, None
 
 
-def prepare_reads_dir(form):
+def resolve_unfiltered_reads_dir(form):
     try:
         fastq_dir, _correction = resolve_fastq_dir(form.get("fastq_dir"))
     except PoolReadsError as exc:
         return None, str(exc)
-    if illumina_filter_enabled(form):
-        return run_illumina_filter(form)
     layout = inspect_layout(fastq_dir)
     pooled = os.path.join(fastq_dir, "pooled")
     want_concat = concat_enabled(form) or layout.get("needs_concat")
@@ -323,6 +379,90 @@ def prepare_reads_dir(form):
             "Set Concat Reads to True and click “Initiate read cat”."
         )
     return None, f"No FASTQ files found in {fastq_dir}."
+
+
+def run_long_read_filter(form, report_progress=False):
+    src, err = resolve_unfiltered_reads_dir(form)
+    if err:
+        return None, err
+    out_dir = (form.get("out_dir") or "./bactflow_out").strip()
+    try:
+        cpus = max(1, int(form.get("cpus") or 1))
+    except ValueError:
+        cpus = 1
+    try:
+        min_len = max(1, int(float(form.get("min_length") or 1000)))
+    except ValueError:
+        min_len = 1000
+    try:
+        min_qual = float(form.get("min_quality") or 16)
+    except ValueError:
+        min_qual = 16.0
+
+    os.makedirs(out_dir, exist_ok=True)
+    out_dir = os.path.abspath(out_dir)
+    dest = os.path.join(out_dir, "long_read_filt")
+    os.makedirs(dest, exist_ok=True)
+    fastq_files = list_fastq_files(src)
+    if not fastq_files:
+        return None, f"No FASTQ files found in {src}."
+
+    fingerprint = f"{_file_fingerprint(fastq_files)}|len={min_len}|q={min_qual}"
+    marker = os.path.join(dest, ".filter_meta.json")
+    if os.path.isfile(marker):
+        try:
+            with open(marker, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+            if meta.get("fingerprint") == fingerprint and list_fastq_files(dest):
+                if report_progress:
+                    progress_begin("lrfilter", 1)
+                    progress_finish()
+                return dest, None
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+    for stale in list_fastq_files(dest):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+
+    if report_progress:
+        progress_begin("lrfilter", len(fastq_files))
+
+    for path in fastq_files:
+        name = os.path.basename(path)
+        root, ext = os.path.splitext(name)
+        if ext.lower() == ".gz":
+            root, _inner = os.path.splitext(root)
+        dest_name = f"{root}_filt.fastq.gz"
+        dst = os.path.join(dest, dest_name)
+        err = run_seqkit(
+            f"seqkit seq -g --quiet -m {min_len} -Q {min_qual} -j {cpus} "
+            f"{shlex.quote(path)} -o {shlex.quote(dst)}"
+        )
+        if err:
+            return None, f"Read filtering failed: {err}"
+        if report_progress:
+            progress_tick()
+
+    kept = list_fastq_files(dest)
+    if not kept:
+        return None, "Read filtering removed every read. Lower the length/quality cutoffs."
+
+    with open(marker, "w", encoding="utf-8") as handle:
+        json.dump({"fingerprint": fingerprint, "files": [os.path.basename(p) for p in kept]}, handle)
+    if report_progress:
+        progress_finish()
+    return dest, None
+
+
+def prepare_reads_dir(form):
+    if illumina_filter_enabled(form):
+        return run_illumina_filter(form)
+    if long_read_filter_enabled(form):
+        return run_long_read_filter(form)
+    return resolve_unfiltered_reads_dir(form)
 
 manager = Manager()
 process_status = manager.dict({"running": False})
@@ -477,12 +617,21 @@ def ls_fastq():
         want_concat = concat_enabled(request.form) or layout.get("needs_concat")
         try:
             if want_concat:
-                pooled = pool_fastq_dir(fastq_dir, extension=extension, cpus=cpus)
+                progress_begin("pool", 1)
+                pooled = pool_fastq_dir(
+                    fastq_dir,
+                    extension=extension,
+                    cpus=cpus,
+                    on_progress=progress_set,
+                )
                 files = [str(path) for path in pooled]
+                progress_finish()
             else:
                 files = list_fastq_files(fastq_dir)
                 if not files:
                     files = list_fastq_files(fastq_dir, recurse=True)
+                progress_begin("pool", len(files) or 1)
+                progress_finish()
         except PoolReadsError as exc:
             return jsonify({"error": str(exc) or "Concatenation failed."}), 400
         except Exception as exc:
@@ -537,7 +686,10 @@ def trim_list():
         conda activate bactflow
         {shlex.quote(base_dir)}/read_filter.sh -d {shlex.quote(target)} -t {shlex.quote(str(threshold or "0"))}
         """
+        before = list_fastq_files(target)
+        progress_begin("trim", len(before) or 1)
         subprocess.run(command, shell=True, text=True, executable="/bin/bash")
+        progress_finish()
         return jsonify({"status": "completed"}), 200
     return jsonify({"status": "idle"}), 200
 
@@ -546,13 +698,28 @@ def trim_list():
 def filter_illumina():
     if not is_illumina_form(request.form):
         return jsonify({"error": "Illumina filtering is only available when Read type is Illumina."}), 400
-    dest, err = run_illumina_filter(request.form)
+    dest, err = run_illumina_filter(request.form, report_progress=True)
     if err:
         return jsonify({"error": err, "message": err}), 400
     kept = list_fastq_files(dest)
     return jsonify({
         "status": "completed",
         "message": f"Filtered Illumina reads written to {dest} ({len(kept)} files).",
+        "reads_dir": dest,
+    }), 200
+
+
+@app.route("/filter-long-reads", methods=["POST"])
+def filter_long_reads():
+    if is_illumina_form(request.form):
+        return jsonify({"error": "Use Filter reads with Illumina selected for paired-end filtering."}), 400
+    dest, err = run_long_read_filter(request.form, report_progress=True)
+    if err:
+        return jsonify({"error": err, "message": err}), 400
+    kept = list_fastq_files(dest)
+    return jsonify({
+        "status": "completed",
+        "message": f"Filtered reads written to {dest} ({len(kept)} files).",
         "reads_dir": dest,
     }), 200
 
@@ -583,41 +750,42 @@ def stat_reads():
                 "Expected .fastq, .fastq.gz, .fq, or .fq.gz."
             )
 
-        quoted_files = " ".join(shlex.quote(path) for path in fastq_files)
-        command = f"""
-        source "$(conda info --base)/etc/profile.d/conda.sh"
-        conda activate bactflow
-        seqkit stats {quoted_files} -a -T -e -j {cpus}
-        """
-        result = subprocess.run(
-            command,
-            shell=True,
-            text=True,
-            executable="/bin/bash",
-            capture_output=True,
-        )
-        if result.returncode != 0 or not (result.stdout or "").strip():
-            detail = (result.stderr or result.stdout or "seqkit produced no output").strip()
-            if os.path.isfile(stats_file) and os.path.getsize(stats_file) == 0:
-                try:
-                    os.remove(stats_file)
-                except OSError:
-                    pass
-            return stats_error(f"seqkit stats failed: {detail}", 500)
+        progress_begin("stats", len(fastq_files))
+        frames = []
+        for path in fastq_files:
+            command = f"""
+            source "$(conda info --base)/etc/profile.d/conda.sh"
+            conda activate bactflow
+            seqkit stats {shlex.quote(path)} -a -T -e -j {cpus}
+            """
+            result = subprocess.run(
+                command,
+                shell=True,
+                text=True,
+                executable="/bin/bash",
+                capture_output=True,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                detail = (result.stderr or result.stdout or "seqkit produced no output").strip()
+                if os.path.isfile(stats_file) and os.path.getsize(stats_file) == 0:
+                    try:
+                        os.remove(stats_file)
+                    except OSError:
+                        pass
+                return stats_error(f"seqkit stats failed: {detail}", 500)
+            frames.append(pd.read_csv(io.StringIO(result.stdout), sep="\t"))
+            progress_tick()
+        progress_finish()
+        if not frames:
+            return stats_error("seqkit stats table is empty.", 500)
+        df = pd.concat(frames, ignore_index=True)
+        df.to_csv(stats_file, sep="\t", index=False)
 
-        with open(stats_file, "w", encoding="utf-8") as handle:
-            handle.write(result.stdout)
-
-        try:
-            df = pd.read_csv(stats_file, sep="\t")
-        except pd.errors.EmptyDataError:
+        if df is None or df.empty:
             return stats_error(
                 "seqkit wrote an empty table. Check that the FASTQ paths are readable.",
                 500,
             )
-
-        if df is None or df.empty:
-            return stats_error("seqkit stats table is empty.", 500)
 
         if "sum_len" in df.columns:
             df["sum_len"] = (
@@ -686,14 +854,21 @@ def genome_read_quality(fastq_file):
     return mean_qualities
 
 
-def process_fq_folder(fastq_folder, threads=4):
+def process_fq_folder(fastq_folder, threads=4, on_progress=None):
     """Process all FASTQ files in a folder (ONT-style mean Phred quality)."""
     all_quality_data = []
     fastq_files = list_fastq_files(fastq_folder)
+    total = len(fastq_files)
+    if on_progress:
+        on_progress(0, total)
+    done = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-        results = executor.map(genome_read_quality, fastq_files)
-    for res in results:
-        all_quality_data.extend(res)
+        futures = [executor.submit(genome_read_quality, path) for path in fastq_files]
+        for fut in concurrent.futures.as_completed(futures):
+            all_quality_data.extend(fut.result())
+            done += 1
+            if on_progress:
+                on_progress(done, total)
     return pd.DataFrame(all_quality_data, columns=["file_name", "read_length", "read_quality"])
 
 
@@ -1284,10 +1459,19 @@ def plot_qual():
                 except (OSError, json.JSONDecodeError, ValueError):
                     summaries = None
             if not summaries:
+                progress_begin("plots", len(fastq_files))
+                summaries = []
                 with concurrent.futures.ThreadPoolExecutor(max_workers=cpus) as executor:
-                    summaries = list(executor.map(illumina_file_qc, fastq_files))
+                    futures = [executor.submit(illumina_file_qc, path) for path in fastq_files]
+                    for fut in concurrent.futures.as_completed(futures):
+                        summaries.append(fut.result())
+                        progress_tick()
+                progress_finish()
                 with open(cache_path, "w", encoding="utf-8") as handle:
                     json.dump({"fingerprint": fingerprint, "summaries": summaries}, handle)
+            else:
+                progress_begin("plots", 1)
+                progress_finish()
             if not summaries:
                 return jsonify({"error": "No Illumina reads could be parsed."}), 400
             fig, fig_heat, fig_heat_pool = build_illumina_figures(summaries)
@@ -1308,12 +1492,21 @@ def plot_qual():
                 except (OSError, json.JSONDecodeError, ValueError, pd.errors.EmptyDataError):
                     df = None
             if df is None or df.empty:
-                df = process_fq_folder(fastq_folder=reads_dir, threads=cpus)
+                progress_begin("plots", len(fastq_files))
+                df = process_fq_folder(
+                    fastq_folder=reads_dir,
+                    threads=cpus,
+                    on_progress=progress_set,
+                )
                 if df.empty:
                     return jsonify({"error": "No data available for visualization."}), 400
                 df.to_csv(lr_cache, sep="\t", index=False)
                 with open(lr_meta, "w", encoding="utf-8") as handle:
                     json.dump({"fingerprint": fingerprint, "platform": platform}, handle)
+                progress_finish()
+            else:
+                progress_begin("plots", 1)
+                progress_finish()
             fig, fig_heat, fig_heat_pool = build_long_read_figures(df, platform=platform)
             label = "PacBio" if platform == "pacbio" else "ONT"
             fig.update_layout(title=f"{label} read quality box plot")
@@ -1604,6 +1797,11 @@ threading.Thread(target=_sys_stats_loop, daemon=True, name="sys-stats").start()
 @app.route("/sys_stats", methods=["GET"])
 def sys_stats():
     return jsonify(current_sys_stats())
+
+
+@app.route("/pre_progress", methods=["GET"])
+def pre_progress():
+    return jsonify(progress_snapshot())
 
 
 @app.route("/bactflow_status", methods=["GET"])

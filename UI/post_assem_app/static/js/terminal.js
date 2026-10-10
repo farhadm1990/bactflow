@@ -193,17 +193,14 @@ const BactflowProcessEta = {
     if (proc.percent > 0 && proc.percent < 100) {
       return Math.max(1, Math.min(99, proc.percent));
     }
-    if (proc.total > 0) {
-      const p = (Math.max(0, proc.completed) / proc.total) * 100;
-      if (p >= 100) {
-        return 99;
-      }
-      return Math.max(1, Math.min(99, Math.round(p)));
-    }
     const elapsed = this.elapsedSeconds(proc);
     const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    const p = 95 * (1 - Math.exp(-elapsed / expected));
-    return Math.max(2, Math.min(95, Math.round(p)));
+    let p = 95 * (1 - Math.exp(-elapsed / expected));
+    if (proc.total > 0) {
+      // "0 of 1" stays put while a single task runs, so never let the task count drag the estimate down.
+      p = Math.max(p, (Math.max(0, proc.completed) / proc.total) * 100);
+    }
+    return Math.max(1, Math.min(99, Math.round(p)));
   },
 
   remainingSeconds(proc) {
@@ -480,6 +477,32 @@ const BactflowProcessEta = {
       const middle = m[2].trim().replace(/^process\s*>\s*/i, "");
       const { name, tag } = this.parseNameAndTag(middle);
       return progress(m[1], name, tag, Number(m[3]), Number(m[4]), Number(m[5]));
+    }
+
+    // Nextflow's live (ANSI) view: "[ec/570f4f] testify | 1 of 1 ✔"; long names are shortened with "…".
+    m = t.match(/^\[([0-9a-f]{2}\/[0-9a-f]{6})\]\s+(.+?)\s+\|\s+(\d+)\s+of\s+(\d+)/i);
+    if (m) {
+      let name = this.hashToName.get(m[1]);
+      if (!name && !m[2].includes("\u2026")) {
+        name = this.parseNameAndTag(m[2].replace(/^process\s*>\s*/i, "")).name;
+      }
+      if (!name) {
+        const prefix = m[2].split("\u2026")[0].trim().toLowerCase();
+        const hits = [...this.processes.values()].filter((p) =>
+          prefix && p.id !== "_executor" && (!p.workHash || p.workHash === m[1]) &&
+          String(p.name).toLowerCase().startsWith(prefix)
+        );
+        if (hits.length === 1) {
+          name = hits[0].name;
+        }
+      }
+      if (!name) {
+        return null;
+      }
+      const completed = Number(m[3]);
+      const total = Number(m[4]);
+      const done = /✔/.test(t) || (total > 0 && completed >= total);
+      return progress(m[1], name, "", done ? 100 : Math.floor(100 * completed / Math.max(1, total)), completed, total);
     }
 
     m = t.match(/\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);

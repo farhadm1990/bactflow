@@ -9,85 +9,6 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 
 
-//progress function
-// getting values of the run buttons 
-// let clickedButtonValue = null;
-// document.addEventListener("click", function(event) {
-//   if (event.target.name === "action-assem") {
-//        clickedButtonValue = event.target.value;
-     
-//   }
-// });
-
-// const updateProgress = () =>{
-//   const form = document.getElementById("runForm");
-//   const formData = new FormData(form);
-
-  
-//   const setupOnly = document.getElementById("setup_only").value;
-  
-  
-
-//   if(clickedButtonValue === "run" && setupOnly === "false"){
-    
-//     fetch("/progress", { method: "POST", body: formData } )
-//     .then(response => response.json())
-//     .then(data =>{
-//       let percentage = data.completed;
-//       let progressBar = document.querySelector(".progress-bar");
-//       let progDiv = document.querySelector(".progress");
-      
-//       progDiv.style.display = "block";
-      
-//       progressBar.style.width = percentage + "%";
-//       progressBar.setAttribute("aria-valuenow", percentage);
-
-//       progressBar.innerText = Math.round(percentage) + "%";
-      
-//       if(percentage < 100){
-//         setTimeout(updateProgress,2000);
-//       } else {
-//         progDiv.style.transition = "background-color 1s ease, color 1s ease, text-align 0s ease";
-//         setTimeout(() => {
-//           progDiv.style.backgroundColor = "green";
-//           progDiv.style.color = "white";
-//           progressBar.style.opacity = "0"; 
-  
-//           setTimeout(() => {
-//               progressBar.style.display = "none"; 
-//           }, 5);
-  
-        
-//           progDiv.style.opacity = "5"; 
-//           progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`;
-//           progDiv.style.textAlign = "justify";
-//           progDiv.style.textAlignLast = "center";
-//           progDiv.style.height = '30px';
-//           progDiv.style.padding = '5px';
-
-  
-//           setTimeout(() => {
-//               progDiv.style.opacity = "1"; // Fade in the text
-//           }, 20); // Small delay for smooth appearance
-  
-//       }, 200); // Slight delay after progress completes
-//         // progDiv.style.backgroundColor = "green";
-//         // progDiv.style.color = "white";
-//         // progressBar.style.display = "none";
-//         // progDiv.style.textAlign = "justify";
-//         // progDiv.style.textAlignLast= "center"; 
-
-
-//         progDiv.innerHTML = `<strong>Assembly was successfully done!</strong>`
-
-//       }
-//     })
-//     .catch(error => console.error("Error fetching progress:", error))
-//   } 
-  
-// }
-
-
 // connect to stream when on assembly
 function connectToStream(action){
   // Always (re)connect — a stale EventSource left old process lines on screen.
@@ -999,8 +920,7 @@ async function taxReport() {
             pageLength: 10,
             searching: true,
             ordering: true,
-            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-            scrollX: true
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
           });
           if (hasAbund) {
             if ($.fn.DataTable.isDataTable("#taxa-abund-tab")) {
@@ -1102,8 +1022,7 @@ function renderCheckmTable(data) {
       pageLength: 10,
       searching: true,
       ordering: true,
-      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-      scrollX: true
+      lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
     });
   }, 300);
 }

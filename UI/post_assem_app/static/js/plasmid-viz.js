@@ -29,7 +29,6 @@
           [10, 25, 50, -1],
           [10, 25, 50, "All"],
         ],
-        scrollX: true,
       });
     }, 300);
   }
@@ -232,11 +231,18 @@
     if (section) {
       section.style.display = "block";
     }
+    const summaryBox = el(summaryId);
+    const firstChart = el(chartPrefix + "-chart-by-genome");
+    const chartsBox = firstChart ? firstChart.parentElement : null;
+    const setShown = (shown) => {
+      [summaryBox, chartsBox, out].forEach((node) => {
+        if (node) {
+          node.style.display = shown ? "" : "none";
+        }
+      });
+    };
     if (empty) {
-      if (hint) {
-        hint.textContent = "";
-      }
-      const summaryBox = el(summaryId);
+      setShown(false);
       if (summaryBox) {
         summaryBox.innerHTML = "";
       }
@@ -251,8 +257,16 @@
           node.innerHTML = "";
         }
       });
-      out.innerHTML = `<div class="alert alert-info mb-0" role="status">${emptyMessage(kind, genomes)}</div>`;
+      out.innerHTML = "";
+      if (hint) {
+        hint.innerHTML = emptyMessage(kind, genomes);
+        hint.classList.add("bf-empty-note");
+      }
       return true;
+    }
+    setShown(true);
+    if (hint) {
+      hint.classList.remove("bf-empty-note");
     }
     if (hint) {
       hint.textContent = count
