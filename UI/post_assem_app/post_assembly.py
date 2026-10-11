@@ -346,25 +346,23 @@ def _terminate_worker():
             pass
 
 
-def _spawn_run_worker(command, epoch):
-    """Run Nextflow in a daemon thread (avoids multiprocessing fork BrokenPipeError)."""
+def _spawn_run_worker(command):
+    """Run Nextflow in a child process. A new epoch stops an older worker from clearing this run."""
     global _current_worker
-    # Mark running BEFORE the client opens SSE — otherwise stream_bactflow can
-    # see running=False for two idle ticks and immediately emit "Process completed".
-    process_status["running"] = True
     try:
-        output_queue.put("BactFlow: starting...")
+        epoch = int(process_status.get("epoch") or 0) + 1
     except Exception:
-        pass
-    worker = threading.Thread(
+        epoch = 1
+    process_status["epoch"] = epoch
+    process_status["running"] = True
+    process_status["pid"] = None
+    worker = Process(
         target=run_bact,
         args=(command, process_status, output_queue, output_history, base_dir, epoch),
-        daemon=True,
-        name="bactflow-post-worker",
     )
+    _start_worker_process(worker)
     with _worker_lock:
         _current_worker = worker
-    worker.start()
     return worker
 
 
@@ -488,8 +486,13 @@ def _epoch_is_current(epoch):
 def run_bact(command, process_status, output_queue, output_history, work_root=None, epoch=0):
     """Function to run bactflow"""
 
-    # Stop/Start may have invalidated this worker before it even started.
-    if not _epoch_is_current(epoch):
+    def _owns_run():
+        try:
+            return int(process_status.get("epoch") or 0) == int(epoch)
+        except Exception:
+            return False
+
+    if not _owns_run():
         return 0
 
     process_status["running"] = True
@@ -506,12 +509,6 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
         )
         log_thread.start()
 
-    if not _epoch_is_current(epoch):
-        stop_event.set()
-        if log_thread:
-            log_thread.join(timeout=1)
-        return 0
-
     master_fd, slave_fd = pty.openpty()
     try:
         process = subprocess.Popen(
@@ -527,48 +524,17 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
     finally:
         os.close(slave_fd)
 
-    if not _epoch_is_current(epoch):
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except Exception:
-            try:
-                process.kill()
-            except Exception:
-                pass
-        try:
-            os.close(master_fd)
-        except Exception:
-            pass
-        stop_event.set()
-        if log_thread:
-            log_thread.join(timeout=1)
-        return 0
-
     process_status["pid"] = process.pid
     buffer = ""
 
     while True:
-        if not _epoch_is_current(epoch):
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
-            try:
-                process.wait(timeout=1)
-            except Exception:
-                pass
-            break
-
         still_marked_running = True
         try:
             still_marked_running = bool(process_status["running"])
         except Exception:
             still_marked_running = True
 
-        if (not still_marked_running) and process.poll() is None:
+        if not _owns_run():
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except Exception:
@@ -576,10 +542,17 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
                     process.kill()
                 except Exception:
                     pass
+            return 0
+
+        if (not still_marked_running) and process.poll() is None and _owns_run():
+            _kill_process_tree(process.pid)
             try:
-                process.wait(timeout=1)
+                process.wait(timeout=2)
             except Exception:
-                pass
+                try:
+                    process.kill()
+                except Exception:
+                    pass
             break
 
         if process.poll() is not None:
@@ -626,57 +599,20 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
             output_queue.put(line)
             output_history.append(line)
 
-    try:
-        os.close(master_fd)
-    except Exception:
-        pass
-    try:
-        exit_code = process.wait(timeout=2)
-    except Exception:
-        try:
-            process.kill()
-        except Exception:
-            pass
-        exit_code = process.poll()
-        if exit_code is None:
-            exit_code = -9
-
+    os.close(master_fd)
+    exit_code = process.wait()
     stop_event.set()
     if log_thread:
         log_thread.join(timeout=2)
 
-    # Decide whether this worker still owns the run lock.
-    silence_exit = False
-    try:
-        if process_status["stop_reason"] == "user":
-            silence_exit = True
-    except Exception:
-        pass
-    try:
-        if int(process_status["epoch"]) != int(epoch):
-            silence_exit = True
-    except Exception:
-        silence_exit = True
-    # SIGKILL / signal exits (e.g. -9) are from Stop — never show them.
-    try:
-        if exit_code is not None and int(exit_code) < 0:
-            silence_exit = True
-    except Exception:
-        silence_exit = True
-
-    if silence_exit:
-        try:
-            if int(process_status["epoch"]) == int(epoch):
-                process_status["running"] = False
-                process_status["pid"] = None
-        except Exception:
-            pass
+    if not _owns_run():
         return exit_code
 
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
+
     process_status["running"] = False
     process_status["pid"] = None
     return exit_code
@@ -693,19 +629,11 @@ def run_bactflow():
         command = None
 
         if  action == "run":
-            # Always take over: Stop may have cleared the lock while an old worker
-            # was still about to set running=True / pid — bump epoch so it cannot.
-            old_pid = process_status.get("pid")
-            epoch = _bump_epoch()
-            process_status["stop_reason"] = None
-            _clear_run_state()
-            _terminate_worker()
-            if old_pid:
-                threading.Thread(
-                    target=_stop_pipeline_async,
-                    args=(old_pid,),
-                    daemon=True,
-                ).start()
+            pid = process_status.get("pid")
+            if process_status.get("running") and _pipeline_alive(pid):
+                return "Bactflow is already running!\n", 400
+            if process_status.get("running") or pid:
+                _clear_run_state()
             
             
             setup_only = request.form.get("setup_only", 'false')
@@ -756,28 +684,22 @@ def run_bactflow():
             command = with_nextflow_java(command)
                 
             output_history[:] = []
-            _spawn_run_worker(command, epoch)
+            _spawn_run_worker(command)
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            old_pid = process_status.get("pid")
-            epoch = _bump_epoch()
-            process_status["stop_reason"] = None
-            _clear_run_state()
-            _terminate_worker()
-            if old_pid:
-                threading.Thread(
-                    target=_stop_pipeline_async,
-                    args=(old_pid,),
-                    daemon=True,
-                ).start()
+            pid = process_status.get("pid")
+            if process_status.get("running") and _pipeline_alive(pid):
+                return "Bactflow is already running!\n", 400
+            if process_status.get("running") or pid:
+                _clear_run_state()
             command = with_nextflow_java(
                 f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
             output_history[:] = []
-            _spawn_run_worker(command, epoch)
+            _spawn_run_worker(command)
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -980,7 +902,7 @@ def _docker_aware_memory(fallback_used, fallback_total, fallback_percent):
 def _build_sys_stats():
     vm = psutil.virtual_memory()
     ncpu = psutil.cpu_count(logical=True) or 1
-    cpu = round(psutil.cpu_percent(interval=0.05), 1)
+    cpu = round(psutil.cpu_percent(interval=None), 1)
     ram_percent = round(vm.percent, 1)
     ram_used_gb = round(vm.used / (1024 ** 3), 2)
     ram_total_gb = round(vm.total / (1024 ** 3), 2)
@@ -1069,60 +991,48 @@ def stream_bactflow():
 
   
     def generate():
+        last_stats = 0
         # fitst show the history
-        try:
-            history = list(output_history)
-        except Exception:
-            history = []
-        for line in history:
+        for line in output_history:
             yield f"data: {line}\n\n"
 
-        # Give the worker a moment to flip running=True after Start/Help.
-        for _ in range(30):
-            try:
-                if bool(process_status.get("running")) or process_status.get("pid"):
-                    break
-            except Exception:
-                pass
-            time.sleep(0.1)
-
-        # now stream new output
-        idle_rounds = 0
+        # now stream new output — stay open while this run's worker is alive
         while True:
-            running = False
             try:
                 running = bool(process_status["running"])
             except Exception:
                 running = False
-
+            worker_alive = False
             try:
-                line = output_queue.get(timeout=0.4)
-                idle_rounds = 0
-                text = (line or "").strip()
+                worker_alive = _current_worker is not None and _current_worker.is_alive()
+            except Exception:
+                worker_alive = False
+            now = time.time()
+            if now - last_stats >= 1:
+                try:
+                    yield f"event: stats\ndata: {json.dumps(current_sys_stats())}\n\n"
+                except Exception:
+                    pass
+                last_stats = now
+            try:
+                line = output_queue.get(timeout=0.5)
+                text = str(line or "").replace("\r", " ").replace("\n", " ").strip()
                 if text:
                     yield f"data: {text}\n\n"
             except Exception:
-                idle_rounds += 1
-                if (not running) and idle_rounds >= 5:
-                    break
-                continue
+                if running or worker_alive:
+                    continue
+                try:
+                    if not output_queue.empty():
+                        continue
+                except Exception:
+                    pass
+                break
 
-        try:
-            if process_status.get("stop_reason") == "user":
-                yield f"data: {STOP_USER_MSG}\n\n"
-            else:
-                yield "data: Process completed\n\n"
-        except Exception:
-            yield "data: Process completed\n\n"
+        yield "data: Process completed\n\n"
+ 
 
-    return Response(
-        stream_with_context(generate()),
-        content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return Response(generate(), content_type='text/event-stream')
 
 # progress bar
 prog = {"completed": 0}
@@ -1428,6 +1338,32 @@ python3 {shlex.quote(os.path.join(base_dir, "circular_plotter.py"))} -d {shlex.q
         return jsonify(payload)
     else:
         return jsonify({"plot": False, "reason": "not_found_after_generation"}), 200
+
+
+@app.route("/linear", methods=["POST"])
+def linear():
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"plot": False, "reason": "missing_out_dir"}), 200
+    gbk_dir = os.path.join(out_dir, "bakta_out")
+    if not os.path.isdir(gbk_dir):
+        return jsonify({"plot": False, "reason": "no_bakta_dir"}), 200
+    try:
+        from linear_plotter import build_linear_figure
+        figure, meta = build_linear_figure(
+            gbk_dir,
+            feature_types=_selected_gene_types(),
+            genome=(request.form.get("linear_genome") or "").strip(),
+            contig=(request.form.get("linear_contig") or "").strip(),
+        )
+    except Exception as exc:
+        return jsonify({"plot": False, "error": str(exc)}), 200
+    if not figure:
+        return jsonify({"plot": False, **(meta or {})}), 200
+    payload = {"plot": True, **(meta or {})}
+    if not (isinstance(figure, dict) and figure.get("canvas")):
+        payload["figure"] = figure
+    return jsonify(payload), 200
 
 
     

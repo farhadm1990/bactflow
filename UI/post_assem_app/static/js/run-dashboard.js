@@ -47,7 +47,24 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   };
 
-  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start/i;
+  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|Nextflow exited with code/i;
+
+  const STEP_TARGETS = {
+    envsetup: [".rd-logs"],
+    testify: [".rd-logs"],
+    concat: [".rd-logs"],
+    pbcheck: [".rd-logs"],
+    dedup: [".rd-logs"],
+    readfilt: [".rd-logs"],
+    covfilt: [".rd-logs"],
+    asm: [".rd-logs"],
+    circ: ["circFastaDiv", "circDiv", ".rd-logs"],
+    bakta: ["baktaDiv", "circDiv", "linearDiv", "#rd-results"],
+    gtdb: ["taxa_class", "gtdbTreeDiv", "#rd-results"],
+    checkm: ["checkmDiv", "checkmTreeDiv", "#rd-results"],
+    genomad: ["plasmidDiv", "#rd-results"],
+    quast: ["quastDiv", "#rd-results"],
+  };
 
   function tracker() {
     return typeof BactflowProcessEta !== "undefined" ? BactflowProcessEta : null;
@@ -71,7 +88,16 @@
     stopping: false,
     frozenRows: null,
     serverRunning: false,
+    lastStats: null,
+    _smoothCpu: null,
+    _smoothRam: null,
+    _shownCpu: null,
+    _shownRam: null,
     plannedKey: null,
+    pinnedStages: null,
+    lastTitle: "",
+    lastDesc: "",
+    lastCurrent: null,
     autoScroll: true,
 
     init() {
@@ -82,6 +108,9 @@
       this.hookTerminal();
       this.hookMeters();
       this.bindPlotResize();
+      this.bindStickyPipeline();
+      this.bindLogsAlign();
+      this.bindStepJumps();
       this.stampRunId();
       const form = this.form();
       if (form) {
@@ -102,54 +131,111 @@
 
     /* —— Theme —— */
     initTheme() {
+      const order = ["dark", "plain", "light"];
+      const labels = { dark: "Plasma", plain: "Plain dark", light: "Bright" };
       const btn = document.getElementById("rd-theme-bt");
       const apply = (theme) => {
+        if (!order.includes(theme)) {
+          theme = "dark";
+        }
         document.documentElement.setAttribute("data-theme", theme);
         if (btn) {
-          const next = theme === "light" ? "dark" : "light";
-          btn.innerHTML = THEME_ICONS[next] + (next === "light" ? "Bright" : "Dark");
-          btn.title = "Switch to " + (next === "light" ? "bright" : "dark") + " theme";
+          const next = order[(order.indexOf(theme) + 1) % order.length];
+          btn.textContent = labels[next];
+          btn.title = "Switch to " + labels[next];
         }
+        return theme;
       };
       let theme = "dark";
       try {
-        theme = localStorage.getItem("bactflow_theme") === "light" ? "light" : "dark";
+        theme = localStorage.getItem("bactflow_theme") || "dark";
       } catch (e) { /* ignore */ }
-      apply(theme);
-      if (btn) {
+      theme = apply(theme);
+      if (btn && btn.dataset.themeBound !== "1") {
+        btn.dataset.themeBound = "1";
         btn.addEventListener("click", () => {
-          theme = theme === "light" ? "dark" : "light";
+          theme = order[(order.indexOf(theme) + 1) % order.length];
           try {
             localStorage.setItem("bactflow_theme", theme);
           } catch (e) { /* ignore */ }
           apply(theme);
         });
       }
+      this.bindFocus();
+    },
+
+    bindFocus() {
+      const btn = document.getElementById("rd-focus-bt");
+      const app = document.querySelector(".rd-app");
+      if (!btn || !app || btn.dataset.focusBound === "1") {
+        return;
+      }
+      btn.dataset.focusBound = "1";
+      const apply = (on) => {
+        app.classList.toggle("is-focus", on);
+        btn.textContent = on ? "Show panels" : "Focus";
+        btn.title = on ? "Show the setup menu and resource panels" : "Hide the setup menu and resource panels";
+        if (this.alignLogsWithNextflow) {
+          requestAnimationFrame(() => this.alignLogsWithNextflow());
+        }
+      };
+      let on = false;
+      try {
+        on = localStorage.getItem("bactflow_focus") === "1";
+      } catch (e) { /* ignore */ }
+      apply(on);
+      btn.addEventListener("click", () => {
+        on = !app.classList.contains("is-focus");
+        try {
+          localStorage.setItem("bactflow_focus", on ? "1" : "0");
+        } catch (e) { /* ignore */ }
+        apply(on);
+      });
     },
 
     /* —— Operator popup —— */
     bindUserMenu() {
       const btn = document.getElementById("rd-user-btn");
       const menu = document.getElementById("rd-user-menu");
-      if (!btn || !menu) {
+      if (!btn || !menu || btn.dataset.menuBound === "1") {
         return;
       }
+      btn.dataset.menuBound = "1";
+      const place = () => {
+        const r = btn.getBoundingClientRect();
+        menu.style.position = "fixed";
+        menu.style.left = Math.max(8, r.left) + "px";
+        menu.style.width = Math.max(180, r.width) + "px";
+        menu.style.right = "auto";
+        menu.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + "px";
+        menu.style.top = "auto";
+        menu.style.zIndex = "4000";
+      };
       const setOpen = (open) => {
         menu.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          place();
+        }
       };
       btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         setOpen(!menu.classList.contains("is-open"));
       });
       document.addEventListener("click", (e) => {
-        if (!menu.contains(e.target)) {
+        if (!menu.contains(e.target) && !btn.contains(e.target)) {
           setOpen(false);
         }
       });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           setOpen(false);
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (menu.classList.contains("is-open")) {
+          place();
         }
       });
     },
@@ -216,9 +302,95 @@
     },
 
     scrollTo(sel) {
-      const el = $(sel);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const el = typeof sel === "string"
+        ? (sel.charAt(0) === "#" || sel.charAt(0) === "." ? $(sel) : document.getElementById(sel))
+        : sel;
+      if (!el) {
+        return;
+      }
+      const scroller = document.querySelector(".rd-center");
+      const flow = document.getElementById("rd-flow-card");
+      if (scroller && scroller.contains(el) && scroller.scrollHeight > scroller.clientHeight + 8) {
+        if (flow && scroller.scrollTop > 8) {
+          flow.classList.add("is-compact");
+        }
+        const offset = (flow ? flow.getBoundingClientRect().height : 0) + 10;
+        const top =
+          el.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top +
+          scroller.scrollTop -
+          offset;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        return;
+      }
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+
+    bindStickyPipeline() {
+      const scroller = document.querySelector(".rd-center");
+      const card = document.getElementById("rd-flow-card");
+      if (!scroller || !card) {
+        return;
+      }
+      const update = () => {
+        const compact = scroller.scrollTop > 16;
+        if (card.classList.contains("is-compact") === compact) {
+          return;
+        }
+        card.classList.toggle("is-compact", compact);
+        requestAnimationFrame(() => this.alignLogsWithNextflow());
+      };
+      scroller.addEventListener("scroll", update, { passive: true });
+      update();
+    },
+
+    bindStepJumps() {
+      const onJump = (e) => {
+        const hit = e.target.closest(".rd-stage-node, .rd-stage-name, .rd-progress-row");
+        if (!hit) {
+          return;
+        }
+        const el = hit.closest("[data-step]");
+        if (!el || !el.classList.contains("is-jump")) {
+          return;
+        }
+        e.preventDefault();
+        this.jumpToStep(el.dataset.step);
+      };
+      const track = document.getElementById("rd-pipeline-track");
+      if (track && !track.dataset.jumpBound) {
+        track.dataset.jumpBound = "1";
+        track.addEventListener("click", onJump);
+      }
+      const list = document.getElementById("rd-progress-list");
+      if (list && !list.dataset.jumpBound) {
+        list.dataset.jumpBound = "1";
+        list.addEventListener("click", onJump);
+      }
+    },
+
+    jumpToStep(id) {
+      const targets = STEP_TARGETS[id] || ["#rd-results", ".rd-logs"];
+      let dest = null;
+      for (let i = 0; i < targets.length; i += 1) {
+        const key = targets[i];
+        const el = key.charAt(0) === "#" || key.charAt(0) === "."
+          ? $(key)
+          : document.getElementById(key);
+        if (!el) {
+          continue;
+        }
+        const shown = el.offsetParent !== null || getComputedStyle(el).display !== "none";
+        if (shown && el.getClientRects().length) {
+          dest = el;
+          break;
+        }
+        if (!dest) {
+          dest = el;
+        }
+      }
+      if (dest) {
+        this.scrollTo(dest);
       }
     },
 
@@ -232,6 +404,7 @@
           this.endedAt = null;
           this.failed = false;
           this.failedProc = "";
+          this.failMessage = "";
           this.doneAtFail = null;
           this.stopping = false;
           this.frozenRows = null;
@@ -255,16 +428,9 @@
           this.stopping = true;
         });
       }
-      const repBt = document.getElementById("rep-bt");
-      if (repBt) {
-        repBt.addEventListener("click", () => {
-          const results = document.getElementById("rd-results");
-          if (results) {
-            results.classList.add("is-shown");
-          }
-          setTimeout(() => this.scrollTo("#rd-results"), 80);
-          [400, 1200, 3000].forEach((ms) => setTimeout(() => this.schedulePlotResize && this.schedulePlotResize(), ms));
-        });
+      const logs = document.querySelector(".rd-center .rd-logs");
+      if (logs) {
+        logs.style.height = "";
       }
     },
 
@@ -303,6 +469,7 @@
       if (this.stopping || !FAIL_RE.test(line)) {
         return;
       }
+      this.failMessage = String(line || "").replace(/\s+/g, " ").slice(0, 180);
       const m = line.match(/process\s*>\s*'?([A-Za-z_]\w*)/i);
       this.markFailed(m ? m[1] : "");
     },
@@ -341,7 +508,18 @@
       const orig = meters.apply.bind(meters);
       meters.apply = (s) => {
         if (s && (s.cpu_percent != null || s.ram_percent != null)) {
-          this.serverRunning = !!s.running;
+          const live = !!s.running;
+          if (live) {
+            this._runMiss = 0;
+            this.serverRunning = true;
+          } else if (this.serverRunning) {
+            this._runMiss = (this._runMiss || 0) + 1;
+            if (this._runMiss >= 3) {
+              this.serverRunning = false;
+            }
+          } else {
+            this.serverRunning = false;
+          }
           this.renderGauges(s);
         }
         return orig(s);
@@ -378,40 +556,6 @@
         S("testify", "Environment check", "check", /^testify/, "testify"),
       ];
       if (this.isTrue("setup_only")) {
-        return stages;
-      }
-
-      const asm = this.val("assemblerDropdown");
-      const concat = this.isTrue("concat_reads");
-      if (asm === "pacbio") {
-        if (concat) {
-          stages.push(S("concat", "Read pooling", "pool", /^fastqconcater/, "concat_reads"));
-        }
-        stages.push(S("pbcheck", "PacBio read check", "readcheck", /^pacbioreadcheck/, "pacbio_read_check"));
-        stages.push(S("asm", "Flye (PacBio)", "pacbio", /^assemblypacbio/, "assembly_pacbio"));
-      } else if (asm === "flye" || asm === "unicycler") {
-        if (concat) {
-          stages.push(S("concat", "Read pooling", "pool", /^fastqconcater/, "concat_reads"));
-        }
-        stages.push(S("dedup", "Deduplication", "dedup", /^deduper/, "deduper"));
-        if (this.isTrue("nanofilter")) {
-          stages.push(S("readfilt", "Read filter", "filter", /^nanoreadfilt/, "readfilt"));
-        }
-        if (this.isTrue("coverage_filter")) {
-          stages.push(S("covfilt", "Coverage filter", "coverage", /^coveragefilt/, "coverage_filt"));
-        }
-        stages.push(
-          asm === "flye"
-            ? S("asm", "Flye (ONT)", "flye", /^assemblyflye/, "assembly_flye1")
-            : S("asm", "Unicycler", "unicycler", /^assemblyunicycler/, "assembly_unicycler")
-        );
-      } else if (asm === "spades") {
-        stages.push(S("asm", "SPAdes", "spades", /^assemblyspades/, "assembly_spades"));
-      }
-
-      const hasInput =
-        (asm && asm !== "none") || !!document.getElementById("postForm");
-      if (!hasInput) {
         return stages;
       }
       if (this.isTrue("circle_genome")) {
@@ -605,7 +749,49 @@
       this.renderOverview(rows, state);
       this.renderSummary(rows);
       this.renderTimes();
+      this.renderGauges();
       this.maybeAutoscroll();
+      if (state === "idle" && this.endedAt && !this.failed && !this.stopping && !this.frozenRows) {
+        if (typeof window.revealResultsOnSuccess === "function") {
+          window.revealResultsOnSuccess(true);
+        }
+      }
+    },
+
+    alignLogsWithNextflow() {
+      const logs = document.querySelector(".rd-center .rd-logs");
+      const center = document.querySelector(".rd-center");
+      const right = document.querySelector(".rd-right");
+      const nf = right && right.querySelector(":scope > .rd-card:last-child");
+      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden")) {
+        if (logs) {
+          logs.style.height = "";
+        }
+        return;
+      }
+      if (window.matchMedia("(max-width: 1180px)").matches) {
+        logs.style.height = "";
+        return;
+      }
+      const cRect = center.getBoundingClientRect();
+      const rRect = right.getBoundingClientRect();
+      const nfBottom = nf.getBoundingClientRect().bottom - rRect.top + right.scrollTop;
+      const logsTop = logs.getBoundingClientRect().top - cRect.top + center.scrollTop;
+      const next = Math.max(220, Math.round(nfBottom - logsTop));
+      const px = `${next}px`;
+      if (logs.style.height !== px) {
+        logs.style.height = px;
+      }
+    },
+
+    bindLogsAlign() {
+      const onAlign = () => this.alignLogsWithNextflow();
+      window.addEventListener("resize", onAlign);
+      const right = document.querySelector(".rd-right");
+      if (right && typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(onAlign).observe(right);
+      }
+      requestAnimationFrame(onAlign);
     },
 
     renderStatus(state) {
@@ -613,8 +799,14 @@
       if (!badge) {
         return;
       }
-      badge.className = "rd-status is-" + state;
-      badge.textContent = state === "running" ? "Running" : state === "failed" ? "Failed" : "Idle";
+      const label = state === "running" ? "Running" : state === "failed" ? "Failed" : "Idle";
+      const nextClass = "rd-status is-" + state;
+      if (badge.className !== nextClass) {
+        badge.className = nextClass;
+      }
+      if (badge.textContent !== label) {
+        badge.textContent = label;
+      }
     },
 
     renderPipeline(rows) {
@@ -629,6 +821,7 @@
         rows.forEach((r) => {
           const el = document.createElement("div");
           el.className = "rd-stage is-wait";
+          el.dataset.step = r.stage.id;
           el.innerHTML = '<div class="rd-stage-node"></div><div class="rd-stage-name"></div><div class="rd-stage-meta"></div>';
           el.querySelector(".rd-stage-name").textContent = r.stage.name;
           track.appendChild(el);
@@ -640,7 +833,11 @@
         if (!el) {
           return;
         }
-        el.className = "rd-stage is-" + r.state;
+        const stageClass = "rd-stage is-" + r.state + (r.state === "done" ? " is-jump" : "");
+        if (el.className !== stageClass) {
+          el.className = stageClass;
+        }
+        el.title = r.state === "done" ? "Open " + r.stage.name : r.stage.name;
         const icon = r.state === "done" ? ICONS.done : r.state === "fail" ? ICONS.fail : ICONS[r.stage.icon];
         const node = el.querySelector(".rd-stage-node");
         if (node.dataset.icon !== icon) {
@@ -655,7 +852,9 @@
         } else if (r.state === "stop") {
           meta = `Stopped at ${r.pct}%`;
         } else if (r.state === "run") {
-          meta = `${r.pct}% · ${this.formatDuration(r.elapsed)}`;
+          meta = r.remaining
+            ? `${r.pct}% · ${this.formatDuration(r.elapsed)} · ETA ${this.formatDuration(r.remaining)}`
+            : `${r.pct}% · ${this.formatDuration(r.elapsed)}`;
         } else if (r.procs.length) {
           meta = "Queued";
         }
@@ -673,6 +872,7 @@
         box.innerHTML = "";
         rows.forEach((r) => {
           const row = document.createElement("div");
+          row.dataset.step = r.stage.id;
           row.innerHTML = '<span class="rd-progress-dot"></span><span class="name"></span><span class="pct"></span><div class="track"><i></i></div>';
           row.querySelector(".name").textContent = r.stage.name;
           box.appendChild(row);
@@ -680,7 +880,10 @@
       }
       rows.forEach((r, i) => {
         const row = box.children[i];
-        row.className = "rd-progress-row is-" + r.state;
+        const rowClass = "rd-progress-row is-" + r.state + (r.state === "done" ? " is-jump" : "");
+        if (row.className !== rowClass) {
+          row.className = rowClass;
+        }
         row.querySelector(".pct").textContent = r.state === "fail" ? "failed" : r.state === "stop" ? "stopped " + r.pct + "%" : r.pct + "%";
         row.querySelector(".track > i").style.width = r.pct + "%";
       });
@@ -695,6 +898,23 @@
       return Math.max(0, Math.min(100, Math.round((100 * done) / total)));
     },
 
+    pipelineRemaining(rows, running) {
+      let seq = 0;
+      let par = 0;
+      rows.forEach((r) => {
+        if (r.state === "done" || r.state === "fail" || r.state === "stop") {
+          return;
+        }
+        const rem = running && r.state === "run" ? (r.remaining || 0) : (r.expected || 0);
+        if (r.stage && r.stage.side) {
+          par = Math.max(par, rem);
+        } else {
+          seq += rem;
+        }
+      });
+      return seq + par;
+    },
+
     renderOverview(rows, state) {
       const pct = this.overallPercent(rows);
       const doneN = rows.filter((r) => r.state === "done").length;
@@ -702,15 +922,24 @@
       const ring = document.getElementById("rd-task-ring");
       const bar = document.getElementById("rd-task-bar");
       if (ring) {
-        ring.style.setProperty("--rd-pct", pct);
+        if (ring.dataset.pct !== String(pct)) {
+          ring.dataset.pct = String(pct);
+          ring.style.setProperty("--rd-pct", pct);
+        }
         ring.classList.toggle("is-failed", state === "failed");
       }
       if (bar) {
-        bar.style.width = pct + "%";
+        const width = pct + "%";
+        if (bar.style.width !== width) {
+          bar.style.width = width;
+        }
         bar.parentElement.classList.toggle("is-failed", state === "failed");
       }
       this.setText("rd-task-ring-pct", pct + "%");
       this.setText("rd-task-ring-sub", `${doneN} of ${rows.length} steps`);
+      if (state === "running" && current && window.BactflowTerminal) {
+        BactflowTerminal.setStatus(`${current.stage.name} · ${current.pct}%`, "run");
+      }
 
       let title = "Ready";
       let desc = "Pipeline: " + rows.map((r) => r.stage.name).join(" → ");
@@ -719,7 +948,7 @@
         desc = current ? `Step ${rows.indexOf(current) + 1} of ${rows.length} is running` : "Waiting for Nextflow to schedule the first step";
       } else if (state === "failed") {
         title = "Pipeline failed";
-        desc = current ? `${current.stage.name} failed. Check the live log for details.` : "Check the live log for details.";
+        desc = this.failMessage || (current ? `${current.stage.name} failed. Check the live log for details.` : "Check the live log for details.");
       } else if (this.frozenRows) {
         title = "Stopped";
         desc = `Run stopped after ${doneN} of ${rows.length} steps.`;
@@ -731,10 +960,8 @@
       this.setText("rd-task-desc", desc);
 
       let remaining = null;
-      if (state === "running") {
-        remaining = rows.reduce((a, r) => a + (r.state === "done" ? 0 : r.remaining || 0), 0);
-      } else if (state === "idle" && !this.endedAt) {
-        remaining = rows.reduce((a, r) => a + r.expected, 0);
+      if (state === "running" || (state === "idle" && !this.endedAt)) {
+        remaining = this.pipelineRemaining(rows, state === "running");
       }
       this.setText("rd-m-eta", remaining == null ? (this.endedAt ? "0s" : "—") : this.formatDuration(remaining));
       this.setText(
@@ -774,22 +1001,60 @@
       );
     },
 
+    requestedCores() {
+      const n = parseInt(((document.getElementById("cpus") || {}).value || "").trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+
+    cpuBudgetLabel(hostCount) {
+      const asked = this.requestedCores();
+      const host = Number(hostCount) || 0;
+      if (asked && host && asked !== host) {
+        return `${asked} of ${host} cores`;
+      }
+      if (asked) {
+        return `${asked} cores`;
+      }
+      if (host) {
+        return `${host} cores`;
+      }
+      return "";
+    },
+
     renderGauges(s) {
-      const cpu = Math.max(0, Math.min(100, Number(s.cpu_percent) || 0));
-      const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
+      if (s) {
+        this.lastStats = s;
+      } else {
+        s = this.lastStats || {};
+      }
+      let cpu = Math.max(0, Math.min(100, Math.round(Number(s.cpu_percent) || 0)));
+      let ram = Math.max(0, Math.min(100, Math.round(Number(s.ram_percent) || 0)));
+      const now = Date.now();
+      const due = !this._gaugeAt || now - this._gaugeAt > 3000;
+      const jumped = this._shownCpu == null || Math.abs(cpu - this._shownCpu) >= 3 || Math.abs(ram - this._shownRam) >= 2;
+      if (!due && !jumped) {
+        cpu = this._shownCpu;
+        ram = this._shownRam;
+      } else {
+        this._gaugeAt = now;
+        this._shownCpu = cpu;
+        this._shownRam = ram;
+      }
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
-      if (cpuRing) {
+      if (cpuRing && cpuRing.dataset.pct !== String(cpu)) {
+        cpuRing.dataset.pct = String(cpu);
         cpuRing.style.setProperty("--rd-pct", cpu);
       }
-      if (ramRing) {
+      if (ramRing && ramRing.dataset.pct !== String(ram)) {
+        ramRing.dataset.pct = String(ram);
         ramRing.style.setProperty("--rd-pct", ram);
       }
-      this.setText("rd-cpu-pct", Math.round(cpu) + "%");
-      this.setText("rd-ram-pct", Math.round(ram) + "%");
-      this.setText("rd-cpu-sub", s.cpu_count ? `${s.cpu_count} cores` : "");
+      this.setText("rd-cpu-pct", cpu + "%");
+      this.setText("rd-ram-pct", ram + "%");
+      this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
       this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
-      this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
+      this.setText("rd-m-res", `${cpu}% / ${ram}%`);
     },
 
     maybeAutoscroll() {
@@ -827,5 +1092,10 @@
   };
 
   window.BactflowRunDashboard = RunDashboard;
-  document.addEventListener("DOMContentLoaded", () => RunDashboard.init());
+  const boot = () => RunDashboard.init();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();

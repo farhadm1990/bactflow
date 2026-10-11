@@ -9,8 +9,8 @@
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd14">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre7">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd16">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre10">
 <script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
 
@@ -165,7 +165,7 @@
       </div>
       <button type="button" class="rd-user" id="rd-user-btn" aria-haspopup="true" aria-expanded="false">
         <span class="rd-user-avatar">FP</span>
-        <span><span>Farhad Panah</span><small>Operator</small></span>
+        <span><span>Farhad M. Panah</span><small>Operator</small></span>
         <svg class="rd-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>
       </button>
     </div>
@@ -189,7 +189,7 @@
     <div class="rd-body">
       <div class="rd-center">
 
-        <div class="rd-card rd-flow-card">
+        <div class="rd-card rd-flow-card" id="rd-flow-card">
           <div class="rd-pipeline">
             <div class="rd-pipeline-track" id="rd-pipeline-track"></div>
           </div>
@@ -378,9 +378,9 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle9"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle10"></script>
 <script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre9"></script>
+<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre13"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

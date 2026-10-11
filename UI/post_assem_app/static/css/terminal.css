@@ -300,7 +300,6 @@
   );
   width: 100% !important;
   opacity: 0.55;
-  animation: bf-proc-wait 1.1s linear infinite;
 }
 
 .bf-process-fill.is-run {

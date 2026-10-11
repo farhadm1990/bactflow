@@ -4,8 +4,8 @@
 
 {% block extra_head %}
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd13">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix2">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd29">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -121,57 +121,6 @@
                 </div>
               </div>
               <br>
-              <div id="genetype" style="display: none; flex-direction: column; width: 50%">
-                <label for="geneTypeSelect">Select <strong>Gene Types</strong> for the count table and circular plot</label>
-                <br>
-                <select class="form-select" multiple size="5" aria-label="Default select example" name="gene_type" id="geneType">
-                  
-                  <option selected value="cds">cds</option>
-                  <option value="tRNA">tRNA</option>
-                  <option value="rRNA">rRNA</option>
-                  <option value="tmRNA">tmRNA</option>
-                  <option value="repeat_region">repeat_region</option>
-                </select>
-              </div>
-
-              <br>
-              <hr>
-             
-              <div id="circular-div" style="display: none; padding: 6px; border-radius: 2px; border: 1px solid var(--hx-border);">
-                <h6>Tunning parameters for the cirular gemome plot</h6>
-                <br>
-                <label for="add_gc">Add GC content to the circular genome?</label>
-                <select class="form-select" aria-label="Default select example" name="add_gc" id="add-gc">
-                  <option selected value="True">True</option>
-                  <option  value="False">False</option>
-                </select>
-
-                <label for="add_skew">Add GC-skew to the circular genome?</label>
-                <select class="form-select" aria-label="Default select example" name="add_skew" id="add-skew">
-                  <option selected value="True">True</option>
-                  <option  value="False">False</option>
-                </select>
-
-                <label for="dpi" class="form-label">Resolution (dpi)</label>
-                <input type="number" class="form-control" id="dpi" name="dpi" placeholder="200"  value="200"/>
-                <label for="figsize" class="form-label">Plot size (inches)</label>
-                <input type="number" class="form-control" id="figsize" name="figsize" placeholder="10"  value="10"/>
-                <label for="interval" class="form-label">Segment width (thickness of each segment)</label>
-                <input type="number" class="form-control" id="interval" name="interval" placeholder="1"  value="1"/>
-                <br>
-                <label for="f_colorInput" class="form-label">Choose the color for the features on forward and reverse strands</label>
-                <div style="display: flex; gap: 10px;">
-                  <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c" title="Choose forward color">
-                  <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3" title="Choose reverse color">
-                </div>
-                <br>
-                <button type="button" class="btn btn-primary w-100" id="circ-plot-bt" onclick="createCircularPlot()" disabled>
-                  Create circular plot
-                </button>
-                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled. The button activates when .gbk/.gbff or .gff/.gff3 files are ready.</p>
-
-              </div>
-              
               <hr>
               <div class="mb-3">
                 <label for="tax_class" class="form-label">Taxonomy classification? <strong>(GTDBtk)</strong></label>
@@ -268,6 +217,74 @@
             </div>
           </div>
 
+          <div class="card mb-3" id="genome-viz-card">
+            <div class="card-header d-flex align-items-center">
+              <h6 class="mb-0">Genome visualization</h6>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label">Layout</label>
+                <div class="bf-viz-layout" role="radiogroup" aria-label="Genome visualization layout">
+                  <label class="bf-viz-choice">
+                    <input type="radio" name="genome_viz_layout" value="circular" checked>
+                    <span>Circular</span>
+                  </label>
+                  <label class="bf-viz-choice">
+                    <input type="radio" name="genome_viz_layout" value="linear">
+                    <span>Linear</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="mb-3" id="genetype">
+                <label class="form-label" for="geneTypeToggle">Annotation types</label>
+                <div class="bf-ms-dd" id="geneTypeDrop">
+                  <button type="button" class="form-select bf-ms-toggle" id="geneTypeToggle" aria-haspopup="listbox" aria-expanded="false">cds</button>
+                  <div class="bf-ms-menu" id="geneTypeMenu" hidden>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="cds" checked> cds</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tRNA"> tRNA</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="rRNA"> rRNA</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tmRNA"> tmRNA</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="repeat_region"> repeat_region</label>
+                  </div>
+                </div>
+              </div>
+
+              <div id="circular-div">
+                <div id="circular-opts">
+                  <h6>Circular plot options</h6>
+                  <label for="add-gc">Add GC content to the circular genome?</label>
+                  <select class="form-select" name="add_gc" id="add-gc">
+                    <option selected value="True">True</option>
+                    <option value="False">False</option>
+                  </select>
+                  <label for="add-skew">Add GC-skew to the circular genome?</label>
+                  <select class="form-select" name="add_skew" id="add-skew">
+                    <option selected value="True">True</option>
+                    <option value="False">False</option>
+                  </select>
+                  <label for="dpi" class="form-label">Resolution (dpi)</label>
+                  <input type="number" class="form-control" id="dpi" name="dpi" value="200"/>
+                  <label for="figsize" class="form-label">Plot size (inches)</label>
+                  <input type="number" class="form-control" id="figsize" name="figsize" value="10"/>
+                  <label for="interval" class="form-label">Segment width</label>
+                  <input type="number" class="form-control" id="interval" name="interval" value="1"/>
+                  <label class="form-label">Feature colors (forward / reverse)</label>
+                  <div style="display: flex; gap: 10px;">
+                    <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c">
+                    <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3">
+                  </div>
+                </div>
+                <div id="linear-opts" style="display: none;">
+                  <p class="text-muted small mb-2">Interactive linear map in the style of DNA Features Viewer. Forward strand above the axis, reverse below. Hover a gene for product and coordinates; zoom and pan so the full genome stays reachable.</p>
+                </div>
+                <button type="button" class="btn btn-primary w-100 mt-3" id="circ-plot-bt" onclick="createGenomePlot()" disabled>
+                  Create circular plot
+                </button>
+                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">The button activates when Bakta .gbk/.gbff/.gff files are ready in the output directory.</p>
+              </div>
+            </div>
+          </div>
 
           <hr>
 
@@ -376,7 +393,7 @@
       </div>
       <button type="button" class="rd-user" id="rd-user-btn" aria-haspopup="true" aria-expanded="false">
         <span class="rd-user-avatar">FP</span>
-        <span><span>Farhad Panah</span><small>Operator</small></span>
+        <span><span>Farhad M. Panah</span><small>Operator</small></span>
         <svg class="rd-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>
       </button>
     </div>
@@ -393,6 +410,7 @@
         <div class="rd-top-stat"><label>Run</label><strong class="rd-run-id" id="rd-run-id">#—</strong></div>
         <div class="rd-top-stat"><label>Started</label><strong id="rd-header-started">—</strong></div>
         <div class="rd-top-stat"><label>Elapsed</label><strong id="rd-header-elapsed">—</strong></div>
+        <button type="button" class="rd-chip-btn" id="rd-focus-bt">Focus</button>
         <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View logs</button>
       </div>
     </header>
@@ -400,7 +418,7 @@
     <div class="rd-body">
       <div class="rd-center">
 
-        <div class="rd-card rd-flow-card">
+        <div class="rd-card rd-flow-card" id="rd-flow-card">
           <div class="rd-pipeline">
             <div class="rd-pipeline-track" id="rd-pipeline-track"></div>
           </div>
@@ -460,6 +478,10 @@
 
         <section class="rd-card rd-results" id="rd-results">
           <div class="rd-results-body bf-results-col" id="assem-results-pane">
+<div id="rd-results-empty" class="rd-results-empty" hidden>
+        <p class="rd-results-empty-title">No results to show</p>
+        <p class="rd-results-empty-copy">There is no result at the output directory. Please run BactFlow first.</p>
+      </div>
 <div id="circFastaDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Circulated genomes</h4>
         <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
@@ -548,6 +570,31 @@
       
         </div>
         <br>
+      </div>
+
+      <div id="linearDiv" class="col-md-7" style="overflow-y: auto; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Linear genome map: <strong id="linear-type-label">(selected gene types)</strong></h4>
+        <div id="linear-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="linear-plot-bar" style="display: none;">
+          <span class="bf-plot-bar-title">Linear genome plot</span>
+          <div class="bf-linear-pickers">
+            <label>Genome
+              <select id="linear-genome-sel" class="form-select form-select-sm"></select>
+            </label>
+            <label>Contig
+              <select id="linear-contig-sel" class="form-select form-select-sm"></select>
+            </label>
+          </div>
+        </div>
+        <div id="output-linear" style="border: 1px solid rgb(105, 105, 105); padding: 10px; margin: 10px; border-radius: 5px; width: 95%; overflow: hidden; color: var(--hx-text);">
+          <div id="spin-linear" style="display: none; flex-direction: column; text-align: center; padding: 40px; align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 80px; height: 80px; color: #547c67;">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <h3 style="color: var(--hx-accent);">Linear map is being created...</h3>
+          </div>
+          <div id="linearPlot"></div>
+        </div>
       </div>
       
       <br>
@@ -897,7 +944,7 @@
     <div class="rd-action-bar hx-actions" role="group" aria-label="BactFlow actions">
       <button type="button" class="btn" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
       <button type="button" class="btn" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
-      <button type="button" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
+      <button type="button" onclick="toggleResults()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
       <button type="button" class="btn" name="action-assem" value="help" id="help-bt">Help!</button>
       <button type="button" class="btn" id="rd-theme-bt" title="Switch theme">Theme</button>
     </div>
@@ -909,11 +956,11 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars4"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd12"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars14"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd29"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix30"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix43"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

@@ -92,7 +92,6 @@ function clearResultPanels() {
   const panelIds = [
     "quastDiv",
     "baktaDiv",
-    "circDiv",
     "circFastaDiv",
     "taxa_class",
     "gtdbTreeDiv",
@@ -100,6 +99,7 @@ function clearResultPanels() {
     "checkmTreeDiv",
     "plasmidDiv",
     "resultsStatusDiv",
+    "rd-results-empty",
   ];
   panelIds.forEach((id) => {
     const node = document.getElementById(id);
@@ -165,6 +165,10 @@ function prepareFreshRunUI() {
   checkmTreeShown = false;
   gtdbTreeShown = false;
   plasmidShown = false;
+  resultsAutoShown = false;
+  runFinishedSuccess = false;
+  setTerminalVisible(true);
+  setResultsOpen(false);
 }
 
 // function update buttons
@@ -613,30 +617,162 @@ function renderCircFastaList(data, opts) {
   list.innerHTML = files.map((name) => `<li><code>${escapeHtml(name)}</code></li>`).join("");
 }
 
+let resultsOpen = false;
+let resultsAutoShown = false;
+let runFinishedSuccess = false;
+
+function runHasFinishedOk() {
+  const dash = window.BactflowRunDashboard;
+  const eta = window.BactflowProcessEta;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
+    return false;
+  }
+  if (eta && eta.allDone()) {
+    return true;
+  }
+  return !!(dash && dash.endedAt && dash.startedAt && !dash.failed);
+}
+
+function setTerminalVisible(visible) {
+  const logs = document.querySelector(".rd-center .rd-logs");
+  if (!logs) {
+    return;
+  }
+  logs.classList.toggle("is-hidden", !visible);
+  if (!visible) {
+    logs.style.height = "";
+    return;
+  }
+  if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
+    requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
+  }
+}
+
+function showEmptyTerminal() {
+  const log = document.getElementById("output-bactflow");
+  if (log) {
+    log.replaceChildren();
+  }
+  if (window.BactflowTerminal) {
+    BactflowTerminal.setStatus("Run finished", "ok");
+  }
+}
+
+function isPipelineRunning() {
+  const dash = window.BactflowRunDashboard;
+  return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
+}
+
+function anyResultVisible() {
+  const pane = document.getElementById("assem-results-pane");
+  if (!pane) {
+    return false;
+  }
+  return [...pane.children].some((el) => {
+    if (el.id === "rd-results-empty" || el.id === "resultsStatusDiv") {
+      return false;
+    }
+    if (el.style.display === "none") {
+      return false;
+    }
+    return getComputedStyle(el).display !== "none";
+  });
+}
+
+function setResultsEmptyVisible(visible) {
+  const empty = document.getElementById("rd-results-empty");
+  if (empty) {
+    empty.hidden = !visible;
+    empty.style.display = visible ? "block" : "none";
+  }
+}
+
+function setResultsOpen(open, opts) {
+  resultsOpen = !!open;
+  const card = document.getElementById("rd-results");
+  const btn = document.getElementById("rep-bt");
+  if (card) {
+    card.classList.toggle("is-shown", resultsOpen);
+  }
+  if (btn) {
+    btn.textContent = resultsOpen ? "Hide results" : "Display results";
+  }
+  setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
+  if (!isPipelineRunning()) {
+    setTerminalVisible(!resultsOpen);
+    if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
+      showEmptyTerminal();
+    }
+  }
+}
+
+function toggleResults() {
+  if (resultsOpen) {
+    setResultsOpen(false);
+    return;
+  }
+  Promise.resolve(showReport()).then(() => {
+    const has = anyResultVisible();
+    if (isPipelineRunning()) {
+      if (has) {
+        setResultsOpen(true);
+      }
+      return;
+    }
+    if (runHasFinishedOk()) {
+      runFinishedSuccess = true;
+    }
+    setResultsOpen(true, { empty: !has });
+  });
+}
+
+function revealResultsOnSuccess(force) {
+  const dash = window.BactflowRunDashboard;
+  if (resultsAutoShown) {
+    return;
+  }
+  if (!force && !runHasFinishedOk()) {
+    return;
+  }
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows) && !force) {
+    return;
+  }
+  if (isPipelineRunning()) {
+    return;
+  }
+  if (!anyResultVisible()) {
+    return;
+  }
+  resultsAutoShown = true;
+  runFinishedSuccess = true;
+  setResultsOpen(true);
+}
+
+window.toggleResults = toggleResults;
+window.revealResultsOnSuccess = revealResultsOnSuccess;
+window.showReport = showReport;
+
 function showReport() {
   const form = formEl();
   if (!form) {
-    return;
+    return Promise.resolve(false);
   }
   const formData = new FormData(form);
   const outDir = String(formData.get("out_dir") || "").trim();
   if (!outDir) {
-    return;
+    return Promise.resolve(false);
   }
 
-  Promise.all([
+  return Promise.all([
     fetchJsonSafe("/check-quast", formData),
     fetchJsonSafe("/check-bakta-ready", formData),
-    fetchJsonSafe("/circular", formData),
     fetchJsonSafe("/taxa-report", formData),
     fetchJsonSafe("/check-circ", formData),
     fetchJsonSafe("/check-checkm", formData),
     fetchJsonSafe("/check-plasmids", formData),
-  ]).then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData, plasmidData]) => {
+  ]).then(([quastData, baktaReady, taxData, circFasta, checkmData, plasmidData]) => {
     const quastDiv = document.getElementById("quastDiv");
     const baktaDiv = document.getElementById("baktaDiv");
-    const circDiv = document.getElementById("circDiv");
-    const circSpin = document.getElementById("spin-circ");
     const taxDiv = document.getElementById("taxa_class");
     const gtdbTreeDiv = document.getElementById("gtdbTreeDiv");
     const checkmDiv = document.getElementById("checkmDiv");
@@ -700,16 +836,6 @@ function showReport() {
       }
     } else if (baktaDiv) {
       baktaDiv.style.display = "none";
-    }
-
-    refreshCircularPlotButton();
-
-    if (circPlt.plot && circDiv) {
-      circDiv.style.display = "block";
-      if (circSpin) {
-        circSpin.style.display = "none";
-      }
-      showCircularPlot(circPlt.plot);
     }
 
     if (taxData.exists) {
@@ -779,7 +905,12 @@ function showReport() {
     } else if (plasmidDiv) {
       plasmidDiv.style.display = "none";
     }
-  }).catch((error) => console.error("Error checking assembly reports:", error));
+    revealResultsOnSuccess();
+    return anyResultVisible();
+  }).catch((error) => {
+    console.error("Error checking assembly reports:", error);
+    return false;
+  });
 }
 
 function checkForQuastReport() {
@@ -1167,10 +1298,6 @@ function downloadPlotImage(imgId, filename) {
   link.remove();
 }
 
-function downloadCircularPlot() {
-  downloadPlotImage("circularImg", "circular_plot.png");
-}
-
 function selectedGeneTypes() {
   const sel = document.getElementById("geneType");
   if (!sel) {
@@ -1180,157 +1307,10 @@ function selectedGeneTypes() {
   return picked.length ? picked : ["cds"];
 }
 
-function showCircularPlot(src) {
-  const img = document.getElementById("circularImg");
-  const bar = document.getElementById("circ-plot-bar");
-  const typeLabel = document.getElementById("circ-type-label");
-  if (typeLabel) {
-    typeLabel.textContent = `(${selectedGeneTypes().join(", ")})`;
-  }
-  if (img && src) {
-    img.src = src;
-    img.style.display = "block";
-  }
-  if (bar) {
-    bar.style.display = "flex";
-  }
-}
-
-async function refreshCircularPlotButton() {
-  const baktaSel = document.getElementById("bakta_annot");
-  const circBtn = document.getElementById("circ-plot-bt");
-  const circHint = document.getElementById("circ-plot-hint");
-  if (!baktaSel || baktaSel.value !== "true") {
-    return;
-  }
-  const form = formEl();
-  if (!form) {
-    return;
-  }
-  try {
-    const res = await fetch("/check-bakta-ready", { method: "POST", body: new FormData(form) });
-    const data = await res.json();
-    const plotReady = data.plot_ready === true || data.ready === true;
-    if (circBtn) {
-      circBtn.disabled = !plotReady;
-    }
-    if (circHint) {
-      const kinds = (data.plot_kinds && data.plot_kinds.length)
-        ? data.plot_kinds.join(", ")
-        : ".gbk/.gbff/.gff";
-      circHint.textContent = plotReady
-        ? `Annotation files ready (${data.plot_count || data.gbk_count || 0} file(s): ${kinds}). You can create the plot.`
-        : (data.plot_message || data.message || "Waiting for Bakta annotation files…");
-    }
-  } catch (_err) {
-    if (circBtn) {
-      circBtn.disabled = true;
-    }
-  }
-}
-
 function updateBaktaUI() {
   const baktaSel = document.getElementById("bakta_annot");
-  const circularDiv = document.getElementById("circular-div");
-  const circBtn = document.getElementById("circ-plot-bt");
-  const circHint = document.getElementById("circ-plot-hint");
   if (!baktaSel) {
     return;
-  }
-  const enabled = baktaSel.value === "true";
-  const geneDiv = document.getElementById("genetype");
-  if (geneDiv) {
-    geneDiv.style.display = enabled ? "flex" : "none";
-  }
-  if (circularDiv) {
-    circularDiv.style.display = enabled ? "block" : "none";
-  }
-  if (!enabled) {
-    if (circBtn) {
-      circBtn.disabled = true;
-    }
-    if (circHint) {
-      circHint.textContent = "Enable Bakta annotation to use the circular plot.";
-    }
-    const circDiv = document.getElementById("circDiv");
-    if (circDiv) {
-      circDiv.style.display = "none";
-    }
-    return;
-  }
-  if (circBtn) {
-    circBtn.disabled = true;
-  }
-  if (circHint) {
-    circHint.textContent = "Checking for annotation files…";
-  }
-  refreshCircularPlotButton();
-}
-
-async function createCircularPlot() {
-  const form = formEl();
-  const circBtn = document.getElementById("circ-plot-bt");
-  if (!form) {
-    return;
-  }
-  if (circBtn && circBtn.disabled) {
-    await refreshCircularPlotButton();
-    if (circBtn.disabled) {
-      const hint = document.getElementById("circ-plot-hint");
-      alert(hint?.textContent || "Bakta annotation results are not available yet.");
-      return;
-    }
-  }
-  const formData = new FormData(form);
-  formData.set("generate", "true");
-  const circDiv = document.getElementById("circDiv");
-  const circSpin = document.getElementById("spin-circ");
-  const circImg = document.getElementById("circularImg");
-  const circBar = document.getElementById("circ-plot-bar");
-  hideSectionError("circ-error");
-  if (circDiv) {
-    circDiv.style.display = "block";
-  }
-  if (circSpin) {
-    circSpin.style.display = "flex";
-  }
-  if (circImg) {
-    circImg.style.display = "none";
-    circImg.removeAttribute("src");
-  }
-  if (circBar) {
-    circBar.style.display = "none";
-  }
-  jumpToSection("circDiv");
-  if (circBtn) {
-    circBtn.disabled = true;
-    circBtn.textContent = "Creating plot…";
-  }
-  try {
-    const circRes = await fetch("/circular", { method: "POST", body: formData });
-    const data = await circRes.json().catch(() => ({}));
-    if (circSpin) {
-      circSpin.style.display = "none";
-    }
-    if (!circRes.ok || !data.plot) {
-      const reason = data.reason === "no_bakta_dir"
-        ? "Bakta annotation output not found. Run assembly with Bakta enabled first."
-        : (data.error || "Could not create the circular plot.");
-      showSectionError("circ-error", reason);
-      return;
-    }
-    hideSectionError("circ-error");
-    showCircularPlot(data.plot);
-  } catch (error) {
-    if (circSpin) {
-      circSpin.style.display = "none";
-    }
-    showSectionError("circ-error", error.message || "An error occurred while creating the circular plot.");
-  } finally {
-    if (circBtn) {
-      circBtn.disabled = false;
-      circBtn.textContent = "Create circular plot";
-    }
   }
 }
 

@@ -141,12 +141,23 @@ function jumpToSection(id) {
   if (!el) {
     return;
   }
-  // Results live in a fixed-height overflow column — scroll that pane, not only the window.
-  const pane =
-    document.getElementById("pre-results-pane") ||
-    el.closest(".col-md-9") ||
-    null;
+  const scroller = document.querySelector(".rd-center");
+  const flow = document.getElementById("rd-flow-card");
   requestAnimationFrame(() => {
+    if (scroller && scroller.contains(el) && scroller.scrollHeight > scroller.clientHeight + 8) {
+      if (flow) {
+        flow.classList.add("is-compact");
+      }
+      const offset = (flow ? flow.getBoundingClientRect().height : 0) + 10;
+      const top =
+        el.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop -
+        offset;
+      scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      return;
+    }
+    const pane = document.getElementById("pre-results-pane");
     if (pane && pane.scrollHeight > pane.clientHeight) {
       const top =
         el.getBoundingClientRect().top -
@@ -154,9 +165,9 @@ function jumpToSection(id) {
         pane.scrollTop -
         12;
       pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    } else {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
     }
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 

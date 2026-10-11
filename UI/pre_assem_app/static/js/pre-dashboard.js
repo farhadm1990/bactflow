@@ -31,6 +31,15 @@
     install: { name: "BactFlow install", icon: "pool", desc: "Creates the BactFlow conda environment" },
   };
 
+  const STEP_TARGETS = {
+    pool: ["fastq-ls-div", "rd-results"],
+    trim: ["fastq-ls-div", "rd-results"],
+    ilfilter: ["vis-error", "rd-results"],
+    lrfilter: ["vis-error", "rd-results"],
+    stats: ["seq-div", "rd-results"],
+    plots: ["bar-qual-plot", "qual-plot", "rd-results"],
+  };
+
   const ENDPOINTS = {
     "/ls-fastq": "pool",
     "/trim-list": "trim",
@@ -76,6 +85,8 @@
       this.bindPlotResize();
       this.bindEmptyState();
       this.bindChrome();
+      this.bindStickyPipeline();
+      this.bindStepJumps();
       const platform = document.getElementById("read_platform");
       if (platform) {
         platform.addEventListener("change", () => this.resetSteps());
@@ -116,6 +127,74 @@
           } catch (e) { /* ignore */ }
           apply(theme);
         });
+      }
+    },
+
+    /* Process chain stays on screen and shrinks while the results column is scrolled. */
+    bindStickyPipeline() {
+      const scroller = document.querySelector(".rd-center");
+      const card = document.getElementById("rd-flow-card");
+      if (!scroller || !card) {
+        return;
+      }
+      const update = () => {
+        const compact = scroller.scrollTop > 16;
+        if (card.classList.contains("is-compact") === compact) {
+          return;
+        }
+        card.classList.toggle("is-compact", compact);
+      };
+      scroller.addEventListener("scroll", update, { passive: true });
+      update();
+      this.syncPipelineCompact = update;
+    },
+
+    bindStepJumps() {
+      const onJump = (e) => {
+        const hit = e.target.closest(".rd-stage-node, .rd-stage-name, .rd-progress-row");
+        if (!hit) {
+          return;
+        }
+        const el = hit.closest("[data-step]");
+        if (!el || !el.classList.contains("is-jump")) {
+          return;
+        }
+        e.preventDefault();
+        this.jumpToStep(el.dataset.step);
+      };
+      const track = document.getElementById("rd-pipeline-track");
+      if (track && !track.dataset.jumpBound) {
+        track.dataset.jumpBound = "1";
+        track.addEventListener("click", onJump);
+      }
+      const list = document.getElementById("rd-progress-list");
+      if (list && !list.dataset.jumpBound) {
+        list.dataset.jumpBound = "1";
+        list.addEventListener("click", onJump);
+      }
+    },
+
+    jumpToStep(id) {
+      const targets = STEP_TARGETS[id] || ["rd-results"];
+      let dest = targets[targets.length - 1];
+      for (let i = 0; i < targets.length; i += 1) {
+        const el = document.getElementById(targets[i]);
+        if (!el) {
+          continue;
+        }
+        const shown = el.offsetParent !== null || getComputedStyle(el).display !== "none";
+        if (shown && el.getClientRects().length) {
+          dest = targets[i];
+          break;
+        }
+      }
+      if (typeof window.jumpToSection === "function") {
+        window.jumpToSection(dest);
+        return;
+      }
+      const el = document.getElementById(dest);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     },
 
@@ -163,25 +242,45 @@
     bindUserMenu() {
       const btn = document.getElementById("rd-user-btn");
       const menu = document.getElementById("rd-user-menu");
-      if (!btn || !menu) {
+      if (!btn || !menu || btn.dataset.menuBound === "1") {
         return;
       }
+      btn.dataset.menuBound = "1";
+      const place = () => {
+        const r = btn.getBoundingClientRect();
+        menu.style.position = "fixed";
+        menu.style.left = Math.max(8, r.left) + "px";
+        menu.style.width = Math.max(180, r.width) + "px";
+        menu.style.right = "auto";
+        menu.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + "px";
+        menu.style.top = "auto";
+        menu.style.zIndex = "4000";
+      };
       const setOpen = (open) => {
         menu.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          place();
+        }
       };
       btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         setOpen(!menu.classList.contains("is-open"));
       });
       document.addEventListener("click", (e) => {
-        if (!menu.contains(e.target)) {
+        if (!menu.contains(e.target) && !btn.contains(e.target)) {
           setOpen(false);
         }
       });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           setOpen(false);
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (menu.classList.contains("is-open")) {
+          place();
         }
       });
     },
@@ -379,6 +478,7 @@
         rows.forEach((r) => {
           const el = document.createElement("div");
           el.className = "rd-stage is-wait";
+          el.dataset.step = r.id;
           el.innerHTML = '<div class="rd-stage-node"></div><div class="rd-stage-name"></div><div class="rd-stage-meta"></div>';
           el.querySelector(".rd-stage-name").textContent = r.def.name;
           el.title = r.def.desc;
@@ -393,6 +493,8 @@
         }
         const complete = r.state === "done" || (r.total > 0 && r.done >= r.total && r.state !== "fail");
         el.className = "rd-stage is-" + (r.state === "fail" ? "fail" : complete ? "done" : r.state);
+        el.classList.toggle("is-jump", complete && r.state !== "fail");
+        el.title = complete && r.state !== "fail" ? "Open " + r.def.name : r.def.desc;
         const icon = complete && r.state !== "fail" ? ICONS.done : r.state === "fail" ? ICONS.fail : ICONS[r.def.icon];
         const node = el.querySelector(".rd-stage-node");
         if (node.dataset.icon !== icon) {
@@ -425,6 +527,7 @@
         box.innerHTML = "";
         rows.forEach((r) => {
           const row = document.createElement("div");
+          row.dataset.step = r.id;
           row.innerHTML = '<span class="rd-progress-dot"></span><span class="name"></span><span class="pct"></span><div class="track"><i></i></div>';
           row.querySelector(".name").textContent = r.def.name;
           box.appendChild(row);
@@ -434,6 +537,7 @@
         const row = box.children[i];
         const complete = r.state === "done" || (r.total > 0 && r.done >= r.total);
         row.className = "rd-progress-row is-" + (r.state === "fail" ? "fail" : complete ? "done" : r.state);
+        row.classList.toggle("is-jump", complete && r.state !== "fail");
         const label =
           r.state === "fail"
             ? "failed"
@@ -669,5 +773,10 @@
   window.BactflowPreDashboard = PreDashboard;
   // The install check runs on DOMContentLoaded from pre-assem.js, before init(), so watch requests right away.
   PreDashboard.hookFetch();
-  document.addEventListener("DOMContentLoaded", () => PreDashboard.init());
+  const boot = () => PreDashboard.init();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();

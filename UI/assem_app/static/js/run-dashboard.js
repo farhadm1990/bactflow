@@ -49,6 +49,23 @@
 
   const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start/i;
 
+  const STEP_TARGETS = {
+    envsetup: [".rd-logs"],
+    testify: [".rd-logs"],
+    concat: [".rd-logs"],
+    pbcheck: [".rd-logs"],
+    dedup: [".rd-logs"],
+    readfilt: [".rd-logs"],
+    covfilt: [".rd-logs"],
+    asm: [".rd-logs"],
+    circ: ["circFastaDiv", "circDiv", ".rd-logs"],
+    bakta: ["baktaDiv", "#rd-results"],
+    gtdb: ["taxa_class", "gtdbTreeDiv", "#rd-results"],
+    checkm: ["checkmDiv", "checkmTreeDiv", "#rd-results"],
+    genomad: ["plasmidDiv", "#rd-results"],
+    quast: ["quastDiv", "#rd-results"],
+  };
+
   function tracker() {
     return typeof BactflowProcessEta !== "undefined" ? BactflowProcessEta : null;
   }
@@ -71,6 +88,7 @@
     stopping: false,
     frozenRows: null,
     serverRunning: false,
+    lastStats: null,
     plannedKey: null,
     autoScroll: true,
 
@@ -82,6 +100,9 @@
       this.hookTerminal();
       this.hookMeters();
       this.bindPlotResize();
+      this.bindStickyPipeline();
+      this.bindLogsAlign();
+      this.bindStepJumps();
       this.stampRunId();
       const form = this.form();
       if (form) {
@@ -111,18 +132,30 @@
           btn.title = "Switch to " + (next === "light" ? "bright" : "dark") + " theme";
         }
       };
+      const order = ["dark", "plain", "light"];
+      const labels = { dark: "Plasma", plain: "Plain dark", light: "Bright" };
       let theme = "dark";
       try {
-        theme = localStorage.getItem("bactflow_theme") === "light" ? "light" : "dark";
+        const saved = localStorage.getItem("bactflow_theme");
+        theme = order.includes(saved) ? saved : "dark";
       } catch (e) { /* ignore */ }
-      apply(theme);
-      if (btn) {
+      const paint = (value) => {
+        document.documentElement.setAttribute("data-theme", value);
+        if (btn) {
+          const next = order[(order.indexOf(value) + 1) % order.length];
+          btn.textContent = labels[next];
+          btn.title = "Switch to " + labels[next];
+        }
+      };
+      paint(theme);
+      if (btn && btn.dataset.themeBound !== "1") {
+        btn.dataset.themeBound = "1";
         btn.addEventListener("click", () => {
-          theme = theme === "light" ? "dark" : "light";
+          theme = order[(order.indexOf(theme) + 1) % order.length];
           try {
             localStorage.setItem("bactflow_theme", theme);
           } catch (e) { /* ignore */ }
-          apply(theme);
+          paint(theme);
         });
       }
     },
@@ -131,25 +164,45 @@
     bindUserMenu() {
       const btn = document.getElementById("rd-user-btn");
       const menu = document.getElementById("rd-user-menu");
-      if (!btn || !menu) {
+      if (!btn || !menu || btn.dataset.menuBound === "1") {
         return;
       }
+      btn.dataset.menuBound = "1";
+      const place = () => {
+        const r = btn.getBoundingClientRect();
+        menu.style.position = "fixed";
+        menu.style.left = Math.max(8, r.left) + "px";
+        menu.style.width = Math.max(180, r.width) + "px";
+        menu.style.right = "auto";
+        menu.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + "px";
+        menu.style.top = "auto";
+        menu.style.zIndex = "4000";
+      };
       const setOpen = (open) => {
         menu.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          place();
+        }
       };
       btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         setOpen(!menu.classList.contains("is-open"));
       });
       document.addEventListener("click", (e) => {
-        if (!menu.contains(e.target)) {
+        if (!menu.contains(e.target) && !btn.contains(e.target)) {
           setOpen(false);
         }
       });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           setOpen(false);
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (menu.classList.contains("is-open")) {
+          place();
         }
       });
     },
@@ -216,9 +269,95 @@
     },
 
     scrollTo(sel) {
-      const el = $(sel);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const el = typeof sel === "string"
+        ? (sel.charAt(0) === "#" || sel.charAt(0) === "." ? $(sel) : document.getElementById(sel))
+        : sel;
+      if (!el) {
+        return;
+      }
+      const scroller = document.querySelector(".rd-center");
+      const flow = document.getElementById("rd-flow-card");
+      if (scroller && scroller.contains(el) && scroller.scrollHeight > scroller.clientHeight + 8) {
+        if (flow && scroller.scrollTop > 8) {
+          flow.classList.add("is-compact");
+        }
+        const offset = (flow ? flow.getBoundingClientRect().height : 0) + 10;
+        const top =
+          el.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top +
+          scroller.scrollTop -
+          offset;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        return;
+      }
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+
+    bindStickyPipeline() {
+      const scroller = document.querySelector(".rd-center");
+      const card = document.getElementById("rd-flow-card");
+      if (!scroller || !card) {
+        return;
+      }
+      const update = () => {
+        const compact = scroller.scrollTop > 16;
+        if (card.classList.contains("is-compact") === compact) {
+          return;
+        }
+        card.classList.toggle("is-compact", compact);
+        requestAnimationFrame(() => this.alignLogsWithNextflow());
+      };
+      scroller.addEventListener("scroll", update, { passive: true });
+      update();
+    },
+
+    bindStepJumps() {
+      const onJump = (e) => {
+        const hit = e.target.closest(".rd-stage-node, .rd-stage-name, .rd-progress-row");
+        if (!hit) {
+          return;
+        }
+        const el = hit.closest("[data-step]");
+        if (!el || !el.classList.contains("is-jump")) {
+          return;
+        }
+        e.preventDefault();
+        this.jumpToStep(el.dataset.step);
+      };
+      const track = document.getElementById("rd-pipeline-track");
+      if (track && !track.dataset.jumpBound) {
+        track.dataset.jumpBound = "1";
+        track.addEventListener("click", onJump);
+      }
+      const list = document.getElementById("rd-progress-list");
+      if (list && !list.dataset.jumpBound) {
+        list.dataset.jumpBound = "1";
+        list.addEventListener("click", onJump);
+      }
+    },
+
+    jumpToStep(id) {
+      const targets = STEP_TARGETS[id] || ["#rd-results", ".rd-logs"];
+      let dest = null;
+      for (let i = 0; i < targets.length; i += 1) {
+        const key = targets[i];
+        const el = key.charAt(0) === "#" || key.charAt(0) === "."
+          ? $(key)
+          : document.getElementById(key);
+        if (!el) {
+          continue;
+        }
+        const shown = el.offsetParent !== null || getComputedStyle(el).display !== "none";
+        if (shown && el.getClientRects().length) {
+          dest = el;
+          break;
+        }
+        if (!dest) {
+          dest = el;
+        }
+      }
+      if (dest) {
+        this.scrollTo(dest);
       }
     },
 
@@ -255,16 +394,9 @@
           this.stopping = true;
         });
       }
-      const repBt = document.getElementById("rep-bt");
-      if (repBt) {
-        repBt.addEventListener("click", () => {
-          const results = document.getElementById("rd-results");
-          if (results) {
-            results.classList.add("is-shown");
-          }
-          setTimeout(() => this.scrollTo("#rd-results"), 80);
-          [400, 1200, 3000].forEach((ms) => setTimeout(() => this.schedulePlotResize && this.schedulePlotResize(), ms));
-        });
+      const logs = document.querySelector(".rd-center .rd-logs");
+      if (logs) {
+        logs.style.height = "";
       }
     },
 
@@ -605,7 +737,49 @@
       this.renderOverview(rows, state);
       this.renderSummary(rows);
       this.renderTimes();
+      this.renderGauges();
       this.maybeAutoscroll();
+      if (state === "idle" && this.endedAt && !this.failed && !this.stopping && !this.frozenRows) {
+        if (typeof window.revealResultsOnSuccess === "function") {
+          window.revealResultsOnSuccess(true);
+        }
+      }
+    },
+
+    alignLogsWithNextflow() {
+      const logs = document.querySelector(".rd-center .rd-logs");
+      const center = document.querySelector(".rd-center");
+      const right = document.querySelector(".rd-right");
+      const nf = right && right.querySelector(":scope > .rd-card:last-child");
+      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden")) {
+        if (logs) {
+          logs.style.height = "";
+        }
+        return;
+      }
+      if (window.matchMedia("(max-width: 1180px)").matches) {
+        logs.style.height = "";
+        return;
+      }
+      const cRect = center.getBoundingClientRect();
+      const rRect = right.getBoundingClientRect();
+      const nfBottom = nf.getBoundingClientRect().bottom - rRect.top + right.scrollTop;
+      const logsTop = logs.getBoundingClientRect().top - cRect.top + center.scrollTop;
+      const next = Math.max(220, Math.round(nfBottom - logsTop));
+      const px = `${next}px`;
+      if (logs.style.height !== px) {
+        logs.style.height = px;
+      }
+    },
+
+    bindLogsAlign() {
+      const onAlign = () => this.alignLogsWithNextflow();
+      window.addEventListener("resize", onAlign);
+      const right = document.querySelector(".rd-right");
+      if (right && typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(onAlign).observe(right);
+      }
+      requestAnimationFrame(onAlign);
     },
 
     renderStatus(state) {
@@ -629,6 +803,7 @@
         rows.forEach((r) => {
           const el = document.createElement("div");
           el.className = "rd-stage is-wait";
+          el.dataset.step = r.stage.id;
           el.innerHTML = '<div class="rd-stage-node"></div><div class="rd-stage-name"></div><div class="rd-stage-meta"></div>';
           el.querySelector(".rd-stage-name").textContent = r.stage.name;
           track.appendChild(el);
@@ -641,6 +816,8 @@
           return;
         }
         el.className = "rd-stage is-" + r.state;
+        el.classList.toggle("is-jump", r.state === "done");
+        el.title = r.state === "done" ? "Open " + r.stage.name : r.stage.name;
         const icon = r.state === "done" ? ICONS.done : r.state === "fail" ? ICONS.fail : ICONS[r.stage.icon];
         const node = el.querySelector(".rd-stage-node");
         if (node.dataset.icon !== icon) {
@@ -655,7 +832,9 @@
         } else if (r.state === "stop") {
           meta = `Stopped at ${r.pct}%`;
         } else if (r.state === "run") {
-          meta = `${r.pct}% · ${this.formatDuration(r.elapsed)}`;
+          meta = r.remaining
+            ? `${r.pct}% · ${this.formatDuration(r.elapsed)} · ETA ${this.formatDuration(r.remaining)}`
+            : `${r.pct}% · ${this.formatDuration(r.elapsed)}`;
         } else if (r.procs.length) {
           meta = "Queued";
         }
@@ -673,6 +852,7 @@
         box.innerHTML = "";
         rows.forEach((r) => {
           const row = document.createElement("div");
+          row.dataset.step = r.stage.id;
           row.innerHTML = '<span class="rd-progress-dot"></span><span class="name"></span><span class="pct"></span><div class="track"><i></i></div>';
           row.querySelector(".name").textContent = r.stage.name;
           box.appendChild(row);
@@ -681,6 +861,7 @@
       rows.forEach((r, i) => {
         const row = box.children[i];
         row.className = "rd-progress-row is-" + r.state;
+        row.classList.toggle("is-jump", r.state === "done");
         row.querySelector(".pct").textContent = r.state === "fail" ? "failed" : r.state === "stop" ? "stopped " + r.pct + "%" : r.pct + "%";
         row.querySelector(".track > i").style.width = r.pct + "%";
       });
@@ -693,6 +874,23 @@
       }
       const done = rows.reduce((a, r) => a + (r.expected * r.pct) / 100, 0);
       return Math.max(0, Math.min(100, Math.round((100 * done) / total)));
+    },
+
+    pipelineRemaining(rows, running) {
+      let seq = 0;
+      let par = 0;
+      rows.forEach((r) => {
+        if (r.state === "done" || r.state === "fail" || r.state === "stop") {
+          return;
+        }
+        const rem = running && r.state === "run" ? (r.remaining || 0) : (r.expected || 0);
+        if (r.stage && r.stage.side) {
+          par = Math.max(par, rem);
+        } else {
+          seq += rem;
+        }
+      });
+      return seq + par;
     },
 
     renderOverview(rows, state) {
@@ -711,6 +909,9 @@
       }
       this.setText("rd-task-ring-pct", pct + "%");
       this.setText("rd-task-ring-sub", `${doneN} of ${rows.length} steps`);
+      if (state === "running" && current && window.BactflowTerminal) {
+        BactflowTerminal.setStatus(`${current.stage.name} · ${current.pct}%`, "run");
+      }
 
       let title = "Ready";
       let desc = "Pipeline: " + rows.map((r) => r.stage.name).join(" → ");
@@ -731,10 +932,8 @@
       this.setText("rd-task-desc", desc);
 
       let remaining = null;
-      if (state === "running") {
-        remaining = rows.reduce((a, r) => a + (r.state === "done" ? 0 : r.remaining || 0), 0);
-      } else if (state === "idle" && !this.endedAt) {
-        remaining = rows.reduce((a, r) => a + r.expected, 0);
+      if (state === "running" || (state === "idle" && !this.endedAt)) {
+        remaining = this.pipelineRemaining(rows, state === "running");
       }
       this.setText("rd-m-eta", remaining == null ? (this.endedAt ? "0s" : "—") : this.formatDuration(remaining));
       this.setText(
@@ -774,8 +973,40 @@
       );
     },
 
+    requestedCores() {
+      const n = parseInt(((document.getElementById("cpus") || {}).value || "").trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+
+    cpuBudgetLabel(hostCount) {
+      const asked = this.requestedCores();
+      const host = Number(hostCount) || 0;
+      if (asked && host && asked !== host) {
+        return `${asked} of ${host} cores`;
+      }
+      if (asked) {
+        return `${asked} cores`;
+      }
+      if (host) {
+        return `${host} cores`;
+      }
+      return "";
+    },
+
     renderGauges(s) {
-      const cpu = Math.max(0, Math.min(100, Number(s.cpu_percent) || 0));
+      if (s) {
+        this.lastStats = s;
+      } else {
+        s = this.lastStats || {};
+      }
+      const asked = this.requestedCores();
+      const jobCores = Number(s.job_cores);
+      const jobLive = s.running && Number.isFinite(jobCores);
+      let cpu = Number(s.cpu_percent) || 0;
+      if (jobLive && asked) {
+        cpu = (jobCores / asked) * 100;
+      }
+      cpu = Math.max(0, Math.min(100, cpu));
       const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
@@ -787,7 +1018,7 @@
       }
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
-      this.setText("rd-cpu-sub", s.cpu_count ? `${s.cpu_count} cores` : "");
+      this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
       this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
@@ -827,5 +1058,10 @@
   };
 
   window.BactflowRunDashboard = RunDashboard;
-  document.addEventListener("DOMContentLoaded", () => RunDashboard.init());
+  const boot = () => RunDashboard.init();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();

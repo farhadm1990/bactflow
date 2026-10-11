@@ -293,9 +293,11 @@ html[data-theme="light"] .rd-plasma svg {
 
 .rd-nav-foot {
   position: relative;
+  z-index: 20;
   flex: 0 0 auto;
   padding-top: 8px;
   border-top: 1px solid var(--rd-border);
+  overflow: visible;
 }
 
 .rd-user {
@@ -363,7 +365,7 @@ html[data-theme="light"] .rd-plasma svg {
   border: 1px solid var(--rd-border);
   background: var(--rd-menu-bg);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  z-index: 50;
+  z-index: 4000;
 }
 
 .rd-user-menu.is-open {
@@ -560,6 +562,16 @@ html[data-theme="light"] .rd-plasma svg {
     radial-gradient(600px 160px at 60% 50%, rgba(139, 92, 246, 0.14), transparent 70%),
     radial-gradient(500px 140px at 30% 60%, rgba(34, 197, 94, 0.08), transparent 70%),
     var(--rd-panel);
+}
+
+.rd-center > .rd-flow-card .rd-stage.is-jump {
+  pointer-events: none;
+}
+
+.rd-center > .rd-flow-card .rd-stage.is-jump .rd-stage-node,
+.rd-center > .rd-flow-card .rd-stage.is-jump .rd-stage-name {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .rd-pipeline {

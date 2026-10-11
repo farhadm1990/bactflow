@@ -1,5 +1,92 @@
 /* Pre-assembly additions on top of run-dashboard.css */
 
+/* Process chain stays visible: full size at the top, half size while scrolled. */
+.rd-center > .rd-flow-card {
+  --rd-flow-scale: 1;
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  transform-origin: top center;
+  padding: calc(14px * var(--rd-flow-scale)) calc(16px * var(--rd-flow-scale));
+  transition:
+    padding 0.35s ease,
+    box-shadow 0.35s ease,
+    background 0.35s ease;
+}
+
+.rd-center > .rd-flow-card .rd-pipeline {
+  transition: padding 0.35s ease;
+  padding: calc(6px * var(--rd-flow-scale)) 2px calc(2px * var(--rd-flow-scale));
+}
+
+.rd-center > .rd-flow-card .rd-stage {
+  --rd-node: calc(50px * var(--rd-flow-scale));
+  flex-basis: calc(96px * var(--rd-flow-scale));
+  gap: calc(7px * var(--rd-flow-scale));
+  transition: flex-basis 0.35s ease, gap 0.35s ease;
+}
+
+.rd-center > .rd-flow-card .rd-stage-node {
+  transition:
+    width 0.35s ease,
+    height 0.35s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.rd-center > .rd-flow-card .rd-stage-node svg {
+  width: calc(22px * var(--rd-flow-scale));
+  height: calc(22px * var(--rd-flow-scale));
+  transition: width 0.35s ease, height 0.35s ease;
+}
+
+.rd-center > .rd-flow-card .rd-stage-name {
+  font-size: calc(0.77rem * var(--rd-flow-scale));
+  transition: font-size 0.35s ease;
+}
+
+.rd-center > .rd-flow-card .rd-stage-meta {
+  font-size: calc(0.7rem * var(--rd-flow-scale));
+  max-width: calc(110px * var(--rd-flow-scale));
+  transition: font-size 0.35s ease, max-width 0.35s ease;
+}
+
+.rd-center > .rd-flow-card.is-compact {
+  --rd-flow-scale: 0.5;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  background:
+    radial-gradient(600px 160px at 60% 50%, rgba(139, 92, 246, 0.14), transparent 70%),
+    radial-gradient(500px 140px at 30% 60%, rgba(34, 197, 94, 0.08), transparent 70%),
+    var(--rd-panel);
+}
+
+#rd-results {
+  scroll-margin-top: 88px;
+}
+
+.rd-center > .rd-flow-card .rd-stage.is-jump {
+  pointer-events: none;
+}
+
+.rd-center > .rd-flow-card .rd-stage.is-jump .rd-stage-node,
+.rd-center > .rd-flow-card .rd-stage.is-jump .rd-stage-name {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.rd-center > .rd-flow-card .rd-stage.is-jump:hover .rd-stage-node {
+  box-shadow: 0 0 22px rgba(34, 197, 94, 0.55);
+}
+
+.rd-progress-row.is-jump {
+  cursor: pointer;
+}
+
+.rd-progress-row.is-jump:hover {
+  background: rgba(34, 197, 94, 0.08);
+}
+
 /* —— Action bar: visible buttons share the full width —— */
 .rd-action-bar.pre-actions {
   display: flex;

@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/post-assem.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd13">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd23">
 <link rel="stylesheet" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 <script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
@@ -290,50 +290,6 @@
               </div>
               </div>
 
-              <div id="genetype" style="display: none; flex-direction: column; width: 90%;">
-                <label for="geneType">Select <strong>Gene Types</strong> for the count table and circular plot</label>
-                <br>
-                <select class="form-select" multiple size="5" name="gene_type" id="geneType">
-                  <option selected value="cds">cds</option>
-                  <option value="tRNA">tRNA</option>
-                  <option value="rRNA">rRNA</option>
-                  <option value="tmRNA">tmRNA</option>
-                  <option value="repeat_region">repeat_region</option>
-                </select>
-              </div>
-              <br>
-              <div id="circular-div" style="display: none; padding: 6px; border-radius: 2px; border: 1px solid var(--hx-border);">
-                <h6>Tuning parameters for the circular genome plot</h6>
-                <br>
-                <label for="add-gc">Add GC content to the circular genome?</label>
-                <select class="form-select" name="add_gc" id="add-gc">
-                  <option selected value="True">True</option>
-                  <option value="False">False</option>
-                </select>
-                <label for="add-skew">Add GC-skew to the circular genome?</label>
-                <select class="form-select" name="add_skew" id="add-skew">
-                  <option selected value="True">True</option>
-                  <option value="False">False</option>
-                </select>
-                <label for="dpi" class="form-label">Resolution (dpi)</label>
-                <input type="number" class="form-control" id="dpi" name="dpi" value="200"/>
-                <label for="figsize" class="form-label">Plot size (inches)</label>
-                <input type="number" class="form-control" id="figsize" name="figsize" value="10"/>
-                <label for="interval" class="form-label">Segment width</label>
-                <input type="number" class="form-control" id="interval" name="interval" value="1"/>
-                <br>
-                <label class="form-label">Feature colors (forward / reverse)</label>
-                <div style="display: flex; gap: 10px;">
-                  <input type="color" name="f_color" class="form-control form-control-color" id="f_colorInput" value="#563d7c">
-                  <input type="color" name="r_color" class="form-control form-control-color" id="r_colorInput" value="#07f3f3">
-                </div>
-                <br>
-                <button type="button" class="btn btn-primary w-100" id="circ-plot-bt" onclick="createCircularPlot()" disabled>
-                  Create circular plot
-                </button>
-                <p class="text-muted small mt-2 mb-0" id="circ-plot-hint">Run BactFlow with Bakta enabled. The button activates when annotation files are ready.</p>
-              </div>
-
             <div class="mb-3">
               <label for="tax_class" class="form-label">Taxonomy classification? <strong>(GTDBtk)</strong></label>
               <select class="form-select" id="tax_class" name="tax_class">
@@ -432,7 +388,7 @@
       </div>
       <button type="button" class="rd-user" id="rd-user-btn" aria-haspopup="true" aria-expanded="false">
         <span class="rd-user-avatar">FP</span>
-        <span><span>Farhad Panah</span><small>Operator</small></span>
+        <span><span>Farhad M. Panah</span><small>Operator</small></span>
         <svg class="rd-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>
       </button>
     </div>
@@ -456,7 +412,7 @@
     <div class="rd-body">
       <div class="rd-center">
 
-        <div class="rd-card rd-flow-card">
+        <div class="rd-card rd-flow-card" id="rd-flow-card">
           <div class="rd-pipeline">
             <div class="rd-pipeline-track" id="rd-pipeline-track"></div>
           </div>
@@ -516,6 +472,10 @@
 
         <section class="rd-card rd-results" id="rd-results">
           <div class="rd-results-body" id="assem-results-pane">
+<div id="rd-results-empty" class="rd-results-empty" hidden>
+        <p class="rd-results-empty-title">No results to show</p>
+        <p class="rd-results-empty-copy">There is no result at the output directory. Please run BactFlow first.</p>
+      </div>
 <div id="quastDiv" class="col-md-7" style="overflow-y: auto;   display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Assembly stats: Quast</h4>
         <div id="output-quast" style="border: 1px solid rgb(105, 105, 105);
@@ -569,35 +529,6 @@
               width: 95%;
               overflow-y: auto;
               color: var(--hx-text);">
-        </div>
-        <br>
-      </div>
-
-      <div id="circDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Circular plot of genomes: <strong id="circ-type-label">(selected gene types)</strong></h4>
-        <div id="circ-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
-        <div class="bf-plot-bar" id="circ-plot-bar" style="display: none;">
-          <span class="bf-plot-bar-title">Circular genome plot</span>
-          <div class="bf-plot-bar-actions">
-            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadCircularPlot()">Download PNG</button>
-          </div>
-        </div>
-        <div id="output-circ" style="border: 1px solid rgb(105, 105, 105);
-              padding: 10px;
-              margin: 10px;
-              border-radius: 5px;
-              height: 800px;
-              width: 95%;
-              overflow-y: auto;
-              color: var(--hx-text);">
-          <div id="spin-circ" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px; align-items: center;">
-            <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;">
-              <span class="visually-hidden">Loading...</span>
-            </div>
-            <br>
-            <h3 style="color: blueviolet;">Report is being created...</h3>
-          </div>
-          <img id="circularImg" src="" alt="Circular Genome Plot" style="max-width: 100%; height: auto;">
         </div>
         <br>
       </div>
@@ -778,7 +709,7 @@
     <div class="rd-action-bar hx-actions" role="group" aria-label="BactFlow actions">
       <button type="submit" class="btn" id="run-bt" name="action-assem" value="run">Run BactFlow</button>
       <button type="submit" class="btn" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
-      <button type="button" onclick="showReport()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
+      <button type="button" onclick="toggleResults()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
       <button type="submit" class="btn" name="action-assem" value="help" id="help-bt">Help!</button>
       <button type="button" class="btn" id="rd-theme-bt" title="Switch theme">Theme</button>
     </div>
@@ -789,10 +720,10 @@
 
     <!-- scripts -->
       <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars4"></script>
-      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd12"></script>
+      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars8"></script>
+      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd20"></script>
       <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
       <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports10"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports16"> </script>
 
 {% endblock %}

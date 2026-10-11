@@ -98,15 +98,26 @@ const BactflowProcessEta = {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   },
 
+  hintMap() {
+    if (!this._hintNorm) {
+      this._hintNorm = {};
+      Object.entries(this.hintsSec).forEach(([k, v]) => {
+        this._hintNorm[this.normalizeName(k)] = v;
+      });
+    }
+    return this._hintNorm;
+  },
+
   hintFor(name) {
     const key = this.normalizeName(name);
     if (this.durations.has(key)) {
       return this.durations.get(key);
     }
-    if (this.hintsSec[key]) {
-      return this.hintsSec[key];
+    const hints = this.hintMap();
+    if (hints[key]) {
+      return hints[key];
     }
-    for (const [hintKey, sec] of Object.entries(this.hintsSec)) {
+    for (const [hintKey, sec] of Object.entries(hints)) {
       if (key.includes(hintKey) || hintKey.includes(key)) {
         return sec;
       }
@@ -191,17 +202,12 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return 0;
     }
-    if (proc.percent > 0 && proc.percent < 100) {
-      return Math.max(1, Math.min(99, proc.percent));
-    }
     const elapsed = this.elapsedSeconds(proc);
     const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    let p = 95 * (1 - Math.exp(-elapsed / expected));
-    if (proc.total > 0) {
-      // "0 of 1" stays put while a single task runs, so never let the task count drag the estimate down.
-      p = Math.max(p, (Math.max(0, proc.completed) / proc.total) * 100);
-    }
-    return Math.max(1, Math.min(99, Math.round(p)));
+    const timePct = (100 * elapsed) / expected;
+    const taskPct = proc.total > 0 ? (Math.max(0, proc.completed) / proc.total) * 100 : 0;
+    const nfPct = proc.percent > 0 && proc.percent < 100 ? proc.percent : 0;
+    return Math.max(1, Math.min(99, Math.round(Math.max(timePct, taskPct, nfPct))));
   },
 
   remainingSeconds(proc) {
@@ -211,13 +217,11 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return null;
     }
-    const pct = this.displayPercent(proc);
-    const elapsed = this.elapsedSeconds(proc);
-    if (pct >= 5 && pct < 100) {
-      return Math.max(1, elapsed * (100 - pct) / pct);
+    const eta = this.computeEta(proc);
+    if (eta && eta.seconds != null && Number.isFinite(eta.seconds)) {
+      return Math.max(1, eta.seconds);
     }
-    const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    return Math.max(1, expected - elapsed);
+    return null;
   },
 
   stopTick() {
@@ -792,6 +796,14 @@ const BactflowProcessEta = {
       }
     });
     this.renderWorkflowBar(terminal);
+    if (terminal) {
+      const running = [...this.processes.values()].find(
+        (p) => !p.done && p.id !== "_executor" && !this.isWaiting(p)
+      );
+      if (running) {
+        terminal.setStatus(`${this.prettyName(running.name)} · ${this.displayPercent(running)}%`, "run");
+      }
+    }
     if (this.allDone()) {
       this.stopTick();
     }
@@ -1000,6 +1012,11 @@ const BactflowTerminal = {
 
     if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
       BactflowProcessEta.finalizeAll(this, "completed");
+      if (typeof window.revealResultsOnSuccess === "function") {
+        window.revealResultsOnSuccess(true);
+      } else if (typeof window.showReport === "function") {
+        window.showReport();
+      }
       if (trimmed !== "Process completed") {
         const row = document.createElement("div");
         row.className = "log-line log-ok";
@@ -1041,7 +1058,7 @@ const BactflowTerminal = {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "error");
     } else if (/\[100%\].*✔|Process completed|successfully/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "ok");
-    } else if (/Submitted process|running |Launching/i.test(line)) {
+    } else if (/Submitted process|running |Launching/i.test(line) && !/\[\s*\d+%\s*\]/.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "run");
     } else if (/WARN/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "warn");

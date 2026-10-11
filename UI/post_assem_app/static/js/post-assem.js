@@ -3,7 +3,6 @@ const runButton = document.getElementById("run-bt");
 const stopButton = document.getElementById("stop-bt");
 const helpButton = document.getElementById("help-bt");
 let eventSource = null;
-let streamGeneration = 0;
 const STOP_USER_MSG = "Bactflow has been stopped by the user!";
 // const form = document.getElementById("postForm");
 // const formData = new FormData(form);
@@ -17,7 +16,7 @@ const fastqDirInput = document.getElementById("fastq_dir");
 
 // connect to stream when on assembly
 function connectToStream(action){
-  // Always (re)connect — a stale EventSource left "Running..." with no lines.
+  // Always (re)connect — a stale EventSource left old process lines on screen.
   if (eventSource){
     try {
       eventSource.onmessage = null;
@@ -27,29 +26,25 @@ function connectToStream(action){
     eventSource = null;
   }
 
-  window.__bactflowUserStopped = false;
   BactflowTerminal.init();
-  const gen = ++streamGeneration;
   let logBuffer = [];
   let flushTimer = null;
+  if (!window.__bactflowStreamGen) {
+    window.__bactflowStreamGen = 0;
+  }
+  const gen = ++window.__bactflowStreamGen;
 
   const flushLog = () => {
     flushTimer = null;
-    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+    if (gen !== window.__bactflowStreamGen) {
       logBuffer = [];
       return;
     }
     if (!logBuffer.length) {
       return;
     }
-    const lines = logBuffer.filter((line) => {
-      const t = String(line || "").trim();
-      return !/exited with code\s+-?\d+|Process completed|Stream disconnected/i.test(t);
-    });
+    BactflowTerminal.appendMany(logBuffer);
     logBuffer = [];
-    if (lines.length) {
-      BactflowTerminal.appendMany(lines);
-    }
   };
 
   eventSource = new EventSource(`/stream_bactflow?action-assem=${action}`);
@@ -58,7 +53,7 @@ function connectToStream(action){
   }
   
   eventSource.onmessage = (event) =>{
-    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+    if (gen !== window.__bactflowStreamGen) {
       return;
     }
     logBuffer.push(event.data);
@@ -69,42 +64,39 @@ function connectToStream(action){
 
   eventSource.onerror = (error) =>{
     console.error("Error in streaming output:", error);
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-    flushLog();
-    logBuffer = [];
-    try {
-      eventSource.onmessage = null;
-      eventSource.onerror = null;
-      eventSource.close();
-    } catch (e) { /* ignore */ }
-    if (eventSource) {
-      eventSource = null;
-    }
-    if (gen !== streamGeneration || window.__bactflowUserStopped) {
+    if (gen !== window.__bactflowStreamGen) {
       return;
     }
-    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
-    BactflowTerminal.append("Stream disconnected.", true);
-    BactflowTerminal.setStatus("Stream disconnected", "warn");
+    flushLog();
+    const logText = (document.getElementById("output-bactflow") || {}).innerText || "";
+    const hadOutput = /Nextflow|ERROR|Process completed|exited with code|does not exist|N E X T F L O W/i.test(logText);
+    if (!hadOutput) {
+      BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+      BactflowTerminal.append("Stream disconnected.", true);
+      BactflowTerminal.setStatus("Stream disconnected", "warn");
+    }
+    try {
+      eventSource.close();
+    } catch (e) { /* ignore */ }
+    eventSource = null;
     updateButtonStates("stopped");
-    refreshCircularPlotButton();
   };
 }
 
 //disconnect function
 function disconnectStream(){
-  streamGeneration += 1;
   if(eventSource){
     try {
       eventSource.onmessage = null;
       eventSource.onerror = null;
+      eventSource.close();
     } catch (e) { /* ignore */ }
-    eventSource.close();
     eventSource = null;
   }
+  if (!window.__bactflowStreamGen) {
+    window.__bactflowStreamGen = 0;
+  }
+  window.__bactflowStreamGen += 1;
 }
 
 function applyUserStopUI() {
@@ -122,6 +114,7 @@ function clearResultPanels() {
     "quastDiv",
     "baktaDiv",
     "circDiv",
+    "linearDiv",
     "circFastaDiv",
     "taxa_class",
     "gtdbTreeDiv",
@@ -129,6 +122,7 @@ function clearResultPanels() {
     "checkmTreeDiv",
     "plasmidDiv",
     "resultsStatusDiv",
+    "rd-results-empty",
     "snpsDiv",
     "svs",
     "abundDiv",
@@ -198,6 +192,10 @@ function prepareFreshRunUI() {
   checkmTreeShown = false;
   gtdbTreeShown = false;
   plasmidShown = false;
+  resultsAutoShown = false;
+  runFinishedSuccess = false;
+  setTerminalVisible(true);
+  setResultsOpen(false);
 }
 
 // function update buttons
@@ -449,6 +447,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
   updateBaktaUI();
   updateStrainFinderFromFields();
+  bindGeneTypeDropdown();
+  bindVizLayout();
+  bindLinearPickers();
 });
 
 function restoreFormData(){
@@ -497,11 +498,7 @@ function showChildPanel(childId, visible) {
   if (!childDiv) {
     return;
   }
-  if (childId === "genetype") {
-    childDiv.style.display = visible ? "flex" : "none";
-  } else {
-    childDiv.style.display = visible ? "block" : "none";
-  }
+  childDiv.style.display = visible ? "block" : "none";
 }
 
 let baktaReadyPoll = null;
@@ -516,12 +513,7 @@ function stopBaktaReadyPoll() {
 function startBaktaReadyPoll() {
   stopBaktaReadyPoll();
   baktaReadyPoll = setInterval(() => {
-    const baktaSel = document.getElementById("bakta_annot");
     const circBtn = document.getElementById("circ-plot-bt");
-    if (!baktaSel || baktaSel.value !== "true") {
-      stopBaktaReadyPoll();
-      return;
-    }
     if (circBtn && !circBtn.disabled) {
       stopBaktaReadyPoll();
       return;
@@ -580,7 +572,6 @@ function bindStrainFinderFields() {
 
 function updateBaktaUI() {
   const baktaSel = document.getElementById("bakta_annot");
-  const circularDiv = document.getElementById("circular-div");
   const circBtn = document.getElementById("circ-plot-bt");
   const circHint = document.getElementById("circ-plot-hint");
   if (!baktaSel) {
@@ -589,32 +580,11 @@ function updateBaktaUI() {
 
   const enabled = baktaSel.value === "true";
   showChildPanel("bakta_dbDiv", enabled);
-  showChildPanel("genetype", enabled);
-  if (circularDiv) {
-    circularDiv.style.display = enabled ? "block" : "none";
-  }
-
-  if (!enabled) {
-    stopBaktaReadyPoll();
-    if (circBtn) {
-      circBtn.disabled = true;
-    }
-    if (circHint) {
-      circHint.textContent = "Enable Bakta annotation to use the circular plot.";
-    }
-    const circDiv = document.getElementById("circDiv");
-    if (circDiv) {
-      circDiv.style.display = "none";
-    }
-    updateStrainFinderFromFields();
-    return;
-  }
-
   if (circBtn) {
     circBtn.disabled = true;
   }
   if (circHint) {
-    circHint.textContent = "Checking for .gbk/.gbff/.gff/.gff3 annotation files…";
+    circHint.textContent = "Checking for Bakta annotation files…";
   }
   updateStrainFinderFromFields();
   refreshCircularPlotButton();
@@ -622,16 +592,8 @@ function updateBaktaUI() {
 }
 
 async function refreshCircularPlotButton() {
-  const baktaSel = document.getElementById("bakta_annot");
   const circBtn = document.getElementById("circ-plot-bt");
   const circHint = document.getElementById("circ-plot-hint");
-  if (!baktaSel || baktaSel.value !== "true") {
-    return;
-  }
-
-  if (circHint) {
-    circHint.textContent = "Checking for annotation files…";
-  }
 
   const form = document.getElementById("postForm");
   const formData = new FormData(form);
@@ -705,18 +667,154 @@ function renderCircFastaList(data, opts) {
   list.innerHTML = files.map((name) => `<li><code>${escapeHtml(name)}</code></li>`).join("");
 }
 
+let resultsOpen = false;
+let resultsAutoShown = false;
+let runFinishedSuccess = false;
+
+function runHasFinishedOk() {
+  const dash = window.BactflowRunDashboard;
+  const eta = window.BactflowProcessEta;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
+    return false;
+  }
+  if (eta && eta.allDone()) {
+    return true;
+  }
+  return !!(dash && dash.endedAt && dash.startedAt && !dash.failed);
+}
+
+function setTerminalVisible(visible) {
+  const logs = document.querySelector(".rd-center .rd-logs");
+  if (!logs) {
+    return;
+  }
+  logs.classList.toggle("is-hidden", !visible);
+  if (!visible) {
+    logs.style.height = "";
+    return;
+  }
+  if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
+    requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
+  }
+}
+
+function showEmptyTerminal() {
+  const log = document.getElementById("output-bactflow");
+  if (log) {
+    log.replaceChildren();
+  }
+  if (window.BactflowTerminal) {
+    BactflowTerminal.setStatus("Run finished", "ok");
+  }
+}
+
+function isPipelineRunning() {
+  const dash = window.BactflowRunDashboard;
+  return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
+}
+
+function anyResultVisible() {
+  const pane = document.getElementById("assem-results-pane");
+  if (!pane) {
+    return false;
+  }
+  return [...pane.children].some((el) => {
+    if (el.id === "rd-results-empty" || el.id === "resultsStatusDiv") {
+      return false;
+    }
+    if (el.style.display === "none") {
+      return false;
+    }
+    return getComputedStyle(el).display !== "none";
+  });
+}
+
+function setResultsEmptyVisible(visible) {
+  const empty = document.getElementById("rd-results-empty");
+  if (empty) {
+    empty.hidden = !visible;
+    empty.style.display = visible ? "block" : "none";
+  }
+}
+
+function setResultsOpen(open, opts) {
+  resultsOpen = !!open;
+  const card = document.getElementById("rd-results");
+  const btn = document.getElementById("rep-bt");
+  if (card) {
+    card.classList.toggle("is-shown", resultsOpen);
+  }
+  if (btn) {
+    btn.textContent = resultsOpen ? "Hide results" : "Display results";
+  }
+  setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
+  if (!isPipelineRunning()) {
+    setTerminalVisible(!resultsOpen);
+    if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
+      showEmptyTerminal();
+    }
+  }
+}
+
+function toggleResults() {
+  if (resultsOpen) {
+    setResultsOpen(false);
+    return;
+  }
+  Promise.resolve(showReport()).then(() => {
+    const has = anyResultVisible();
+    if (isPipelineRunning()) {
+      if (has) {
+        setResultsOpen(true);
+      }
+      return;
+    }
+    if (runHasFinishedOk()) {
+      runFinishedSuccess = true;
+    }
+    setResultsOpen(true, { empty: !has });
+  });
+}
+
+function revealResultsOnSuccess(force) {
+  const dash = window.BactflowRunDashboard;
+  if (resultsAutoShown) {
+    return;
+  }
+  if (!force && !runHasFinishedOk()) {
+    return;
+  }
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows) && !force) {
+    return;
+  }
+  if (isPipelineRunning()) {
+    return;
+  }
+  if (!anyResultVisible()) {
+    return;
+  }
+  resultsAutoShown = true;
+  runFinishedSuccess = true;
+  setResultsOpen(true);
+}
+
+window.toggleResults = toggleResults;
+window.revealResultsOnSuccess = revealResultsOnSuccess;
+window.showReport = showReport;
+window.createGenomePlot = createGenomePlot;
+
 function showReport(){
   const form = document.getElementById("postForm");
   if (!form) {
-    return;
+    return Promise.resolve(false);
   }
   const formData = new FormData(form);
   const outDir = String(formData.get("out_dir") || "").trim();
   if (!outDir) {
-    return;
+    return Promise.resolve(false);
   }
 
-    Promise.all([
+    return Promise.all([
     fetchJsonSafe("/check-quast", formData),
     fetchJsonSafe("/check-bakta-ready", formData),
     fetchJsonSafe("/circular", formData),
@@ -778,7 +876,7 @@ function showReport(){
           quastShown = true;
           quastReport();
         }
-      } else if (quastDiv) {
+      } else if (quastDiv && !quastShown) {
         quastDiv.style.display = "none";
       }
 
@@ -791,11 +889,9 @@ function showReport(){
           baktaShown = true;
           baktaReport();
         }
-      } else if (baktaDiv) {
+      } else if (baktaDiv && !baktaShown) {
         baktaDiv.style.display = "none";
       }
-
-      refreshCircularPlotButton();
 
       if (circPlt.plot && circDiv) {
         circDiv.style.display = "block";
@@ -872,8 +968,13 @@ function showReport(){
       } else if (plasmidDiv) {
         plasmidDiv.style.display = "none";
       }
+      revealResultsOnSuccess();
+      return anyResultVisible();
     })
-    .catch((error) => console.error("Error checking post-assembly reports:", error));
+    .catch((error) => {
+      console.error("Error checking post-assembly reports:", error);
+      return false;
+    });
 }
 
 function renderPlasmidTable(data) {
@@ -1303,13 +1404,388 @@ function downloadPrevPlot() {
   downloadPlotImage("prevImg", "requested_genes_prevalence.jpeg");
 }
 
+function geneTypeBoxes() {
+  return Array.from(document.querySelectorAll('#geneTypeMenu input[name="gene_type"]'));
+}
+
 function selectedGeneTypes() {
-  const sel = document.getElementById("geneType");
-  if (!sel) {
-    return ["cds"];
-  }
-  const picked = Array.from(sel.selectedOptions).map((opt) => opt.value).filter(Boolean);
+  const picked = geneTypeBoxes().filter((el) => el.checked).map((el) => el.value);
   return picked.length ? picked : ["cds"];
+}
+
+function syncGeneTypeToggle() {
+  const btn = document.getElementById("geneTypeToggle");
+  if (btn) {
+    btn.textContent = selectedGeneTypes().join(", ");
+  }
+}
+
+function bindGeneTypeDropdown() {
+  const drop = document.getElementById("geneTypeDrop");
+  const btn = document.getElementById("geneTypeToggle");
+  const menu = document.getElementById("geneTypeMenu");
+  if (!drop || !btn || !menu || drop.dataset.bound) {
+    return;
+  }
+  drop.dataset.bound = "1";
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", (ev) => {
+    if (!drop.contains(ev.target)) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+  geneTypeBoxes().forEach((box) => box.addEventListener("change", syncGeneTypeToggle));
+  syncGeneTypeToggle();
+}
+
+function vizLayout() {
+  const picked = document.querySelector('input[name="genome_viz_layout"]:checked');
+  return picked ? picked.value : "circular";
+}
+
+function syncVizLayoutUI() {
+  const layout = vizLayout();
+  const circ = document.getElementById("circular-opts");
+  const lin = document.getElementById("linear-opts");
+  const btn = document.getElementById("circ-plot-bt");
+  if (circ) {
+    circ.style.display = layout === "circular" ? "block" : "none";
+  }
+  if (lin) {
+    lin.style.display = layout === "linear" ? "block" : "none";
+  }
+  if (btn && !btn.dataset.busy) {
+    btn.textContent = layout === "linear" ? "Create linear plot" : "Create circular plot";
+  }
+}
+
+function bindVizLayout() {
+  document.querySelectorAll('input[name="genome_viz_layout"]').forEach((el) => {
+    el.addEventListener("change", syncVizLayoutUI);
+  });
+  syncVizLayoutUI();
+}
+
+function fillSelect(sel, values, selected, allLabel) {
+  if (!sel) {
+    return;
+  }
+  const current = selected || sel.value;
+  sel.innerHTML = "";
+  if (allLabel) {
+    const opt = document.createElement("option");
+    opt.value = "__all__";
+    opt.textContent = allLabel;
+    sel.appendChild(opt);
+  }
+  (values || []).forEach((value) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  });
+  if (current && Array.from(sel.options).some((opt) => opt.value === current)) {
+    sel.value = current;
+  }
+}
+
+function bindLinearPickers() {
+  const genomeSel = document.getElementById("linear-genome-sel");
+  const contigSel = document.getElementById("linear-contig-sel");
+  if (genomeSel && !genomeSel.dataset.bound) {
+    genomeSel.dataset.bound = "1";
+    genomeSel.addEventListener("change", () => createLinearPlot({ keepOpen: true }));
+  }
+  if (contigSel && !contigSel.dataset.bound) {
+    contigSel.dataset.bound = "1";
+    contigSel.addEventListener("change", () => createLinearPlot({ keepOpen: true }));
+  }
+}
+
+function createGenomePlot() {
+  if (vizLayout() === "linear") {
+    return createLinearPlot();
+  }
+  return createCircularPlot();
+}
+
+const LINEAR_COLORS = {
+  cds: ["#3B82F6", "#93C5FD"],
+  trna: ["#F59E0B", "#FCD34D"],
+  rrna: ["#E11D48", "#FB7185"],
+  tmrna: ["#0D9488", "#5EEAD4"],
+  ncrna: ["#7C3AED", "#C4B5FD"],
+  repeat_region: ["#DB2777", "#F9A8D4"],
+  gene: ["#64748B", "#CBD5E1"],
+};
+
+function drawLinearCanvas(host, data) {
+  if (host._linearMove) {
+    window.removeEventListener("mousemove", host._linearMove);
+    window.removeEventListener("mouseup", host._linearUp);
+  }
+  host.innerHTML = "";
+  host.style.position = "relative";
+  const canvas = document.createElement("canvas");
+  canvas.className = "bf-linear-canvas";
+  host.appendChild(canvas);
+  const tip = document.createElement("div");
+  tip.className = "bf-linear-tip";
+  tip.hidden = true;
+  host.appendChild(tip);
+  const features = data.features || [];
+  const length = Math.max(1, Number(data.length) || 1);
+  const fwdLanes = Math.max(1, Number(data.fwd_lanes) || 1);
+  const revLanes = Math.max(1, Number(data.rev_lanes) || 1);
+  let view0 = 0;
+  let view1 = length;
+  let drag = null;
+
+  const colorOf = (feat) => {
+    const pair = LINEAR_COLORS[feat.t] || ["#64748B", "#CBD5E1"];
+    return feat.strand === "-" ? pair[1] : pair[0];
+  };
+
+  const paint = () => {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(320, host.clientWidth || 800);
+    const h = 440;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const theme = document.documentElement.getAttribute("data-theme");
+    ctx.fillStyle = theme === "light" ? "#f8fafc" : "#1e1e1e";
+    ctx.fillRect(0, 0, w, h);
+    const padL = 18;
+    const padR = 18;
+    const padT = 32;
+    const padB = 40;
+    const mid = padT + (h - padT - padB) * (fwdLanes / (fwdLanes + revLanes));
+    const span = Math.max(1, view1 - view0);
+    const xOf = (bp) => padL + ((bp - view0) / span) * (w - padL - padR);
+    ctx.strokeStyle = "rgba(148,163,184,0.75)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padL, mid);
+    ctx.lineTo(w - padR, mid);
+    ctx.stroke();
+    const laneH = Math.max(6, Math.min(14, (mid - padT - 10) / fwdLanes));
+    features.forEach((feat) => {
+      if (feat.e < view0 || feat.s > view1) {
+        return;
+      }
+      const x = xOf(Math.max(feat.s, view0));
+      const width = Math.max(1.4, xOf(Math.min(feat.e, view1)) - x);
+      const lane = feat.lane || 0;
+      const y = feat.strand === "-"
+        ? mid + 7 + lane * (laneH + 3)
+        : mid - 7 - laneH - lane * (laneH + 3);
+      ctx.fillStyle = colorOf(feat);
+      ctx.fillRect(x, y, width, laneH);
+    });
+    (data.boundaries || []).forEach((bound) => {
+      if (bound.start < view0 || bound.start > view1) {
+        return;
+      }
+      const x = xOf(bound.start);
+      ctx.strokeStyle = "rgba(148,163,184,0.35)";
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, h - padB);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+    ctx.fillStyle = theme === "light" ? "#334155" : "#d4d4d4";
+    ctx.font = "12px Segoe UI, sans-serif";
+    ctx.fillText("Forward", padL, 18);
+    ctx.fillText("Reverse", padL, h - 14);
+    ctx.textAlign = "right";
+    ctx.fillText(data.title || data.length_label || "", w - padR, 18);
+    ctx.textAlign = "left";
+  };
+
+  const featureAt = (px, py) => {
+    const w = host.clientWidth || 800;
+    const h = 440;
+    const padL = 18;
+    const padR = 18;
+    const padT = 32;
+    const padB = 40;
+    const mid = padT + (h - padT - padB) * (fwdLanes / (fwdLanes + revLanes));
+    const span = Math.max(1, view1 - view0);
+    const laneH = Math.max(6, Math.min(14, (mid - padT - 10) / fwdLanes));
+    const bp = view0 + ((px - padL) / Math.max(1, w - padL - padR)) * span;
+    for (let i = features.length - 1; i >= 0; i -= 1) {
+      const feat = features[i];
+      if (bp < feat.s || bp > feat.e) {
+        continue;
+      }
+      const lane = feat.lane || 0;
+      const y = feat.strand === "-"
+        ? mid + 7 + lane * (laneH + 3)
+        : mid - 7 - laneH - lane * (laneH + 3);
+      if (py >= y && py <= y + laneH) {
+        return feat;
+      }
+    }
+    return null;
+  };
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const frac = (event.clientX - rect.left) / rect.width;
+    const span = view1 - view0;
+    const center = view0 + frac * span;
+    const next = Math.min(length, Math.max(Math.min(800, length), span * (event.deltaY > 0 ? 1.25 : 0.8)));
+    view0 = Math.max(0, center - next * frac);
+    view1 = Math.min(length, view0 + next);
+    view0 = Math.max(0, view1 - next);
+    paint();
+  }, { passive: false });
+
+  canvas.addEventListener("mousedown", (event) => {
+    drag = { x: event.clientX, view0, view1 };
+  });
+  host._linearUp = () => {
+    drag = null;
+  };
+  host._linearMove = (event) => {
+    if (!drag) {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const span = drag.view1 - drag.view0;
+    const dx = ((event.clientX - drag.x) / rect.width) * span;
+    view0 = Math.max(0, Math.min(length - span, drag.view0 - dx));
+    view1 = view0 + span;
+    paint();
+  };
+  window.addEventListener("mouseup", host._linearUp);
+  window.addEventListener("mousemove", host._linearMove);
+  canvas.addEventListener("mousemove", (event) => {
+    if (drag) {
+      return;
+    }
+    const feat = featureAt(event.offsetX, event.offsetY);
+    if (!feat) {
+      tip.hidden = true;
+      return;
+    }
+    tip.hidden = false;
+    tip.textContent = `${feat.n}  ·  ${feat.t}  ·  ${feat.strand === "-" ? "reverse" : "forward"}${feat.p ? "  ·  " + feat.p : ""}`;
+    tip.style.left = Math.min(event.offsetX + 14, (host.clientWidth || 400) - 220) + "px";
+    tip.style.top = event.offsetY + 16 + "px";
+  });
+  canvas.addEventListener("mouseleave", () => {
+    tip.hidden = true;
+  });
+  canvas.addEventListener("dblclick", () => {
+    view0 = 0;
+    view1 = length;
+    paint();
+  });
+  paint();
+}
+
+async function createLinearPlot(opts) {
+  const form = document.getElementById("postForm");
+  const plotBtn = document.getElementById("circ-plot-bt");
+  if (!form) {
+    return;
+  }
+  if (plotBtn && plotBtn.disabled && !(opts && opts.keepOpen)) {
+    await refreshCircularPlotButton();
+    if (plotBtn.disabled) {
+      const hint = document.getElementById("circ-plot-hint");
+      alert(hint?.textContent || "Bakta annotation results are not available yet.");
+      return;
+    }
+  }
+  const formData = new FormData(form);
+  const genomeSel = document.getElementById("linear-genome-sel");
+  const contigSel = document.getElementById("linear-contig-sel");
+  if (genomeSel && genomeSel.value) {
+    formData.set("linear_genome", genomeSel.value);
+  }
+  if (contigSel && contigSel.value) {
+    formData.set("linear_contig", contigSel.value);
+  }
+  const linearDiv = document.getElementById("linearDiv");
+  const spin = document.getElementById("spin-linear");
+  const typeLabel = document.getElementById("linear-type-label");
+  hideSectionError("linear-error");
+  if (linearDiv) {
+    linearDiv.style.display = "block";
+  }
+  if (spin) {
+    spin.style.display = "flex";
+  }
+  if (typeLabel) {
+    typeLabel.textContent = `(${selectedGeneTypes().join(", ")})`;
+  }
+  if (!(opts && opts.keepOpen)) {
+    setResultsOpen(true);
+    jumpToSection("linearDiv");
+  }
+  if (plotBtn) {
+    plotBtn.dataset.busy = "1";
+    plotBtn.disabled = true;
+    plotBtn.textContent = "Creating plot…";
+  }
+  try {
+    const res = await fetch("/linear", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (spin) {
+      spin.style.display = "none";
+    }
+    if (!res.ok || !data.plot || !(data.features || data.figure)) {
+      const reason = data.reason === "no_bakta_dir"
+        ? "Bakta annotation output not found. Run BactFlow with Bakta enabled first."
+        : (data.error || "Could not create the linear plot.");
+      showSectionError("linear-error", reason);
+      return;
+    }
+    hideSectionError("linear-error");
+    fillSelect(genomeSel, data.genomes || [], (data.selected || {}).genome);
+    fillSelect(contigSel, data.contigs || [], (data.selected || {}).contig, "All contigs");
+    const bar = document.getElementById("linear-plot-bar");
+    if (bar) {
+      bar.style.display = "flex";
+    }
+    const plotEl = document.getElementById("linearPlot");
+    if (plotEl && data.features) {
+      drawLinearCanvas(plotEl, data);
+    } else if (plotEl && data.figure && window.Plotly) {
+      await Plotly.react(plotEl, data.figure.data, data.figure.layout, {
+        responsive: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ["lasso2d", "select2d"],
+      });
+    }
+    bindLinearPickers();
+  } catch (error) {
+    if (spin) {
+      spin.style.display = "none";
+    }
+    showSectionError("linear-error", error.message || "An error occurred while creating the linear plot.");
+  } finally {
+    if (plotBtn) {
+      delete plotBtn.dataset.busy;
+      plotBtn.disabled = false;
+      syncVizLayoutUI();
+    }
+  }
 }
 
 function showCircularPlot(src) {
@@ -1319,7 +1795,7 @@ function showCircularPlot(src) {
   if (typeLabel) {
     typeLabel.textContent = `(${selectedGeneTypes().join(", ")})`;
   }
-  if (img && src) {
+  if (img && src && img.getAttribute("src") !== src) {
     img.src = src;
     img.style.display = "block";
   }
@@ -1350,6 +1826,7 @@ async function createCircularPlot() {
   const circBar = document.getElementById("circ-plot-bar");
 
   hideSectionError("circ-error");
+  setResultsOpen(true);
   circDiv.style.display = "block";
   circSpin.style.display = "flex";
   if (circImg) {
@@ -1386,7 +1863,9 @@ async function createCircularPlot() {
   } finally {
     if (circBtn) {
       circBtn.disabled = false;
-      circBtn.textContent = "Create circular plot";
+      delete circBtn.dataset.busy;
+      circBtn.disabled = false;
+      syncVizLayoutUI();
     }
   }
 }
@@ -1429,7 +1908,12 @@ async function circReport(){
   }
 }
 
-let reportCheckInterval = setInterval(showReport, 5000);
+let reportCheckInterval = setInterval(() => {
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled) {
+    showReport();
+  }
+}, 8000);
 let quastShown = false;
 let baktaShown = false;
 let taxShown = false;
@@ -1439,14 +1923,9 @@ let gtdbTreeShown = false;
 let plasmidShown = false;
 
 
-// gene annotation 
-const genetype = document.getElementById("geneType");
-const vars = genetype.value;
-genetype.addEventListener("change", ()=> {
-  let selectedOptions = Array.from(genetype.selectedOptions).map(option => option.value)
-  selectedOptions = selectedOptions.join(",")
-
-});
+bindGeneTypeDropdown();
+bindVizLayout();
+bindLinearPickers();
 
 // snp finder 
 function showSnpError(message) {

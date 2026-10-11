@@ -97,15 +97,26 @@ const BactflowProcessEta = {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   },
 
+  hintMap() {
+    if (!this._hintNorm) {
+      this._hintNorm = {};
+      Object.entries(this.hintsSec).forEach(([k, v]) => {
+        this._hintNorm[this.normalizeName(k)] = v;
+      });
+    }
+    return this._hintNorm;
+  },
+
   hintFor(name) {
     const key = this.normalizeName(name);
     if (this.durations.has(key)) {
       return this.durations.get(key);
     }
-    if (this.hintsSec[key]) {
-      return this.hintsSec[key];
+    const hints = this.hintMap();
+    if (hints[key]) {
+      return hints[key];
     }
-    for (const [hintKey, sec] of Object.entries(this.hintsSec)) {
+    for (const [hintKey, sec] of Object.entries(hints)) {
       if (key.includes(hintKey) || hintKey.includes(key)) {
         return sec;
       }
@@ -190,17 +201,12 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return 0;
     }
-    if (proc.percent > 0 && proc.percent < 100) {
-      return Math.max(1, Math.min(99, proc.percent));
-    }
     const elapsed = this.elapsedSeconds(proc);
     const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    let p = 95 * (1 - Math.exp(-elapsed / expected));
-    if (proc.total > 0) {
-      // "0 of 1" stays put while a single task runs, so never let the task count drag the estimate down.
-      p = Math.max(p, (Math.max(0, proc.completed) / proc.total) * 100);
-    }
-    return Math.max(1, Math.min(99, Math.round(p)));
+    const timePct = (100 * elapsed) / expected;
+    const taskPct = proc.total > 0 ? (Math.max(0, proc.completed) / proc.total) * 100 : 0;
+    const nfPct = proc.percent > 0 && proc.percent < 100 ? proc.percent : 0;
+    return Math.max(1, Math.min(99, Math.round(Math.max(timePct, taskPct, nfPct))));
   },
 
   remainingSeconds(proc) {
@@ -210,13 +216,11 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return null;
     }
-    const pct = this.displayPercent(proc);
-    const elapsed = this.elapsedSeconds(proc);
-    if (pct >= 5 && pct < 100) {
-      return Math.max(1, elapsed * (100 - pct) / pct);
+    const eta = this.computeEta(proc);
+    if (eta && eta.seconds != null && Number.isFinite(eta.seconds)) {
+      return Math.max(1, eta.seconds);
     }
-    const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    return Math.max(1, expected - elapsed);
+    return null;
   },
 
   stopTick() {
@@ -293,6 +297,18 @@ const BactflowProcessEta = {
     if (/BactFlow:\s*Nextflow finished|BactFlow:\s*Nextflow exited/i.test(t)) {
       this.finalizeAll(terminal, /finished successfully/i.test(t) ? "completed" : "stopped");
       matched = true;
+    }
+
+    if (/Bactflow is already installed|bactflow was successfully installed|environment_created/i.test(t)) {
+      this.processes.forEach((proc) => {
+        if (!proc.done && /^envsetup$/i.test(this.normalizeName(proc.name))) {
+          this.markDone(proc);
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(proc.lastLine));
+          }
+          matched = true;
+        }
+      });
     }
 
     return matched;
@@ -731,17 +747,30 @@ const BactflowProcessEta = {
     if (!list) {
       return;
     }
-    if (!proc.row || !proc.row.isConnected) {
-      proc.row = document.createElement("div");
-      proc.row.className = "bf-proc-card";
-      proc.row.dataset.bfProcess = proc.id;
-      list.appendChild(proc.row);
-    }
-
     const pct = this.displayPercent(proc);
     const waiting = this.isWaiting(proc);
     const state = proc.done ? (proc.cached ? "cached" : "done") : waiting ? "wait" : "run";
-    proc.row.className = "bf-proc-card" + (state === "done" || state === "cached" ? " is-done" : state === "run" ? " is-run" : "");
+    if (!proc.row || !proc.row.isConnected) {
+      proc.row = document.createElement("div");
+      proc.row.dataset.bfProcess = proc.id;
+      proc.row.innerHTML = `
+      <div class="bf-proc-head">
+        <div>
+          <span class="bf-proc-name"></span>
+          <span class="bf-proc-badge"></span>
+        </div>
+        <span class="bf-proc-pct"></span>
+      </div>
+      <div class="bf-process-track"><div class="bf-process-fill"></div></div>
+      <div class="bf-proc-meta" style="margin-top:5px;"></div>
+    `;
+      list.appendChild(proc.row);
+    }
+
+    const cardClass = "bf-proc-card" + (state === "done" || state === "cached" ? " is-done" : state === "run" ? " is-run" : "");
+    if (proc.row.className !== cardClass) {
+      proc.row.className = cardClass;
+    }
 
     const tag = proc.tag ? ` (${proc.tag})` : "";
     const title = this.prettyName(proc.name) + tag;
@@ -762,22 +791,39 @@ const BactflowProcessEta = {
       }
     }
 
-    proc.row.innerHTML = `
-      <div class="bf-proc-head">
-        <div>
-          <span class="bf-proc-name"></span>
-          <span class="bf-proc-badge is-${state}"></span>
-        </div>
-        <span class="bf-proc-pct"></span>
-      </div>
-      <div class="bf-process-track"><div class="bf-process-fill is-${state}"></div></div>
-      <div class="bf-proc-meta" style="margin-top:5px;"></div>
-    `;
-    proc.row.querySelector(".bf-proc-name").textContent = title;
-    proc.row.querySelector(".bf-proc-badge").textContent = badgeLabel;
-    proc.row.querySelector(".bf-proc-pct").textContent = `${pct}%`;
-    proc.row.querySelector(".bf-process-fill").style.width = (waiting ? 100 : pct) + "%";
-    proc.row.querySelector(".bf-proc-meta").textContent = meta;
+    const nameEl = proc.row.querySelector(".bf-proc-name");
+    const badgeEl = proc.row.querySelector(".bf-proc-badge");
+    const pctEl = proc.row.querySelector(".bf-proc-pct");
+    const fillEl = proc.row.querySelector(".bf-process-fill");
+    const metaEl = proc.row.querySelector(".bf-proc-meta");
+    const badgeClass = "bf-proc-badge is-" + state;
+    const fillClass = "bf-process-fill is-" + state;
+    const width = (waiting ? 100 : pct) + "%";
+    if (nameEl && nameEl.textContent !== title) {
+      nameEl.textContent = title;
+    }
+    if (badgeEl) {
+      if (badgeEl.className !== badgeClass) {
+        badgeEl.className = badgeClass;
+      }
+      if (badgeEl.textContent !== badgeLabel) {
+        badgeEl.textContent = badgeLabel;
+      }
+    }
+    if (pctEl && pctEl.textContent !== `${pct}%`) {
+      pctEl.textContent = `${pct}%`;
+    }
+    if (fillEl) {
+      if (fillEl.className !== fillClass) {
+        fillEl.className = fillClass;
+      }
+      if (fillEl.style.width !== width) {
+        fillEl.style.width = width;
+      }
+    }
+    if (metaEl && metaEl.textContent !== meta) {
+      metaEl.textContent = meta;
+    }
     this.renderWorkflowBar(terminal);
   },
 
@@ -815,42 +861,61 @@ const BactflowProcessEta = {
       }
     });
     this.renderWorkflowBar(terminal);
+    if (terminal) {
+      const running = [...this.processes.values()].find(
+        (p) => !p.done && p.id !== "_executor" && !this.isWaiting(p)
+      );
+      if (running) {
+        terminal.setStatus(`${this.prettyName(running.name)} · ${this.displayPercent(running)}%`, "run");
+      }
+    }
     if (this.allDone()) {
       this.stopTick();
     }
   },
 
+  ensureLiveProc(name, terminal, line) {
+    const parsed = {
+      kind: "started",
+      id: null,
+      name,
+      tag: "",
+      percent: 1,
+      completed: 0,
+      total: 0,
+      done: false,
+    };
+    const proc = this.upsert(parsed);
+    if (!proc.done) {
+      proc.phase = "running";
+      if (!proc.runningAt) {
+        proc.runningAt = Date.now();
+      }
+      proc.lastLine = line;
+      if (terminal) {
+        this.renderRow(proc, terminal.classify(line));
+      }
+    }
+    return proc;
+  },
+
   applyLiveActivity(line, terminal) {
     const t = String(line || "");
     const rules = [
-      [/Identifying marker|Executing gene calling|Running Prodigal|TIGRFAM|Pfam|Executing aligning|hmmalign|Masking columns|Executing classification|Using GTDB-Tk|gtdbtk /i, /taxonomy|gtdbtk/i],
-      [/checkm lineage|checkm tree|checkm qa|CheckM /i, /checkm/i],
-      [/Running circlator|circlator fixstart|Circulated genomes/i, /circul/i],
-      [/quast\.py|Running QUAST|QUAST:/i, /quast/i],
-      [/geNomad|plasmidDetect|plasmid_detect/i, /plasmid|genomad/i],
-      [/bakta /i, /bakta/i]
+      [/Identifying marker|Executing gene calling|Running Prodigal|TIGRFAM|Pfam|Executing aligning|hmmalign|Masking columns|Executing classification|Using GTDB-Tk|gtdbtk /i, "taxonomyGTDBTK"],
+      [/\bcheckm\b|lineage_wf|checkm tree|checkm qa|pplacer|CheckM /i, "checkm_lineage"],
+      [/Running circlator|circlator fixstart|Circulated genomes/i, "circulator"],
+      [/quast\.py|\bQUAST\b|Running QUAST/i, "quast_check"],
+      [/geNomad|plasmidDetect|plasmid_detect/i, "plasmidDetect"],
+      [/\bbakta\b/i, "baktaAnnot"],
     ];
     let hit = false;
-    for (const [re, nameRe] of rules) {
+    for (const [re, name] of rules) {
       if (!re.test(t)) {
         continue;
       }
-      this.processes.forEach((proc) => {
-        if (proc.done || proc.id === "_executor") {
-          return;
-        }
-        if (nameRe.test(`${proc.name} ${proc.id}`)) {
-          proc.phase = "running";
-          if (!proc.runningAt) {
-            proc.runningAt = Date.now();
-          }
-          proc.lastLine = line;
-          if (proc.row && terminal) {
-            this.renderRow(proc, terminal.classify(line));
-          }
-          hit = true;
-        }
-      });
+      this.ensureLiveProc(name, terminal, line);
+      hit = true;
     }
     return hit;
   },
@@ -1041,15 +1106,20 @@ const BactflowTerminal = {
     if (/Tip: you can|Check '\.nextflow\.log'|WORKFLOW OUTPUT DEFINITION|is available - Please consider/.test(t)) {
       return false;
     }
-    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|running SPAdes|running Unicycler|running Flye|Running circlator|geNomad|plasmidDetect|Stream disconnected|process >|taxonomy|bakta|checkm|quast|Identifying marker|Executing gene|Executing align|Executing class|Prodigal|hmmalign|gtdbtk|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
+    return /\b(ERROR|WARN)\b|✔|Launching|Process completed|BactFlow:|started|failed|ready in|Using Java|Using Nextflow|N E X T F L O W|executor >|Submitted process|Cached process|\[100%\]|\[[ ]*\d+%\]|\[  0%\]|Caused by:|Command exit status|does not exist|WorkflowScriptError|exited with code|running SPAdes|running Unicycler|running Flye|Running circlator|geNomad|plasmidDetect|Stream disconnected|process >|taxonomy|bakta|checkm|quast|Identifying marker|Executing gene|Executing align|Executing class|Prodigal|hmmalign|gtdbtk|\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t);
   },
 
   setStatus(text, kind) {
     if (!this.statusEl) {
       return;
     }
-    this.statusEl.textContent = text;
-    this.statusEl.className = "bf-status" + (kind ? " is-" + kind : "");
+    const nextClass = "bf-status" + (kind ? " is-" + kind : "");
+    if (this.statusEl.textContent !== text) {
+      this.statusEl.textContent = text;
+    }
+    if (this.statusEl.className !== nextClass) {
+      this.statusEl.className = nextClass;
+    }
   },
 
   clear() {
@@ -1090,7 +1160,9 @@ const BactflowTerminal = {
 
     if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
       BactflowProcessEta.finalizeAll(this, "completed");
-      if (typeof window.showReport === "function") {
+      if (typeof window.revealResultsOnSuccess === "function") {
+        window.revealResultsOnSuccess(true);
+      } else if (typeof window.showReport === "function") {
         window.showReport();
       }
       if (trimmed !== "Process completed") {
@@ -1134,7 +1206,7 @@ const BactflowTerminal = {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "error");
     } else if (/\[100%\].*✔|Process completed|successfully/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "ok");
-    } else if (/Submitted process|running |Launching/i.test(line)) {
+    } else if (/Submitted process|running |Launching/i.test(line) && !/\[\s*\d+%\s*\]/.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "run");
     } else if (/WARN/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "warn");
@@ -1152,7 +1224,7 @@ const BactflowMeters = {
   timer: null,
 
   init() {
-    if (!document.getElementById("bf-meters")) {
+    if (!document.getElementById("bf-meters") || this.timer) {
       return;
     }
     this.tick();
@@ -1218,9 +1290,15 @@ const BactflowMeters = {
   },
 
   setBar(fillEl, jobEl, percent, jobPercent) {
-    const pct = Math.max(0, Math.min(100, Number(percent) || 0));
-    fillEl.style.width = pct.toFixed(1) + "%";
-    fillEl.className = "bf-meter-fill " + this.level(pct);
+    const pct = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    const width = pct + "%";
+    const fillClass = "bf-meter-fill " + this.level(pct);
+    if (fillEl.style.width !== width) {
+      fillEl.style.width = width;
+    }
+    if (fillEl.className !== fillClass) {
+      fillEl.className = fillClass;
+    }
     if (jobEl) {
       const job = Math.max(0, Math.min(100, Number(jobPercent) || 0));
       jobEl.style.width = job.toFixed(1) + "%";
@@ -1249,22 +1327,28 @@ const BactflowMeters = {
       s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
     );
 
+    const cpuText = `${Math.round(Number(s.cpu_percent) || 0)}%`;
+    const ramText = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Math.round(Number(s.ram_percent) || 0)}%)`;
     if (cpuVal) {
       cpuVal.classList.remove("is-missing");
-      const jobBit = s.running && s.job_cores != null
-        ? ` · <span class="job">job ${s.job_cores}/${s.cpu_count} cores</span>`
-        : "";
-      cpuVal.innerHTML = `${Number(s.cpu_percent || 0).toFixed(1)}%${jobBit}`;
+      if (cpuVal.textContent !== cpuText) {
+        cpuVal.textContent = cpuText;
+      }
     }
     if (ramVal) {
       ramVal.classList.remove("is-missing");
-      const jobBit = s.running && s.job_rss_gb != null
-        ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
-        : "";
-      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
+      if (ramVal.textContent !== ramText) {
+        ramVal.textContent = ramText;
+      }
     }
-    this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
-    this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
+    if (this._sparkCpu !== cpuText) {
+      this._sparkCpu = cpuText;
+      this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
+    }
+    if (this._sparkRam !== ramText) {
+      this._sparkRam = ramText;
+      this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
+    }
     return true;
   },
 
