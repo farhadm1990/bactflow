@@ -15,7 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
     cat << EOF
 ${GREEN}BactFlow Module Runner${NC}
-Launch a UI module with Docker (default), Apptainer, or a local Conda env.
+Start a UI module. This is the supported way to run BactFlow
+(Docker, Apptainer/Singularity, or Conda). Do not call docker / singularity / python yourself.
 
 ${YELLOW}USAGE:${NC}
     $0 <module> <work_dir> [options]
@@ -32,14 +33,12 @@ ${YELLOW}REQUIRED:${NC}
 ${YELLOW}OPTIONS:${NC}
     --service NAME      Runtime: docker (default), apptainer, or conda
     --no-browser        Don't automatically open a browser
-    --install-browser-hook
-                        Install/start the host browser hook (for raw docker run)
     --port PORT         Host port (default: 5000 / 5002 / 5001)
     --cpus N            CPU limit (Docker / Apptainer when supported)
     --memory SIZE       Memory limit (Docker; Apptainer when supported)
-    --pull              Re-pull the Hub image / rebuild the .sif
+    --pull              Re-pull the Hub image / rebuild the converted Apptainer image
     --local             Build/run from the local Dockerfile (docker / apptainer)
-    --rebuild           Rebuild local Docker image, rebuild the .sif, or update the Conda env
+    --rebuild           Rebuild local Docker image, Apptainer image, or Conda env
     --tag TAG           Pin a Hub tag (e.g. v1.0) instead of auto-latest
     --help              Show this help message
 
@@ -56,7 +55,7 @@ EOF
 }
 
 ensure_browser_hook() {
-    # Tiny host daemon so raw `docker run` containers can open the desktop browser.
+    # Tiny host daemon so the Docker service can open the desktop browser.
     local hook="${SCRIPT_DIR}/scripts/bactflow_browser_hook.sh"
     if [[ ! -f "${hook}" ]]; then
         return 0
@@ -883,8 +882,7 @@ while [[ $# -gt 0 ]]; do
         --install-browser-hook)
             ensure_browser_hook
             echo -e "${GREEN}Browser hook installed/started (port ${BACTFLOW_BROWSER_HOOK_PORT:-19264}).${NC}"
-            echo "For raw docker run, map -p HOST:CONTAINER and optionally:"
-            echo "  -e BACTFLOW_HOST_PORT=HOST -e BACTFLOW_PUBLIC_URL=http://127.0.0.1:HOST/"
+            echo "You do not need this flag for normal use; ./bactflow.sh starts the hook itself."
             exit 0
             ;;
         --rebuild)
