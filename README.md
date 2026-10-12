@@ -9,7 +9,7 @@
 
 ## Introduction
 
-BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single-isolate sequencing reads from **Oxford Nanopore (ONT)**, **Illumina**, **PacBio**, and **ONT+Illumina hybrid** data. It is built with Nextflow DSL 2 and reads the usual outputs of Guppy and Dorado basecallers.
+BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single-isolate sequencing reads from **Oxford Nanopore (ONT)**, **Illumina**, **PacBio**, and **ONT/PacBio+Illumina hybrid** data. It is built with Nextflow DSL 2 and reads the usual outputs of Guppy and Dorado basecallers.
 
 There are three modules:
 
