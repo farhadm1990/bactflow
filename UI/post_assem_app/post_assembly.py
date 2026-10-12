@@ -160,11 +160,9 @@ def open_browser():
 # define function for bactflow run in multiprocess for constant realtime steraming.
 
 manager = Manager()
-process_status = manager.dict({"pid": None, "running": False, "epoch": 0, "stop_reason": None})
+process_status = manager.dict({"pid": None, "running": False})
 output_queue = Queue()
 output_history = manager.list() # to store output history
-_current_worker = None
-_worker_lock = threading.Lock()
 STOP_USER_MSG = "Bactflow has been stopped by the user!"
 
 
@@ -315,65 +313,6 @@ def _clear_run_state():
     process_status["pid"] = None
 
 
-def _drain_output_queue():
-    """Drop pending stream lines so Stop is not followed by stale exit noise."""
-    try:
-        while True:
-            output_queue.get_nowait()
-    except Exception:
-        pass
-
-
-def _bump_epoch():
-    """Invalidate any in-flight run_bact worker (Stop or Start takeover)."""
-    try:
-        epoch = int(process_status.get("epoch") or 0) + 1
-    except Exception:
-        epoch = 1
-    process_status["epoch"] = epoch
-    return epoch
-
-
-def _terminate_worker():
-    """Stop the run_bact worker if it is a Process; threads rely on epoch + kill."""
-    global _current_worker
-    with _worker_lock:
-        worker = _current_worker
-        _current_worker = None
-    if worker is None:
-        return
-    # Threads cannot be force-killed; epoch bump + pipeline kill handles them.
-    if isinstance(worker, Process):
-        try:
-            if worker.is_alive():
-                worker.terminate()
-                worker.join(timeout=1.0)
-            if worker.is_alive():
-                worker.kill()
-        except Exception:
-            pass
-
-
-def _spawn_run_worker(command):
-    """Run Nextflow in a child process. A new epoch stops an older worker from clearing this run."""
-    global _current_worker
-    try:
-        epoch = int(process_status.get("epoch") or 0) + 1
-    except Exception:
-        epoch = 1
-    process_status["epoch"] = epoch
-    process_status["running"] = True
-    process_status["pid"] = None
-    worker = Process(
-        target=run_bact,
-        args=(command, process_status, output_queue, output_history, base_dir, epoch),
-    )
-    _start_worker_process(worker)
-    with _worker_lock:
-        _current_worker = worker
-    return worker
-
-
 def _is_post_pipeline_cmdline(cmd):
     """True for Nextflow/Bakta/work tasks belonging to this post-assembly app."""
     if not cmd:
@@ -464,44 +403,8 @@ def _kill_process_tree(pid):
     return True
 
 
-def _stop_pipeline_async(pid):
-    """Kill pipeline off the request thread so Stop never blocks the UI."""
-    try:
-        _kill_process_tree(pid)
-        # Final sweep after orphans re-parent.
-        _sweep_pipeline_leftovers()
-    except Exception as exc:
-        print(f"async stop error: {exc}")
-
-
-def _full_user_stop_async(pid):
-    """Stop clicked: kill tree, then terminate worker, then sweep again."""
-    try:
-        _kill_process_tree(pid)
-        _terminate_worker()
-        _sweep_pipeline_leftovers()
-    except Exception as exc:
-        print(f"async user-stop error: {exc}")
-
-
-def _epoch_is_current(epoch):
-    try:
-        return int(process_status.get("epoch") or 0) == int(epoch)
-    except Exception:
-        return False
-
-
-def run_bact(command, process_status, output_queue, output_history, work_root=None, epoch=0):
+def run_bact(command, process_status, output_queue, output_history, work_root=None):
     """Function to run bactflow"""
-
-    def _owns_run():
-        try:
-            return int(process_status.get("epoch") or 0) == int(epoch)
-        except Exception:
-            return False
-
-    if not _owns_run():
-        return 0
 
     process_status["running"] = True
     history_cap = 1500
@@ -542,17 +445,7 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
         except Exception:
             still_marked_running = True
 
-        if not _owns_run():
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
-            return 0
-
-        if (not still_marked_running) and process.poll() is None and _owns_run():
+        if (not still_marked_running) and process.poll() is None:
             _kill_process_tree(process.pid)
             try:
                 process.wait(timeout=2)
@@ -613,9 +506,6 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
     if log_thread:
         log_thread.join(timeout=2)
 
-    if not _owns_run():
-        return exit_code
-
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
     else:
@@ -631,7 +521,6 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 @app.route('/run_bactflow', methods=['POST', 'GET'])
 def run_bactflow():
     """Startp the BactFlow process"""
-    global _current_worker
     if request.method == "POST":
         action = request.args.get("action-assem")
         command = None
@@ -653,7 +542,23 @@ def run_bactflow():
             tax_class  = request.form.get('tax_class', 'false')
             checkm_db = request.form.get('checkm_db', "")
             gtdbtk_data_path = request.form.get('gtdbtk_data_path', "")
-            genome_dir = request.form.get("genome_dir")
+            genome_dir = (request.form.get("genome_dir") or "").strip()
+            if str(setup_only).lower() != "true":
+                if not genome_dir:
+                    return (
+                        "genome_dir is required for post-assembly. Point it at a folder of FASTA files "
+                        "(for example .../circulated_fasta).\n"
+                    ), 400
+                if not os.path.isdir(genome_dir):
+                    hint = ""
+                    guess = genome_dir.replace("cirulated_fasta", "circulated_fasta")
+                    if guess != genome_dir and os.path.isdir(guess):
+                        hint = f" Did you mean '{guess}'?"
+                    return (
+                        f"genome_dir does not exist: {genome_dir}.{hint} "
+                        "Environment setup can finish, then Nextflow aborts here and the dashboard looks like it broke.\n"
+                    ), 400
+                genome_dir = os.path.abspath(genome_dir)
             run_checkm = request.form.get("run_checkm", "false")
             run_quast = request.form.get("run_quast", "true")
             resume_run = request.form.get("resume_run", "false")
@@ -692,48 +597,51 @@ def run_bactflow():
             command = with_nextflow_java(command)
                 
             output_history[:] = []
-            _spawn_run_worker(command)
+            process_status["running"] = True
+            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
+            _start_worker_process(back_process)
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            pid = process_status.get("pid")
-            if process_status.get("running") and _pipeline_alive(pid):
-                return "Bactflow is already running!\n", 400
-            if process_status.get("running") or pid:
-                _clear_run_state()
             command = with_nextflow_java(
                 f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
             output_history[:] = []
-            _spawn_run_worker(command)
+            process_status["running"] = True
+            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
+            _start_worker_process(back_process)
             
             command = None
             return "Bactflow started successfully!\n", 200
         
         if action == "stop":
             pid = process_status.get("pid")
-            # Mark user-stop BEFORE kill so the worker never emits "exited with code -9".
-            process_status["stop_reason"] = "user"
-            _bump_epoch()
+            was_running = bool(process_status.get("running")) or _pipeline_alive(pid)
             _clear_run_state()
-            _drain_output_queue()
             try:
-                output_history[:] = []
-                output_history.append(STOP_USER_MSG)
-            except Exception:
-                pass
-            threading.Thread(
-                target=_full_user_stop_async,
-                args=(pid,),
-                daemon=True,
-            ).start()
-            try:
-                output_queue.put(STOP_USER_MSG)
-            except Exception:
-                pass
-            return f"{STOP_USER_MSG}\n", 200
+                if pid:
+                    _kill_process_tree(pid)
+                for proc in psutil.process_iter(["pid", "cmdline"]):
+                    try:
+                        cmd = " ".join(proc.info.get("cmdline") or [])
+                        if str(base_dir) in cmd and (
+                            "nextflow" in cmd or "main.nf" in cmd or "bakta_annot.sh" in cmd
+                        ):
+                            proc.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                try:
+                    output_queue.put("BactFlow: stopped by user.")
+                except Exception:
+                    pass
+                if was_running or pid:
+                    return "Bactflow stopped successfully!\n", 200
+                return "No running process to stop.\n", 200
+            except Exception as e:
+                _clear_run_state()
+                return f"Error stopping process: {str(e)}\n", 500
 
         return f"Unknown action: {action}\n", 400
 
@@ -1004,38 +912,19 @@ def stream_bactflow():
         for line in output_history:
             yield f"data: {line}\n\n"
 
-        # now stream new output — stay open while this run's worker is alive
-        while True:
-            try:
-                running = bool(process_status["running"])
-            except Exception:
-                running = False
-            worker_alive = False
-            try:
-                worker_alive = _current_worker is not None and _current_worker.is_alive()
-            except Exception:
-                worker_alive = False
+        # now stream new output
+        while process_status['running']  or not output_queue.empty():
             now = time.time()
             if now - last_stats >= 1:
-                try:
-                    yield f"event: stats\ndata: {json.dumps(current_sys_stats())}\n\n"
-                except Exception:
-                    pass
+                yield f"event: stats\ndata: {json.dumps(current_sys_stats())}\n\n"
                 last_stats = now
             try:
-                line = output_queue.get(timeout=0.5)
-                text = str(line or "").replace("\r", " ").replace("\n", " ").strip()
-                if text:
-                    yield f"data: {text}\n\n"
+                line = output_queue.get(timeout=0.5)# wait for output
+                yield f"data: {line.strip()}\n\n"
             except Exception:
-                if running or worker_alive:
-                    continue
-                try:
-                    if not output_queue.empty():
-                        continue
-                except Exception:
-                    pass
-                break
+                if not process_status['running']:
+                    break
+                continue
 
         yield "data: Process completed\n\n"
  

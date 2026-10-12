@@ -527,6 +527,7 @@ html[data-theme="light"] .rd-plasma svg {
 }
 
 .rd-status.is-running::before {
+  animation: rd-blink 1.2s ease-in-out infinite;
   box-shadow: 0 0 10px currentColor;
 }
 
@@ -745,7 +746,9 @@ html[data-theme="light"] .rd-plasma svg {
 }
 
 .rd-stage.is-run::after {
-  background: var(--rd-violet);
+  background: linear-gradient(90deg, var(--rd-violet), var(--rd-line) 50%, var(--rd-violet)) 0 0 / 200% 100%;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.55);
+  animation: rd-flow 1.6s linear infinite;
 }
 
 @keyframes rd-flow {
@@ -808,6 +811,7 @@ html[data-theme="light"] .rd-plasma svg {
   border-color: var(--rd-violet);
   color: var(--rd-violet);
   box-shadow: 0 0 24px rgba(139, 92, 246, 0.6);
+  animation: rd-pulse 1.8s ease-in-out infinite;
 }
 
 .rd-stage.is-run .rd-stage-meta {
@@ -1093,6 +1097,11 @@ html[data-theme="light"] .rd-logs #output-bactflow {
   color: var(--rd-muted);
   font-size: 0.9rem;
   line-height: 1.55;
+}
+
+.rd-results-body > br,
+.rd-results-body > hr {
+  display: none;
 }
 
 .rd-results-body > div {

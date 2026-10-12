@@ -82,6 +82,7 @@
     startedAt: null,
     launchAt: null,
     endedAt: null,
+    nfFinished: false,
     failed: false,
     failedProc: "",
     doneAtFail: null,
@@ -399,6 +400,7 @@
           this.startedAt = Date.now();
           this.launchAt = this.startedAt;
           this.endedAt = null;
+          this.nfFinished = false;
           this.failed = false;
           this.failedProc = "";
           this.doneAtFail = null;
@@ -456,6 +458,9 @@
         if (m) {
           this.setText("rd-nf-ver", m[1]);
         }
+      }
+      if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
+        this.nfFinished = true;
       }
       if (/Process completed|Nextflow finished successfully/i.test(line)) {
         if (!this.endedAt && this.startedAt) {

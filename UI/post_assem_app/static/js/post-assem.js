@@ -68,16 +68,10 @@ function connectToStream(action){
       return;
     }
     flushLog();
-    const logText = (document.getElementById("output-bactflow") || {}).innerText || "";
-    const hadOutput = /Nextflow|ERROR|Process completed|exited with code|does not exist|N E X T F L O W/i.test(logText);
-    if (!hadOutput) {
-      BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
-      BactflowTerminal.append("Stream disconnected.", true);
-      BactflowTerminal.setStatus("Stream disconnected", "warn");
-    }
-    try {
-      eventSource.close();
-    } catch (e) { /* ignore */ }
+    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+    BactflowTerminal.append("Stream disconnected.", true);
+    BactflowTerminal.setStatus("Stream disconnected", "warn");
+    eventSource.close();
     eventSource = null;
     updateButtonStates("stopped");
   };
@@ -194,6 +188,9 @@ function prepareFreshRunUI() {
   plasmidShown = false;
   resultsAutoShown = false;
   runFinishedSuccess = false;
+  if (window.BactflowRunDashboard) {
+    BactflowRunDashboard.nfFinished = false;
+  }
   setTerminalVisible(true);
   setResultsOpen(false);
 }
@@ -257,6 +254,10 @@ function run_wf(action){
               true
             );
             BactflowTerminal.setStatus("Failed to start", "error");
+            if (window.BactflowRunDashboard && BactflowRunDashboard.markFailed) {
+              BactflowRunDashboard.failMessage = (message || "").replace(/\s+/g, " ").slice(0, 180);
+              BactflowRunDashboard.markFailed("");
+            }
             document.getElementById('run-bt').disabled = false;
             document.getElementById('stop-bt').disabled = true;
             document.getElementById('help-bt').disabled = false;
@@ -644,17 +645,11 @@ function renderCircFastaList(data, opts) {
     return;
   }
   const files = Array.isArray(data.files) ? data.files : [];
-  const circleOn = opts && opts.circleOn;
-  const runDone = opts && opts.runDone;
   if (!data.exists || !files.length) {
-    if (circleOn && runDone) {
-      wrap.style.display = "block";
-      if (hint) {
-        hint.textContent = "Circulator finished but no FASTA files were found in out_dir/circulated_fasta. Set Resume to False and run again so outputs can be published.";
-      }
-      list.innerHTML = "";
-    } else {
-      wrap.style.display = "none";
+    wrap.style.display = "none";
+    list.innerHTML = "";
+    if (hint) {
+      hint.textContent = "";
     }
     return;
   }
@@ -671,28 +666,80 @@ let resultsOpen = false;
 let resultsAutoShown = false;
 let runFinishedSuccess = false;
 
-function runHasFinishedOk() {
+function isSetupOnlyName(name) {
+  const n = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return n === "envsetup" || n === "testify";
+}
+
+function lastPipelineProcessDone() {
   const dash = window.BactflowRunDashboard;
   const eta = window.BactflowProcessEta;
   if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return false;
   }
-  if (eta && eta.allDone()) {
+  if (dash && dash.nfFinished && dash.startedAt && !dash.failed) {
     return true;
   }
-  return !!(dash && dash.endedAt && dash.startedAt && !dash.failed);
+  if (!eta || !eta.processes || !eta.processes.size) {
+    return false;
+  }
+  const live = [...eta.processes.values()].filter((p) => p.id !== "_executor");
+  if (!live.length || live.some((p) => !p.done)) {
+    return false;
+  }
+  if (live.some((p) => !isSetupOnlyName(p.name))) {
+    return true;
+  }
+  const setupOnly = document.getElementById("setup_only");
+  return !!(setupOnly && String(setupOnly.value).toLowerCase() === "true");
+}
+
+function runHasFinishedOk() {
+  const dash = window.BactflowRunDashboard;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
+    return false;
+  }
+  return lastPipelineProcessDone();
+}
+
+function resultStageAllowed(id) {
+  const dash = window.BactflowRunDashboard;
+  if (!dash || !dash.startedAt) {
+    return true;
+  }
+  if (lastPipelineProcessDone()) {
+    return true;
+  }
+  try {
+    const planned = dash.getPlannedStages();
+    const rows = dash.fillSkipped(dash.resolveStages(planned, dash.procs()));
+    const row = rows.find((r) => r.stage.id === id);
+    if (row && row.state === "done" && row.procs.length) {
+      return true;
+    }
+    const allHaveProcs = planned.every((st) => {
+      const hit = rows.find((r) => r.stage.id === st.id);
+      return hit && hit.procs.length;
+    });
+    const allSettled = rows.length && rows.every((r) => r.state === "done" || r.state === "fail");
+    return !!(allHaveProcs && allSettled);
+  } catch (err) {
+    return false;
+  }
 }
 
 function setTerminalVisible(visible) {
-  const logs = document.querySelector(".rd-center .rd-logs");
+  const logs = document.querySelector(".rd-center .rd-logs") || document.querySelector(".rd-logs");
   if (!logs) {
     return;
   }
   logs.classList.toggle("is-hidden", !visible);
   if (!visible) {
     logs.style.height = "";
+    logs.style.display = "none";
     return;
   }
+  logs.style.display = "";
   if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
     requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
   }
@@ -709,24 +756,48 @@ function showEmptyTerminal() {
 }
 
 function isPipelineRunning() {
+  if (lastPipelineProcessDone()) {
+    return false;
+  }
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled) {
+    return true;
+  }
   const dash = window.BactflowRunDashboard;
   return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
 }
 
-function anyResultVisible() {
-  const pane = document.getElementById("assem-results-pane");
-  if (!pane) {
+const RESULT_PANEL_IDS = [
+  "circFastaDiv",
+  "quastDiv",
+  "baktaDiv",
+  "circDiv",
+  "linearDiv",
+  "taxa_class",
+  "gtdbTreeDiv",
+  "checkmDiv",
+  "checkmTreeDiv",
+  "plasmidDiv",
+  "snpsDiv",
+  "abundDiv",
+  "abundImgDiv",
+  "prevDiv",
+  "prevImgDiv",
+];
+
+function panelIsShown(el) {
+  if (!el) {
     return false;
   }
-  return [...pane.children].some((el) => {
-    if (el.id === "rd-results-empty" || el.id === "resultsStatusDiv") {
-      return false;
-    }
-    if (el.style.display === "none") {
-      return false;
-    }
-    return getComputedStyle(el).display !== "none";
-  });
+  if ((el.style && el.style.display) === "none") {
+    return false;
+  }
+  const display = getComputedStyle(el).display;
+  return display !== "none" && display !== "";
+}
+
+function anyResultVisible() {
+  return RESULT_PANEL_IDS.some((id) => panelIsShown(document.getElementById(id)));
 }
 
 function setResultsEmptyVisible(visible) {
@@ -748,11 +819,13 @@ function setResultsOpen(open, opts) {
     btn.textContent = resultsOpen ? "Hide results" : "Display results";
   }
   setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
-  if (!isPipelineRunning()) {
-    setTerminalVisible(!resultsOpen);
-    if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
-      showEmptyTerminal();
-    }
+  if (isPipelineRunning()) {
+    setTerminalVisible(true);
+    return;
+  }
+  setTerminalVisible(!resultsOpen);
+  if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
+    showEmptyTerminal();
   }
 }
 
@@ -776,30 +849,53 @@ function toggleResults() {
   });
 }
 
+let revealInFlight = false;
 function revealResultsOnSuccess(force) {
   const dash = window.BactflowRunDashboard;
-  if (resultsAutoShown) {
+  if (resultsAutoShown || revealInFlight) {
     return;
   }
-  if (!force && !runHasFinishedOk()) {
-    return;
-  }
-  if (dash && (dash.failed || dash.stopping || dash.frozenRows) && !force) {
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return;
   }
   if (isPipelineRunning()) {
     return;
   }
-  if (!anyResultVisible()) {
+  if (!force && !runHasFinishedOk()) {
     return;
   }
-  resultsAutoShown = true;
-  runFinishedSuccess = true;
-  setResultsOpen(true);
+  const openIfReady = () => {
+    if (resultsAutoShown || !anyResultVisible()) {
+      return false;
+    }
+    resultsAutoShown = true;
+    runFinishedSuccess = true;
+    setResultsOpen(true);
+    return true;
+  };
+  if (openIfReady()) {
+    return;
+  }
+  revealInFlight = true;
+  Promise.resolve(showReport())
+    .then(() => openIfReady())
+    .finally(() => {
+      revealInFlight = false;
+    });
 }
 
 window.toggleResults = toggleResults;
 window.revealResultsOnSuccess = revealResultsOnSuccess;
+window.onPipelineProcessesDone = function () {
+  revealResultsOnSuccess(true);
+  [1500, 4000, 8000].forEach((ms) => {
+    setTimeout(() => {
+      if (!resultsAutoShown) {
+        revealResultsOnSuccess(true);
+      }
+    }, ms);
+  });
+};
 window.showReport = showReport;
 window.createGenomePlot = createGenomePlot;
 
@@ -838,12 +934,18 @@ function showReport(){
       const quastOn = String(formData.get("run_quast") || "") === "true";
       const baktaOn = String(formData.get("bakta_annot") || "") === "true";
       const checkmOn = String(formData.get("run_checkm") || "") === "true";
-      const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
-      renderCircFastaList(circFasta || {}, { circleOn, runDone });
+      const runDone = runHasFinishedOk();
+      const allowQuast = resultStageAllowed("quast");
+      const allowBakta = resultStageAllowed("bakta");
+      const allowCirc = resultStageAllowed("circ");
+      const allowGtdb = resultStageAllowed("gtdb");
+      const allowCheckm = resultStageAllowed("checkm");
+      const allowPlasmid = resultStageAllowed("genomad");
+      renderCircFastaList(allowCirc ? (circFasta || {}) : {}, { circleOn, runDone });
 
       const statusEl = document.getElementById("results-status-text");
       const statusWrap = document.getElementById("resultsStatusDiv");
-      if (statusEl && statusWrap && (runDone || quastData.exists || (circFasta && circFasta.exists) || baktaReady.plot_ready || taxData.exists || (checkmData && checkmData.exists) || (plasmidData && plasmidData.exists))) {
+      if (statusEl && statusWrap && (runDone || (allowQuast && quastData.exists) || (allowCirc && circFasta && circFasta.exists) || (allowBakta && baktaReady.plot_ready) || (allowGtdb && taxData.exists) || (allowCheckm && checkmData && checkmData.exists) || (allowPlasmid && plasmidData && plasmidData.exists))) {
         const bits = [];
         if (circleOn) {
           bits.push(circFasta && circFasta.exists
@@ -868,7 +970,7 @@ function showReport(){
         }
       }
 
-      if (quastData.exists) {
+      if (allowQuast && quastData.exists) {
         if (quastDiv) {
           quastDiv.style.display = "block";
         }
@@ -881,7 +983,7 @@ function showReport(){
       }
 
       const baktaPlotReady = baktaReady.plot_ready === true || baktaReady.ready === true;
-      if (baktaPlotReady) {
+      if (allowBakta && baktaPlotReady) {
         if (baktaDiv) {
           baktaDiv.style.display = "block";
         }
@@ -893,7 +995,7 @@ function showReport(){
         baktaDiv.style.display = "none";
       }
 
-      if (circPlt.plot && circDiv) {
+      if (allowBakta && circPlt.plot && circDiv) {
         circDiv.style.display = "block";
         if (circSpin) {
           circSpin.style.display = "none";
@@ -901,7 +1003,7 @@ function showReport(){
         showCircularPlot(circPlt.plot);
       }
 
-      if (taxData.exists) {
+      if (allowGtdb && taxData.exists) {
         if (taxDiv) {
           taxDiv.style.display = "block";
         }
@@ -929,7 +1031,7 @@ function showReport(){
         }
       }
 
-      if (checkmData && checkmData.exists) {
+      if (allowCheckm && checkmData && checkmData.exists) {
         if (checkmDiv) {
           checkmDiv.style.display = "block";
         }
@@ -957,7 +1059,7 @@ function showReport(){
         }
       }
 
-      if (plasmidData && plasmidData.exists) {
+      if (allowPlasmid && plasmidData && plasmidData.exists) {
         if (plasmidDiv) {
           plasmidDiv.style.display = "block";
         }

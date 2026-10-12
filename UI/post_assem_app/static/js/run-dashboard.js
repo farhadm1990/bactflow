@@ -82,6 +82,7 @@
     startedAt: null,
     launchAt: null,
     endedAt: null,
+    nfFinished: false,
     failed: false,
     failedProc: "",
     doneAtFail: null,
@@ -398,6 +399,7 @@
           this.startedAt = Date.now();
           this.launchAt = this.startedAt;
           this.endedAt = null;
+          this.nfFinished = false;
           this.failed = false;
           this.failedProc = "";
           this.failMessage = "";
@@ -457,6 +459,9 @@
           this.setText("rd-nf-ver", m[1]);
         }
       }
+      if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
+        this.nfFinished = true;
+      }
       if (/Process completed|Nextflow finished successfully/i.test(line)) {
         if (!this.endedAt && this.startedAt) {
           this.endedAt = Date.now();
@@ -503,19 +508,8 @@
       meters._rdHooked = true;
       const orig = meters.apply.bind(meters);
       meters.apply = (s) => {
-        if (s && (s.cpu_percent != null || s.ram_percent != null) && !s.error) {
-          const live = !!s.running;
-          if (live) {
-            this._runMiss = 0;
-            this.serverRunning = true;
-          } else if (this.serverRunning) {
-            this._runMiss = (this._runMiss || 0) + 1;
-            if (this._runMiss >= 3) {
-              this.serverRunning = false;
-            }
-          } else {
-            this.serverRunning = false;
-          }
+        if (s && (s.cpu_percent != null || s.ram_percent != null)) {
+          this.serverRunning = !!s.running;
           this.renderGauges(s);
         }
         return orig(s);
@@ -668,12 +662,6 @@
           r.state = "wait";
           r.pct = 0;
           r.remaining = r.expected;
-          r.procs.forEach((p) => {
-            if (!p.done) {
-              p.phase = "waiting";
-              p.runningAt = null;
-            }
-          });
         }
         if (!r.stage.side) {
           chainDone = chainDone && r.state === "done";
@@ -733,9 +721,21 @@
       } else {
         this.frozenRows = null;
         rows = this.applyGates(this.fillSkipped(this.resolveStages(planned, list)));
-        if (state === "running" && rows.length && rows.every((r) => !r.procs.length && r.state === "wait")) {
-          rows[0].state = "run";
-          rows[0].elapsed = this.startedAt ? (Date.now() - this.startedAt) / 1000 : 0;
+        if (this.nfFinished && !this.failed) {
+          rows.forEach((r) => {
+            if (r.state === "wait") {
+              r.state = "done";
+              r.pct = 100;
+              r.remaining = 0;
+              r.skipped = true;
+            }
+          });
+        } else if (state === "running" && !rows.some((r) => r.state === "run" || r.state === "fail")) {
+          const next = rows.find((r) => r.state === "wait") || rows[0];
+          if (next && next.state === "wait") {
+            next.state = "run";
+            next.elapsed = 0;
+          }
         }
       }
 
@@ -811,7 +811,7 @@
         return;
       }
       const key = rows.map((r) => r.stage.id).join("|");
-      if (key !== this.plannedKey) {
+      if (key !== this.plannedKey || track.childElementCount !== rows.length) {
         this.plannedKey = key;
         track.innerHTML = "";
         rows.forEach((r) => {
@@ -854,7 +854,10 @@
         } else if (r.procs.length) {
           meta = "Queued";
         }
-        el.querySelector(".rd-stage-meta").textContent = meta;
+        const metaEl = el.querySelector(".rd-stage-meta");
+        if (metaEl && metaEl.textContent !== meta) {
+          metaEl.textContent = meta;
+        }
       });
     },
 

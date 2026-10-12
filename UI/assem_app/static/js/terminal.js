@@ -80,6 +80,7 @@ const BactflowProcessEta = {
     this.durations.clear();
     this.loadLearnedDurations();
     this.workflow = { startedAt: null, percent: 0, completed: 0, total: 0 };
+    this._notifiedDone = false;
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
@@ -296,10 +297,22 @@ const BactflowProcessEta = {
     if (reason === "completed") {
       terminal.setStatus("All processes completed", "ok");
     }
+    this.notifyProcessesDone();
   },
 
   allDone() {
-    return this.processes.size > 0 && [...this.processes.values()].every((p) => p.done);
+    const live = [...this.processes.values()].filter((p) => p.id !== "_executor");
+    return live.length > 0 && live.every((p) => p.done);
+  },
+
+  notifyProcessesDone() {
+    if (!this.allDone() || this._notifiedDone) {
+      return;
+    }
+    this._notifiedDone = true;
+    if (typeof window.onPipelineProcessesDone === "function") {
+      window.onPipelineProcessesDone();
+    }
   },
 
   formatDuration(seconds) {
@@ -806,6 +819,7 @@ const BactflowProcessEta = {
     }
     if (this.allDone()) {
       this.stopTick();
+      this.notifyProcessesDone();
     }
   },
 
@@ -886,6 +900,7 @@ const BactflowProcessEta = {
       if (this.allDone()) {
         this.stopTick();
         this.renderWorkflowBar(terminal);
+        this.notifyProcessesDone();
       }
     } else if (this.isWaiting(proc)) {
       terminal.setStatus(`${shown} · queued`, "run");

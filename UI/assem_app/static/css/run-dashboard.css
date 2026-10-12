@@ -1099,6 +1099,10 @@ html[data-theme="light"] .rd-logs #output-bactflow {
   line-height: 1.55;
 }
 
+.rd-results-body > br {
+  display: none;
+}
+
 .rd-results-body > div {
   margin-bottom: 12px;
 }

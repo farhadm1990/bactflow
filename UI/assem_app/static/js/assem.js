@@ -594,17 +594,11 @@ function renderCircFastaList(data, opts) {
     return;
   }
   const files = Array.isArray(data.files) ? data.files : [];
-  const circleOn = opts && opts.circleOn;
-  const runDone = opts && opts.runDone;
   if (!data.exists || !files.length) {
-    if (circleOn && runDone) {
-      wrap.style.display = "block";
-      if (hint) {
-        hint.textContent = "Circulator finished but no FASTA files were found in out_dir/circulated_fasta.";
-      }
-      list.innerHTML = "";
-    } else {
-      wrap.style.display = "none";
+    wrap.style.display = "none";
+    list.innerHTML = "";
+    if (hint) {
+      hint.textContent = "";
     }
     return;
   }
@@ -621,28 +615,54 @@ let resultsOpen = false;
 let resultsAutoShown = false;
 let runFinishedSuccess = false;
 
-function runHasFinishedOk() {
+function isSetupOnlyName(name) {
+  const n = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return n === "envsetup" || n === "testify";
+}
+
+function lastPipelineProcessDone() {
   const dash = window.BactflowRunDashboard;
   const eta = window.BactflowProcessEta;
   if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return false;
   }
-  if (eta && eta.allDone()) {
+  if (dash && dash.nfFinished && dash.startedAt && !dash.failed) {
     return true;
   }
-  return !!(dash && dash.endedAt && dash.startedAt && !dash.failed);
+  if (!eta || !eta.processes || !eta.processes.size) {
+    return false;
+  }
+  const live = [...eta.processes.values()].filter((p) => p.id !== "_executor");
+  if (!live.length || live.some((p) => !p.done)) {
+    return false;
+  }
+  if (live.some((p) => !isSetupOnlyName(p.name))) {
+    return true;
+  }
+  const setupOnly = document.getElementById("setup_only");
+  return !!(setupOnly && String(setupOnly.value).toLowerCase() === "true");
+}
+
+function runHasFinishedOk() {
+  const dash = window.BactflowRunDashboard;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
+    return false;
+  }
+  return lastPipelineProcessDone();
 }
 
 function setTerminalVisible(visible) {
-  const logs = document.querySelector(".rd-center .rd-logs");
+  const logs = document.querySelector(".rd-center .rd-logs") || document.querySelector(".rd-logs");
   if (!logs) {
     return;
   }
   logs.classList.toggle("is-hidden", !visible);
   if (!visible) {
     logs.style.height = "";
+    logs.style.display = "none";
     return;
   }
+  logs.style.display = "";
   if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
     requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
   }
@@ -659,24 +679,41 @@ function showEmptyTerminal() {
 }
 
 function isPipelineRunning() {
+  if (lastPipelineProcessDone()) {
+    return false;
+  }
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled) {
+    return true;
+  }
   const dash = window.BactflowRunDashboard;
   return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
 }
 
-function anyResultVisible() {
-  const pane = document.getElementById("assem-results-pane");
-  if (!pane) {
+const RESULT_PANEL_IDS = [
+  "circFastaDiv",
+  "quastDiv",
+  "baktaDiv",
+  "taxa_class",
+  "gtdbTreeDiv",
+  "checkmDiv",
+  "checkmTreeDiv",
+  "plasmidDiv",
+];
+
+function panelIsShown(el) {
+  if (!el) {
     return false;
   }
-  return [...pane.children].some((el) => {
-    if (el.id === "rd-results-empty" || el.id === "resultsStatusDiv") {
-      return false;
-    }
-    if (el.style.display === "none") {
-      return false;
-    }
-    return getComputedStyle(el).display !== "none";
-  });
+  if ((el.style && el.style.display) === "none") {
+    return false;
+  }
+  const display = getComputedStyle(el).display;
+  return display !== "none" && display !== "";
+}
+
+function anyResultVisible() {
+  return RESULT_PANEL_IDS.some((id) => panelIsShown(document.getElementById(id)));
 }
 
 function setResultsEmptyVisible(visible) {
@@ -698,11 +735,13 @@ function setResultsOpen(open, opts) {
     btn.textContent = resultsOpen ? "Hide results" : "Display results";
   }
   setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
-  if (!isPipelineRunning()) {
-    setTerminalVisible(!resultsOpen);
-    if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
-      showEmptyTerminal();
-    }
+  if (isPipelineRunning()) {
+    setTerminalVisible(true);
+    return;
+  }
+  setTerminalVisible(!resultsOpen);
+  if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
+    showEmptyTerminal();
   }
 }
 
@@ -726,30 +765,53 @@ function toggleResults() {
   });
 }
 
+let revealInFlight = false;
 function revealResultsOnSuccess(force) {
   const dash = window.BactflowRunDashboard;
-  if (resultsAutoShown) {
+  if (resultsAutoShown || revealInFlight) {
     return;
   }
-  if (!force && !runHasFinishedOk()) {
-    return;
-  }
-  if (dash && (dash.failed || dash.stopping || dash.frozenRows) && !force) {
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return;
   }
   if (isPipelineRunning()) {
     return;
   }
-  if (!anyResultVisible()) {
+  if (!force && !runHasFinishedOk()) {
     return;
   }
-  resultsAutoShown = true;
-  runFinishedSuccess = true;
-  setResultsOpen(true);
+  const openIfReady = () => {
+    if (resultsAutoShown || !anyResultVisible()) {
+      return false;
+    }
+    resultsAutoShown = true;
+    runFinishedSuccess = true;
+    setResultsOpen(true);
+    return true;
+  };
+  if (openIfReady()) {
+    return;
+  }
+  revealInFlight = true;
+  Promise.resolve(showReport())
+    .then(() => openIfReady())
+    .finally(() => {
+      revealInFlight = false;
+    });
 }
 
 window.toggleResults = toggleResults;
 window.revealResultsOnSuccess = revealResultsOnSuccess;
+window.onPipelineProcessesDone = function () {
+  revealResultsOnSuccess(true);
+  [1500, 4000, 8000].forEach((ms) => {
+    setTimeout(() => {
+      if (!resultsAutoShown) {
+        revealResultsOnSuccess(true);
+      }
+    }, ms);
+  });
+};
 window.showReport = showReport;
 
 function showReport() {

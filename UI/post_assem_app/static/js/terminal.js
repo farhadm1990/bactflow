@@ -79,6 +79,7 @@ const BactflowProcessEta = {
     this.durations.clear();
     this.loadLearnedDurations();
     this.workflow = { startedAt: null, percent: 0, completed: 0, total: 0 };
+    this._notifiedDone = false;
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
@@ -267,7 +268,7 @@ const BactflowProcessEta = {
     for (const hm of hashMatches) {
       const hash = hm[1];
       if (
-        /✔|COMPLETED|Task completed|Executor finished/i.test(t) ||
+        /✔|COMPLETED|Task completed/i.test(t) ||
         /\[\s*100%\]/i.test(t) ||
         (/process\s+>/i.test(t) && /\[\s*\d+%\]/i.test(t) && /\b1\s+of\s+1\b/i.test(t))
       ) {
@@ -275,28 +276,6 @@ const BactflowProcessEta = {
           matched = true;
         }
       }
-    }
-
-    const wf = t.match(/\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
-    if (wf && Number(wf[1]) >= 100 && Number(wf[2]) >= Number(wf[3])) {
-      matched = true;
-    }
-
-    if (/ERROR:\s*Bakta failed|Bakta failed for|annotation summary|If you use this software in a publication/i.test(t)) {
-      this.processes.forEach((proc) => {
-        if (!proc.done && /bakta/i.test(proc.name || proc.id || "")) {
-          this.markDone(proc);
-          if (proc.row && terminal) {
-            this.renderRow(proc, terminal.classify(proc.lastLine));
-          }
-          matched = true;
-        }
-      });
-    }
-
-    if (/BactFlow:\s*Nextflow finished|BactFlow:\s*Nextflow exited/i.test(t)) {
-      this.finalizeAll(terminal, /finished successfully/i.test(t) ? "completed" : "stopped");
-      matched = true;
     }
 
     if (/Bactflow is already installed|bactflow was successfully installed|environment_created/i.test(t)) {
@@ -330,10 +309,22 @@ const BactflowProcessEta = {
     if (reason === "completed") {
       terminal.setStatus("All processes completed", "ok");
     }
+    this.notifyProcessesDone();
   },
 
   allDone() {
-    return this.processes.size > 0 && [...this.processes.values()].every((p) => p.done);
+    const live = [...this.processes.values()].filter((p) => p.id !== "_executor");
+    return live.length > 0 && live.every((p) => p.done);
+  },
+
+  notifyProcessesDone() {
+    if (!this.allDone() || this._notifiedDone) {
+      return;
+    }
+    this._notifiedDone = true;
+    if (typeof window.onPipelineProcessesDone === "function") {
+      window.onPipelineProcessesDone();
+    }
   },
 
   formatDuration(seconds) {
@@ -871,51 +862,41 @@ const BactflowProcessEta = {
     }
     if (this.allDone()) {
       this.stopTick();
+      this.notifyProcessesDone();
     }
-  },
-
-  ensureLiveProc(name, terminal, line) {
-    const parsed = {
-      kind: "started",
-      id: null,
-      name,
-      tag: "",
-      percent: 1,
-      completed: 0,
-      total: 0,
-      done: false,
-    };
-    const proc = this.upsert(parsed);
-    if (!proc.done) {
-      proc.phase = "running";
-      if (!proc.runningAt) {
-        proc.runningAt = Date.now();
-      }
-      proc.lastLine = line;
-      if (terminal) {
-        this.renderRow(proc, terminal.classify(line));
-      }
-    }
-    return proc;
   },
 
   applyLiveActivity(line, terminal) {
     const t = String(line || "");
     const rules = [
-      [/Identifying marker|Executing gene calling|Running Prodigal|TIGRFAM|Pfam|Executing aligning|hmmalign|Masking columns|Executing classification|Using GTDB-Tk|gtdbtk /i, "taxonomyGTDBTK"],
-      [/\bcheckm\b|lineage_wf|checkm tree|checkm qa|pplacer|CheckM /i, "checkm_lineage"],
-      [/Running circlator|circlator fixstart|Circulated genomes/i, "circulator"],
-      [/quast\.py|\bQUAST\b|Running QUAST/i, "quast_check"],
-      [/geNomad|plasmidDetect|plasmid_detect/i, "plasmidDetect"],
-      [/\bbakta\b/i, "baktaAnnot"],
+      [/Running circlator|circlator fixstart/i, /circul/i],
+      [/quast\.py|Running QUAST/i, /quast/i],
+      [/geNomad|plasmidDetect|plasmid_detect/i, /plasmid|genomad/i],
+      [/checkm /i, /checkm/i],
+      [/gtdbtk|GTDB-Tk/i, /gtdb|taxonomy/i],
+      [/bakta /i, /bakta/i]
     ];
     let hit = false;
-    for (const [re, name] of rules) {
+    for (const [re, nameRe] of rules) {
       if (!re.test(t)) {
         continue;
       }
-      this.ensureLiveProc(name, terminal, line);
-      hit = true;
+      this.processes.forEach((proc) => {
+        if (proc.done || proc.id === "_executor") {
+          return;
+        }
+        if (nameRe.test(`${proc.name} ${proc.id}`)) {
+          proc.phase = "running";
+          if (!proc.runningAt) {
+            proc.runningAt = Date.now();
+          }
+          proc.lastLine = line;
+          if (proc.row && terminal) {
+            this.renderRow(proc, terminal.classify(line));
+          }
+          hit = true;
+        }
+      });
     }
     return hit;
   },
@@ -1009,6 +990,7 @@ const BactflowProcessEta = {
       if (this.allDone()) {
         this.stopTick();
         this.renderWorkflowBar(terminal);
+        this.notifyProcessesDone();
       }
     } else if (this.isWaiting(proc)) {
       terminal.setStatus(`${shown} · queued`, "run");
@@ -1222,21 +1204,9 @@ const BactflowMeters = {
   history: { cpu: [], ram: [] },
   maxPoints: 40,
   timer: null,
-  _busy: false,
-  lastGood: null,
-
-  usable(s) {
-    if (!s || (s.cpu_percent == null && s.ram_percent == null)) {
-      return false;
-    }
-    if (s.error) {
-      return false;
-    }
-    return Number(s.ram_total_gb) > 0 || Number(s.ram_percent) > 0 || Number(s.ram_used_gb) > 0;
-  },
 
   init() {
-    if (this.timer) {
+    if (!document.getElementById("bf-meters") || this.timer) {
       return;
     }
     this.tick();
@@ -1302,15 +1272,9 @@ const BactflowMeters = {
   },
 
   setBar(fillEl, jobEl, percent, jobPercent) {
-    const pct = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-    const width = pct + "%";
-    const fillClass = "bf-meter-fill " + this.level(pct);
-    if (fillEl.style.width !== width) {
-      fillEl.style.width = width;
-    }
-    if (fillEl.className !== fillClass) {
-      fillEl.className = fillClass;
-    }
+    const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+    fillEl.style.width = pct.toFixed(1) + "%";
+    fillEl.className = "bf-meter-fill " + this.level(pct);
     if (jobEl) {
       const job = Math.max(0, Math.min(100, Number(jobPercent) || 0));
       jobEl.style.width = job.toFixed(1) + "%";
@@ -1318,10 +1282,9 @@ const BactflowMeters = {
   },
 
   apply(s) {
-    if (!this.usable(s)) {
+    if (!s || s.ram_percent == null && s.cpu_percent == null) {
       return false;
     }
-    this.lastGood = s;
     const cpuFill = document.getElementById("bf-cpu-fill");
     const ramFill = document.getElementById("bf-ram-fill");
     const cpuVal = document.getElementById("bf-cpu-val");
@@ -1340,28 +1303,22 @@ const BactflowMeters = {
       s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
     );
 
-    const cpuText = `${Math.round(Number(s.cpu_percent) || 0)}%`;
-    const ramText = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Math.round(Number(s.ram_percent) || 0)}%)`;
     if (cpuVal) {
       cpuVal.classList.remove("is-missing");
-      if (cpuVal.textContent !== cpuText) {
-        cpuVal.textContent = cpuText;
-      }
+      const jobBit = s.running && s.job_cores != null
+        ? ` · <span class="job">job ${s.job_cores}/${s.cpu_count} cores</span>`
+        : "";
+      cpuVal.innerHTML = `${Number(s.cpu_percent || 0).toFixed(1)}%${jobBit}`;
     }
     if (ramVal) {
       ramVal.classList.remove("is-missing");
-      if (ramVal.textContent !== ramText) {
-        ramVal.textContent = ramText;
-      }
+      const jobBit = s.running && s.job_rss_gb != null
+        ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
+        : "";
+      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
     }
-    if (this._sparkCpu !== cpuText) {
-      this._sparkCpu = cpuText;
-      this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
-    }
-    if (this._sparkRam !== ramText) {
-      this._sparkRam = ramText;
-      this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
-    }
+    this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
+    this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
     return true;
   },
 
@@ -1374,10 +1331,11 @@ const BactflowMeters = {
   },
 
   async tick() {
-    if (document.hidden || this._busy) {
+    if (document.hidden) {
       return;
     }
-    this._busy = true;
+    const cpuVal = document.getElementById("bf-cpu-val");
+    const ramVal = document.getElementById("bf-ram-val");
     try {
       let payload = null;
       const stamp = Date.now();
@@ -1387,16 +1345,12 @@ const BactflowMeters = {
         `/static/sys_stats.json?t=${stamp}`
       ]) {
         try {
-          const opts = { cache: "no-store" };
-          if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
-            opts.signal = AbortSignal.timeout(2000);
-          }
-          const res = await fetch(url, opts);
+          const res = await fetch(url, { cache: "no-store" });
           if (!res.ok) {
             continue;
           }
           const data = await res.json();
-          if (this.usable(data)) {
+          if (data && (data.cpu_percent != null || data.ram_percent != null)) {
             payload = data;
             break;
           }
@@ -1404,11 +1358,12 @@ const BactflowMeters = {
           continue;
         }
       }
-      if (payload) {
-        this.apply(payload);
+      if (!this.apply(payload)) {
+        throw new Error("no stats fields");
       }
-    } finally {
-      this._busy = false;
+    } catch (err) {
+      this.markWaiting(cpuVal);
+      this.markWaiting(ramVal);
     }
   }
 };
