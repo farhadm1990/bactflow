@@ -138,9 +138,17 @@ def assembly():
     return render_template('post-assembly.html')
 
 
+def _ui_port(default=5001):
+    try:
+        port = int(os.environ.get("BACTFLOW_HOST_PORT") or default)
+    except (TypeError, ValueError):
+        port = default
+    return port if 1 <= port <= 65535 else default
+
+
 def open_browser():
     from bactflow_open_browser import open_bactflow_browser
-    open_bactflow_browser(port=5001)
+    open_bactflow_browser(port=_ui_port(5001))
 
 
 ########################################################
@@ -1858,7 +1866,7 @@ if __name__ == '__main__':
     flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
     app.run(
         debug=flask_debug,
-        port=5001,
+        port=_ui_port(5001),
         host="0.0.0.0",
         use_reloader=False,
         threaded=True,

@@ -526,9 +526,17 @@ def preassembly():
     
     return render_template('pre-assembly.html')
 
+def _ui_port(default=5000):
+    try:
+        port = int(os.environ.get("BACTFLOW_HOST_PORT") or default)
+    except (TypeError, ValueError):
+        port = default
+    return port if 1 <= port <= 65535 else default
+
+
 def open_browser():
     from bactflow_open_browser import open_bactflow_browser
-    open_bactflow_browser(port=5000)
+    open_bactflow_browser(port=_ui_port(5000))
 
 # First check if bactflow is installed
 
@@ -1823,7 +1831,7 @@ if __name__ == '__main__':
     flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
     app.run(
         debug=flask_debug,
-        port=5000,
+        port=_ui_port(5000),
         host="0.0.0.0",
         use_reloader=False,
         threaded=True,

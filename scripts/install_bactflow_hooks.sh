@@ -12,7 +12,9 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # shellcheck disable=SC1091
+set +u
 source "$(conda info --base)/etc/profile.d/conda.sh"
+set -u
 
 if ! conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
     echo "Conda env '${ENV_NAME}' not found. Create it first: bash scripts/setup_bactflow_env.sh" >&2
@@ -32,9 +34,12 @@ cp "${RUNTIME_SH}" "${HOOK_DIR}/${HOOK_NAME}"
 chmod +x "${HOOK_DIR}/${HOOK_NAME}"
 
 echo "Installed BactFlow runtime hook: ${HOOK_DIR}/${HOOK_NAME}"
-echo "Re-activate with: conda deactivate && conda activate ${ENV_NAME}"
 
-conda activate "${ENV_NAME}"
+# Verify Java/Nextflow without `conda activate` (activate scripts break under `set -u`).
+export CONDA_PREFIX
+export PATH="${CONDA_PREFIX}/bin:${PATH}"
+# shellcheck disable=SC1091
+source "${HOOK_DIR}/${HOOK_NAME}"
 if bactflow_prepare_nextflow; then
     echo "OK: Java=$JAVA_CMD"
     echo "OK: Nextflow=$BACTFLOW_NEXTFLOW_BIN"
@@ -43,3 +48,5 @@ else
     echo "Hook installed but verification failed — check messages above." >&2
     exit 1
 fi
+
+echo "Activate with: conda deactivate && conda activate ${ENV_NAME}"
