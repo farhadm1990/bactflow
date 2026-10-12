@@ -1,384 +1,283 @@
 
 {% extends 'base.html' %}
 
-<!-- title bloc -->
 {% block title %} Pre-assembly  {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}?v=sidebar-scroll6">
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/meters.css') }}?v=1">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/pre-assem.css') }}?v=helix2">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
-<style>
-  /* Single scrolling left column — buttons are IN the scroll flow (not overlay). */
-  #preForm > .container-fluid > .row.bf-pre-row {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    height: calc(100vh - 128px) !important;
-    max-height: calc(100vh - 128px) !important;
-    overflow: hidden !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-  }
-  #pre-side {
-    flex: 0 0 30% !important;
-    width: 30% !important;
-    max-width: 30% !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    min-height: 0 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    border-right: 1px solid #ddd;
-    padding: 8px 10px 24px 8px !important;
-    box-sizing: border-box !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  #pre-side-actions {
-    position: static !important;
-    margin-top: 16px !important;
-    margin-bottom: 24px !important;
-    padding: 12px 8px !important;
-    background: #f8f9fa !important;
-    border: 1px solid #ddd !important;
-    border-radius: 6px;
-  }
-  #pre-side-actions .btn-group {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    width: 100% !important;
-  }
-  #pre-side-actions .btn {
-    flex: 1 1 42% !important;
-    white-space: normal !important;
-    font-size: 0.82rem !important;
-  }
-  #pre-results-pane {
-    flex: 0 0 70% !important;
-    width: 70% !important;
-    max-width: 70% !important;
-    height: 100% !important;
-    overflow-y: auto !important;
-  }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd19">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre10">
+<script>try{var t=localStorage.getItem("bactflow_theme");if(t==="light"||t==="plain")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 {% endblock %}
 
-
-
 {% block content %}
-  
-<body>
+<div class="rd-plasma" aria-hidden="true">
+  <i></i><i></i><i></i><i></i>
+  <svg viewBox="0 0 2400 600" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="rd-wave-grad" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="#8b5cf6"/>
+        <stop offset="0.35" stop-color="#22d3ee"/>
+        <stop offset="0.65" stop-color="#22c55e"/>
+        <stop offset="1" stop-color="#8b5cf6"/>
+      </linearGradient>
+    </defs>
+    <path stroke-width="2.5" d="M0 300 C300 140 300 140 600 300 S900 460 1200 300 S1500 140 1800 300 S2100 460 2400 300"/>
+    <path stroke-width="1.5" opacity=".7" d="M0 330 C300 200 300 200 600 330 S900 470 1200 330 S1500 200 1800 330 S2100 470 2400 330"/>
+    <path stroke-width="1" opacity=".55" d="M0 270 C300 90 300 90 600 270 S900 430 1200 270 S1500 90 1800 270 S2100 430 2400 270"/>
+    <path stroke-width="6" opacity=".18" d="M0 360 C300 250 300 250 600 360 S900 500 1200 360 S1500 250 1800 360 S2100 500 2400 360"/>
+  </svg>
+</div>
 
-  <header style="color: rgb(255, 255, 255); background-color: rgb(82, 100, 103); padding: 5px; height: 100px; display: flex; justify-content: space-between; align-items: center;">
-    <div style="margin-left: 5px;">
-
-      <h1><a class="navbar-brand" href="https://github.com/farhadm1990/bactflow" target="_blank">BactFlow: Pre-assembly</a>  </h1>
-
-    </div>
-
-    <div style="display: flex; justify-content: space-between;">
-
-      <!-- <form class="d-flex" role="search" style=" display: flex; justify-content: center; align-items: center;">
-        <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
-        <button class="btn btn-outline-success" type="submit">Search</button>
-      </form> -->
-      
-      <a href="/"><img src="{{ url_for('static', filename = 'images/logo.png') }}" alt="BactFlow" style="width: 100px; height: 100px"></a>
-    </div>
-   
-  </header>
-
-</body>
-
-
-
-
-    
-    
 <form id="preForm">
 
+<div class="rd-app">
 
-  <div class="container-fluid mt-3">
-    <div class="row bf-pre-row">
-  
-  
-      <!-- Input Options Div -->
-  
-      <div class="col-md-4" id="pre-side">
+  <aside class="rd-nav rd-nav-setup" aria-label="Analysis setup">
+    <a class="rd-brand" href="https://github.com/farhadm1990/bactflow" target="_blank" rel="noopener noreferrer">
+      <img class="rd-brand-mark" src="{{ url_for('static', filename='images/logo.png') }}" alt="">
+      <div class="rd-brand-text">
+        <strong>BactFlow</strong>
+        <span>From reads to insights.</span>
+      </div>
+    </a>
+    <div class="rd-nav-btn is-active rd-setup-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg> Analysis Setup</div>
+    <div class="rd-setup-scroll">
 
-          <div class="card-header text-black" id="notInstalled" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; background-color: rgb(233, 233, 233); align-items: center;">
-            <label for="setup_only" class="form-label">BactFlow is not installed, please install <strong>BactFlow</strong> environemnt first </label>
-            <button type="button" class="btn btn-warning" style="background-color: rgb(253, 94, 128); width:200px; color: rgb(255, 255, 255);" id="install-bt" name="setup_only" value="install"><strong>Install BactFlow</strong></button>
-             <div id="installing" style="display: none;">
-              <p>Installing bactflow...</p>
-            <div class="spinner-grow text-info" role="status">
-            <span class="sr-only"></span>
+        <div class="pre-install" id="notInstalled" style="display: none;">
+          <label for="install-bt" class="form-label">BactFlow is not installed. Install the <strong>BactFlow</strong> environment first.</label>
+          <button type="button" class="btn" id="install-bt" name="setup_only" value="install"><strong>Install BactFlow</strong></button>
+          <div id="installing" style="display: none;">
+            <p>Installing BactFlow…</p>
+            <div class="spinner-grow text-info" role="status"><span class="sr-only"></span></div>
           </div>
-             </div>
-          </div>
+        </div>
 
-          <div class="card-header text-black" id="Installed" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; background-color: rgb(216, 215, 215); align-items: center;">
+        <!-- Raw Read Parameters -->
+        <div class="card mb-3">
+          <div class="card-header d-flex align-items-center">
+            <h6 class="mb-0">Raw Read Parameters</h6>
           </div>
+          <div class="card-body">
 
-          <!-- Raw Read Parameters -->
-          <div class="card mb-3">
-            <div class="card-header d-flex text-white align-items-center" style="background-color: rgb(51, 171, 161); height: 100px; position: relative; padding-top: auto;">
-              <h6 class="mb-0">Raw Read Parameters</h6>
+            <div class="mb-3">
+              <label for="read_platform" class="form-label">Read type</label>
+              <select class="form-select" id="read_platform" name="read_platform">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="ont">ONT (long reads)</option>
+                <option value="pacbio">PacBio (long reads)</option>
+                <option value="illumina">Illumina (short reads)</option>
+              </select>
             </div>
-            <div class="card-body">
 
+            <div class="mb-3">
+              <label for="fastq_dir" class="form-label">FASTQ Directory</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="fastq_dir" name="fastq_dir" placeholder="/path/to/fastq_dir"/>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="out_dir" class="form-label">Output Directory</label>
+              <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out" value="./bactflow_out"/>
+            </div>
+
+            <div class="mb-3">
+              <label for="cpus" class="form-label">CPUs</label>
+              <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+            </div>
+
+            <div class="mb-3" id="pacbioKindGroup" style="display: none;">
+              <label for="pacbio_read_kind" class="form-label">PacBio read kind (hint)</label>
+              <select class="form-select" id="pacbio_read_kind" name="pacbio_read_kind">
+                <option value="hifi" selected>HiFi / CCS (&lt;1% error, high Q)</option>
+                <option value="corr">Corrected (&lt;3% error)</option>
+                <option value="clr">CLR / subreads (&lt;20% error)</option>
+              </select>
+              <div class="form-text">
+                Visualize classifies PacBio as HiFi/CCS or subreads/CLR and which Flye mode to use
+                (<code>pacbio-hifi</code> vs <code>pacbio-raw</code>).
+              </div>
+            </div>
+
+            <div class="mb-3" id="concatReadsGroup">
+              <label for="concat_reads" class="form-label">Concat Reads</label>
+              <select class="form-select" id="concat_reads" name="concat_reads">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+              <div class="form-text">
+                Set True for ONT barcode folders or PacBio sample folders that still need pooling
+                (e.g. <code>TL110_fastq/*.subreads.fastq</code>).
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="extension" class="form-label">Extension</label>
+              <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
+              <div class="form-text">
+                Auto-detected if needed. PacBio chunks are often <code>.subreads.fastq</code>.
+              </div>
+            </div>
+
+            <div id="readFilterGroup">
+              <hr>
+              <h6 id="readFilterTitle">Read filter</h6>
               <div class="mb-3">
-                <label for="read_platform" class="form-label">Read type</label>
-                <select class="form-select" id="read_platform" name="read_platform">
-                  <option value="auto" selected>Auto-detect</option>
-                  <option value="ont">ONT (long reads)</option>
-                  <option value="pacbio">PacBio (long reads)</option>
-                  <option value="illumina">Illumina (short reads)</option>
-                </select>
-              </div>
-
-              <div class="mb-3">
-                <label for="fastq_dir" class="form-label">FASTQ Directory</label>
-                <div class="input-group">
-                  <input
-                  type="text"
-                  class="form-control"
-                  id="fastq_dir"
-                  name="fastq_dir"
-                  placeholder="/path/to/fastq_dir"
-                  />
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <label for="out_dir" class="form-label">Output Directory</label>
-                <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out" value="./bactflow_out"/>
-              </div>
-
-              <div class="mb-3">
-                <label for="cpus" class="form-label">CPUs</label>
-                <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
-              </div>
-
-              <div class="mb-3" id="pacbioKindGroup" style="display: none;">
-                <label for="pacbio_read_kind" class="form-label">PacBio read kind (hint)</label>
-                <select class="form-select" id="pacbio_read_kind" name="pacbio_read_kind">
-                  <option value="hifi" selected>HiFi / CCS (&lt;1% error, high Q)</option>
-                  <option value="corr">Corrected (&lt;3% error)</option>
-                  <option value="clr">CLR / subreads (&lt;20% error)</option>
-                </select>
-                <div class="form-text">
-                  Visualize classifies PacBio as HiFi/CCS or subreads/CLR and which Flye mode to use
-                  (<code>pacbio-hifi</code> vs <code>pacbio-raw</code>).
-                </div>
-              </div>
-
-              <div class="mb-3" id="concatReadsGroup">
-                <label for="concat_reads" class="form-label">Concat Reads</label>
-                <select class="form-select" id="concat_reads" name="concat_reads">
-                  <option value="true">True</option>
+                <label for="read_filter" class="form-label" id="readFilterLabel">Filter reads</label>
+                <select class="form-select" id="read_filter" name="read_filter">
                   <option value="false" selected>False</option>
+                  <option value="true">True</option>
                 </select>
-                <div class="form-text">
-                  Set True for ONT barcode folders or PacBio sample folders that still need pooling
-                  (e.g. <code>TL110_fastq/*.subreads.fastq</code>).
-                </div>
+                <input type="hidden" id="illumina_filter" name="illumina_filter" value="false"/>
               </div>
-
-              <div class="mb-3">
-                <label for="extension" class="form-label">Extension</label>
-                <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
-                <div class="form-text">
-                  Auto-detected if needed. PacBio chunks are often <code>.subreads.fastq</code>.
-                </div>
-              </div>
-
-              <div id="illuminaFilterGroup" style="display: none;">
-                <hr>
-                <h6>Illumina length &amp; quality filter</h6>
+              <div id="readFilterParams" style="display: none;">
                 <div class="mb-3">
-                  <label for="illumina_filter" class="form-label">Filter Illumina reads</label>
-                  <select class="form-select" id="illumina_filter" name="illumina_filter">
-                    <option value="false" selected>False</option>
-                    <option value="true">True</option>
-                  </select>
+                  <label for="min_length" class="form-label">Minimum read length</label>
+                  <input type="number" class="form-control" id="min_length" name="min_length" value="1000" min="1"/>
+                  <input type="hidden" id="illumina_min_length" name="illumina_min_length" value="80"/>
                 </div>
-                <div id="illuminaFilterParams" style="display: none;">
-                  <div class="mb-3">
-                    <label for="illumina_min_length" class="form-label">Minimum read length</label>
-                    <input type="number" class="form-control" id="illumina_min_length" name="illumina_min_length" value="50" min="1"/>
-                  </div>
-                  <div class="mb-3">
-                    <label for="illumina_min_quality" class="form-label">Minimum average quality</label>
-                    <input type="number" class="form-control" id="illumina_min_quality" name="illumina_min_quality" value="20" min="1" step="0.1"/>
-                  </div>
-                  <div class="form-text">Paired R1/R2 files are filtered together and unpaired reads are dropped.</div>
+                <div class="mb-3">
+                  <label for="min_quality" class="form-label">Minimum average quality</label>
+                  <input type="number" class="form-control" id="min_quality" name="min_quality" value="16" min="1" step="0.1"/>
+                  <input type="hidden" id="illumina_min_quality" name="illumina_min_quality" value="30"/>
                 </div>
+                <div class="form-text" id="readFilterHint">Reads shorter than this length or below this quality are dropped.</div>
               </div>
             </div>
           </div>
-
-        <!-- Buttons scroll with the form (not glued over the last fields) -->
-        <div class="bg-light" id="pre-side-actions">
-          <div class="btn-group">
-            <button type="button" class="btn btn-info" onclick="catFastq()" id="read-cat" name="action-assem" value="stats"><strong>Initiate read cat</strong></button>
-            <button type="button" class="btn btn-warning" onclick="filterIllumina()" id="illumina-filter-bt" name="action-assem" value="filter" style="display: none;"><strong>Filter Illumina reads</strong></button>
-            <button type="button" class="btn btn-secondary" onclick="read_stat()" id="read-stat" name="action-assem" value="stats"><strong>Display read statistics</strong></button>
-            <button type="button" class="btn btn-success" onclick="read_vis()" name="action-assem" value="vis" id="vis-bt"><strong>Visualize reads</strong></button>
-          </div>
         </div>
-
+    </div>
+    <div class="rd-nav-foot">
+      <div class="rd-user-menu" id="rd-user-menu" role="menu">
+        <a href="https://github.com/farhadm1990" target="_blank" rel="noopener noreferrer" role="menuitem">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+        <a class="is-linkedin" href="https://www.linkedin.com/in/farhadmp/" target="_blank" rel="noopener noreferrer" role="menuitem">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.15C0 .51.53 0 1.18 0h13.64C15.47 0 16 .51 16 1.15v13.7c0 .64-.53 1.15-1.18 1.15H1.18C.53 16 0 15.49 0 14.85zm4.94 12.24V6.17H2.54v7.22zm-1.2-8.2c.84 0 1.36-.56 1.36-1.25-.02-.71-.52-1.25-1.34-1.25-.82 0-1.36.54-1.36 1.25 0 .7.52 1.25 1.33 1.25zm4.91 8.2V9.36c0-.22.02-.43.08-.59.17-.43.57-.88 1.23-.88.87 0 1.22.66 1.22 1.63v3.87h2.4V9.25c0-2.22-1.18-3.25-2.76-3.25-1.28 0-1.85.7-2.17 1.19V6.17h-2.4c.03.68 0 7.22 0 7.22z"/></svg>
+          LinkedIn
+        </a>
       </div>
-  
-         <!-- installation Output Section -->
-         <div id="pre-results-pane" class="col-md-9">
+      <button type="button" class="rd-user" id="rd-user-btn" aria-haspopup="true" aria-expanded="false">
+        <span class="rd-user-avatar">FP</span>
+        <span><span>Farhad M. Panah</span><small>Operator</small></span>
+        <svg class="rd-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>
+      </button>
+    </div>
+  </aside>
 
-          <div id="bf-meters" class="bf-meters" aria-label="CPU and memory usage">
-            <div class="bf-meter" data-kind="cpu">
-              <span class="bf-meter-label">CPU</span>
-              <div class="bf-meter-track" title="Host CPU">
-                <div class="bf-meter-fill" id="bf-cpu-fill"></div>
-                <div class="bf-meter-job" id="bf-cpu-job"></div>
-              </div>
-              <span class="bf-meter-val" id="bf-cpu-val">—</span>
-              <svg class="bf-spark" id="bf-cpu-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
-            </div>
-            <div class="bf-meter" data-kind="ram">
-              <span class="bf-meter-label">RAM</span>
-              <div class="bf-meter-track" title="Host memory">
-                <div class="bf-meter-fill" id="bf-ram-fill"></div>
-                <div class="bf-meter-job" id="bf-ram-job"></div>
-              </div>
-              <span class="bf-meter-val" id="bf-ram-val">—</span>
-              <svg class="bf-spark" id="bf-ram-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
-            </div>
-          </div>
-
-          <div id="spin-fastq-list" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
-            <div class="spinner-grow" role="status" style="width: 100px; height: 100px; color: #5f547c;"> 
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <br>
-          <br>
-          <h6 style="color: rgb(12, 34, 31);">Fastq files are being prepared to display...</h6>
-          </div>
-
-        <div style="display: none; flex-direction: column; text-align: center; text-align-last: center; padding:10px; margin-top: 10px;  align-items: center; justify-content: center; border: 1px solid rgb(105, 105, 105);" id="fastq-ls-div">
-            <div style="border: 1px solid rgb(142, 140, 140);
-                padding: 10px;
-                margin: 10px;
-                width: 98%;
-                border-radius: 5px;
-                overflow-y: auto;
-                overflow-x: auto;
-                white-space: pre-wrap;
-                background-color: #ffffff;
-                color: darkslategrey;" id="fastq-ls">
-                <h4 class="text-left mb-3">List of fastq files <strong>(FASTQ)</strong></h4>
-             
-          
-          </div>
-          <br>
-            <label class="form-label">Choose fastq size threshold <strong>(below 1024kb will be removed)</strong>: <span id="size-value" style="font-weight: bold; color: brown;"><strong>10Mb</strong></span><p>Mb</p></label>
-          <input type="range" class="form-range" id="size-slider" min="0" max="5000" step="1" value="10" name="size-threshold">
-          <br>
-         
-          <button type="button" style="btn btn-warning d-flex align-items-center justify-content-center gap-2" class="btn btn-warning" onclick="trimList()" id="trim-list" name="action-assem" value="stats"><strong>Trim the list!</strong>  <div class="spinner-border spinner-border-sm" role="status" style="display: none; width: 1rem; height: 1rem; vertical-align: middle;" id="spin-fastq">
-            <span class="visually-hidden">Loading...</span>
-          </div></button>
-        </div>
-          
-          <br>
-          
-        <!-- Plot Output Section -->
-         <div id="spin-seqkit" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 200px;  align-items: center;">
-          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #547c67;"> 
-          <span class="visually-hidden">Loading...</span>
-        </div>
-        <br>
-        <br>
-        <h3 style="color: blueviolet;">Report is being created...</h3>
-         </div>
-        
-        
-        <div id="seq-div" class="col-md-7" style="overflow-y: auto;  background-color: #f8f9fa; display: none; padding-top: 1px; width: 100%;">
-          <br>
-          <h4 class="text-left mb-3">Read statistics <strong>(SeqKit)</strong></h4>
-          <div id="output-seqkit" style="border: 1px solid rgb(105, 105, 105);
-                padding: 10px;
-                margin: 10px;
-                width: 98%;
-                overflow-y: auto;
-                overflow-x: auto;
-                white-space: pre-wrap;
-                background-color: #ffffff;
-                color: darkslategrey;">
-          </div>
-          <br>
-        </div>
-        <div class="container mt-3" id="threhold-input" style="display: none;">
-          <label for="customRange1" class="form-label">Choose read depth <strong>threshold</strong>: <span id="depth-value" style="font-weight: bold; color: brown;"><strong>1000</strong></span></label>
-          <input type="range" class="form-range" id="depth-slider" min="0" max="10000000" step="1000" value="1000">
-        </div>
-    
-        <br>
-        <div id="vis-error" class="bf-plot-error" style="display: none;"></div>
-        <div id="spin-vis" style="display: none; flex-direction: column; text-align: justify; text-align-last: center; padding:10px; margin-top: 80px;  align-items: center;">
-          <div class="spinner-grow" role="status" style="width: 200px; height: 200px; color: #9d4b3b;"> 
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <br>
-          <h3 style="color: rgb(43, 122, 226);">Visualization is in progress, please be patient...</h3>
-        </div>
-
-        <div class="bf-plot-bar" id="bar-qual-plot" style="display: none;">
-          <span class="bf-plot-bar-title">Read quality box plot</span>
-          <div class="bf-plot-bar-actions">
-            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPlot('qual-plot','read_quality_boxplot','png')">Download PNG</button>
-            <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-plot','read_quality_boxplot','svg')">Download SVG</button>
-          </div>
-        </div>
-        <div id="qual-plot" style="border: 1px solid rgb(105, 105, 105);
-                padding: 10px;
-                margin: 10px;
-                width: 98%;
-                height: 80vh;
-                display: none;
-                overflow-y: auto;
-                overflow-x: auto;
-                white-space: pre-wrap;
-                background-color: #ffffff;
-                color: darkslategrey;">
-        </div>
-        <br>
-        <!-- sliders for first plot -->
-        <div id="range1Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
-          
-          <div >
-            <label class="form-label">
-              Adjust the height of the plot <strong>(px)</strong>: 
-              <span id="height1-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range vertical-slider" id="range1H" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-          
-          <div>
-            <label class="form-label">
-              Adjust the width of the plot <strong>(px)</strong>: 
-              <span id="width1-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range" id="range1" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-                    
-          <hr>
-          <br>
+  <div class="rd-main">
+    <header class="rd-top">
+      <div>
+        <h1>Genomics analysis: Pre-assembly</h1>
+        <p class="rd-sub">Read QC · pooling, statistics and quality plots</p>
       </div>
-      
-          <br>
-          <!-- heatmap column -->
+      <div class="rd-top-stats">
+        <span class="rd-status is-idle" id="rd-run-badge">Idle</span>
+        <div class="rd-top-stat"><label>Step</label><strong class="rd-run-id" id="pre-header-action">—</strong></div>
+        <div class="rd-top-stat"><label>Started</label><strong id="rd-header-started">—</strong></div>
+        <div class="rd-top-stat"><label>Elapsed</label><strong id="rd-header-elapsed">—</strong></div>
+        <button type="button" class="rd-chip-btn" id="rd-focus-bt">Focus</button>
+        <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View results</button>
+      </div>
+    </header>
+
+    <div class="rd-body">
+      <div class="rd-center">
+
+        <div class="rd-card rd-flow-card" id="rd-flow-card">
+          <div class="rd-pipeline">
+            <div class="rd-pipeline-track" id="rd-pipeline-track"></div>
+          </div>
+        </div>
+
+        <div class="rd-card">
+          <div class="rd-task-head">
+            <h3 id="rd-task-title">Ready</h3>
+            <p id="rd-task-desc">Choose options in Analysis Setup, then start a step below.</p>
+          </div>
+          <div class="rd-task">
+            <div class="rd-ring" id="rd-task-ring" style="--rd-pct:0">
+              <div class="rd-ring-inner"><strong id="rd-task-ring-pct">0%</strong><span id="rd-task-ring-sub">—</span></div>
+            </div>
+            <div class="rd-task-main">
+              <div class="rd-metrics">
+                <div class="rd-metric"><label>Elapsed time</label><strong id="rd-m-elapsed">0s</strong><small id="rd-m-elapsed-sub">waiting for run</small></div>
+                <div class="rd-metric"><label>Last step</label><strong id="pre-m-last">—</strong><small id="pre-m-last-sub"></small></div>
+                <div class="rd-metric"><label>Started</label><strong id="rd-m-started">—</strong><small id="rd-m-started-sub">not started yet</small></div>
+                <div class="rd-metric"><label>CPU / Memory</label><strong id="rd-m-res">—</strong><small>system, live</small></div>
+              </div>
+              <div class="rd-bar"><i id="rd-task-bar"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <section class="rd-card rd-results is-shown" id="rd-results">
+          <p class="rd-empty" id="pre-results-empty">Results from each step appear here: the FASTQ list, read statistics and quality plots.</p>
+          <div class="rd-results-body" id="pre-results-pane">
+
+          <div id="spin-fastq-list" class="pre-spin" style="display: none;">
+            <div class="spinner-grow" role="status"><span class="visually-hidden">Loading...</span></div>
+            <h6>FASTQ files are being prepared…</h6>
+          </div>
+
+          <div id="fastq-ls-div" class="pre-block" style="display: none;">
+            <div id="fastq-ls" class="pre-output">
+              <h4 class="text-left mb-3">List of fastq files <strong>(FASTQ)</strong></h4>
+            </div>
+            <label class="form-label">Choose fastq size threshold <strong>(below 1024kb will be removed)</strong>: <span id="size-value" class="pre-value"><strong>10Mb</strong></span> Mb</label>
+            <input type="range" class="form-range" id="size-slider" min="0" max="5000" step="1" value="10" name="size-threshold">
+            <div class="pre-trim-wrap">
+              <button type="button" class="btn btn-warning" onclick="trimList()" id="trim-list" name="action-assem" value="stats"><strong>Trim the list!</strong>
+                <div class="spinner-border spinner-border-sm" role="status" style="display: none;" id="spin-fastq"><span class="visually-hidden">Loading...</span></div>
+              </button>
+            </div>
+          </div>
+
+          <div id="spin-seqkit" class="pre-spin" style="display: none;">
+            <div class="spinner-grow" role="status"><span class="visually-hidden">Loading...</span></div>
+            <h6>Read statistics are being created…</h6>
+          </div>
+
+          <div id="seq-div" class="pre-block" style="display: none;">
+            <h4 class="text-left mb-3">Read statistics <strong>(SeqKit)</strong></h4>
+            <div id="output-seqkit" class="pre-output"></div>
+          </div>
+          <div class="pre-block" id="threhold-input" style="display: none;">
+            <label for="depth-slider" class="form-label">Choose read depth <strong>threshold</strong>: <span id="depth-value" class="pre-value"><strong>1000</strong></span></label>
+            <input type="range" class="form-range" id="depth-slider" min="0" max="10000000" step="1000" value="1000">
+          </div>
+
+          <div id="vis-error" class="bf-plot-error" style="display: none;"></div>
+          <div id="spin-vis" class="pre-spin" style="display: none;">
+            <div class="spinner-grow" role="status"><span class="visually-hidden">Loading...</span></div>
+            <h6>Visualization is in progress, please be patient…</h6>
+          </div>
+
+          <div class="bf-plot-bar" id="bar-qual-plot" style="display: none;">
+            <span class="bf-plot-bar-title">Read quality box plot</span>
+            <div class="bf-plot-bar-actions">
+              <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadPlot('qual-plot','read_quality_boxplot','png')">Download PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-plot','read_quality_boxplot','svg')">Download SVG</button>
+            </div>
+          </div>
+          <div id="qual-plot" class="pre-plot" style="display: none;"></div>
+          <div id="range1Div" class="pre-ranges" style="display: none;">
+            <div>
+              <label class="form-label">Plot height <strong>(px)</strong>: <span id="height1-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range vertical-slider" id="range1H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
+            <div>
+              <label class="form-label">Plot width <strong>(px)</strong>: <span id="width1-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range" id="range1" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
+          </div>
+
           <div class="bf-plot-bar" id="bar-qual-heat-plot" style="display: none;">
             <span class="bf-plot-bar-title">Read length vs quality (per sample)</span>
             <div class="bf-plot-bar-actions">
@@ -386,45 +285,18 @@
               <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-heat-plot','read_length_quality_heatmap','svg')">Download SVG</button>
             </div>
           </div>
-          <div id="qual-heat-plot" style="border: 1px solid rgb(105, 105, 105);
-          padding: 10px;
-          margin: 10px;
-          width: 98%;
-          height: 80vh;
-          display: none;
-          overflow-y: auto;
-          overflow-x: auto;
-          white-space: pre-wrap;
-          background-color: #ffffff;
-          color: darkslategrey;">
+          <div id="qual-heat-plot" class="pre-plot" style="display: none;"></div>
+          <div id="range2Div" class="pre-ranges" style="display: none;">
+            <div>
+              <label class="form-label">Plot height <strong>(px)</strong>: <span id="height2-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range vertical-slider" id="range2H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
+            <div>
+              <label class="form-label">Plot width <strong>(px)</strong>: <span id="width2-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range" id="range2" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
           </div>
-          <br>
 
-          <!-- sliders for first plot -->
-        <div id="range2Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
-          
-          <div >
-            <label class="form-label">
-              Adjust the height of the plot <strong>(px)</strong>: 
-              <span id="height2-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range vertical-slider" id="range2H" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-          
-          <div>
-            <label class="form-label">
-              Adjust the width of the plot <strong>(px)</strong>: 
-              <span id="width2-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range" id="range2" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-                    
-          <hr>
-        
-      </div>
-        <br>
-
-          <!-- heatmap pooled -->
           <div class="bf-plot-bar" id="bar-qual-heat-pool-plot" style="display: none;">
             <span class="bf-plot-bar-title">Read length vs quality (pooled)</span>
             <div class="bf-plot-bar-actions">
@@ -432,56 +304,84 @@
               <button type="button" class="btn btn-sm bf-dl-svg" onclick="downloadPlot('qual-heat-pool-plot','read_length_quality_pooled','svg')">Download SVG</button>
             </div>
           </div>
-          <div id="qual-heat-pool-plot" style="border: 1px solid rgb(105, 105, 105);
-          padding: 10px;
-          margin: 10px;
-          width: 98%;
-          height: 80vh;
-          display: none;
-          overflow-y: auto;
-          overflow-x: auto;
-          white-space: pre-wrap;
-          background-color: #ffffff;
-          color: darkslategrey;">
+          <div id="qual-heat-pool-plot" class="pre-plot" style="display: none;"></div>
+          <div id="range3Div" class="pre-ranges" style="display: none;">
+            <div>
+              <label class="form-label">Plot height <strong>(px)</strong>: <span id="height3-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range vertical-slider" id="range3H" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
+            <div>
+              <label class="form-label">Plot width <strong>(px)</strong>: <span id="width3-value" class="pre-value"><strong>1500</strong></span></label>
+              <input type="range" class="form-range" id="range3" min="0" max="10000" step="10" value="1500" name="size-threshold">
+            </div>
           </div>
-          <br>
-          <!-- sliders for first plot -->
-        <div id="range3Div" style="display: none; width: auto; flex-direction: row; gap: 50px; margin-left: 50px;">
-          
-          <div >
-            <label class="form-label">
-              Adjust the height of the plot <strong>(px)</strong>: 
-              <span id="height3-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range vertical-slider" id="range3H" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-          
-          <div>
-            <label class="form-label">
-              Adjust the width of the plot <strong>(px)</strong>: 
-              <span id="width3-value" style="font-weight: bold; color: rgb(165, 42, 161);"><strong>1500</strong></span>
-          </label>
-          <input type="range" class="form-range" id="range3" min="0" max="10000" step="10" value="1500" name="size-threshold">
-          </div>
-                    
-          <hr>
-          
-      </div>
-      <br>
-          <br>
 
-         </div> 
-        
-        
+          </div>
+        </section>
+
       </div>
+
+      <aside class="rd-right">
+        <div class="rd-card">
+          <h3>Step progress</h3>
+          <div class="rd-progress-list" id="rd-progress-list"></div>
+        </div>
+        <div class="rd-card">
+          <h3>Step summary</h3>
+          <div class="rd-summary-list">
+            <div class="rd-summary-row is-total"><span>Total steps</span><strong id="rd-sum-total">0</strong></div>
+            <div class="rd-summary-row is-done"><span>Completed</span><strong id="rd-sum-done">0</strong></div>
+            <div class="rd-summary-row is-run"><span>Running</span><strong id="rd-sum-run">0</strong></div>
+            <div class="rd-summary-row is-wait"><span>Waiting</span><strong id="rd-sum-wait">0</strong></div>
+            <div class="rd-summary-row is-fail"><span>Failed</span><strong id="rd-sum-fail">0</strong></div>
+          </div>
+        </div>
+        <div class="rd-card">
+          <h3>Resource usage</h3>
+          <div class="rd-gauges">
+            <div class="rd-gauge">
+              <div class="rd-gauge-ring" id="rd-cpu-ring" style="--rd-pct:0"><strong id="rd-cpu-pct">0%</strong></div>
+              <label>CPU</label>
+              <small id="rd-cpu-sub"></small>
+            </div>
+            <div class="rd-gauge">
+              <div class="rd-gauge-ring is-ram" id="rd-ram-ring" style="--rd-pct:0"><strong id="rd-ram-pct">0%</strong></div>
+              <label>Memory</label>
+              <small id="rd-ram-sub"></small>
+            </div>
+          </div>
+          <div class="rd-legacy-meters" id="bf-meters" aria-hidden="true">
+            <div class="bf-meter-fill" id="bf-cpu-fill"></div>
+            <div class="bf-meter-job" id="bf-cpu-job"></div>
+            <span id="bf-cpu-val">—</span>
+            <div class="bf-meter-fill" id="bf-ram-fill"></div>
+            <div class="bf-meter-job" id="bf-ram-job"></div>
+            <span id="bf-ram-val">—</span>
+            <svg id="bf-cpu-spark" viewBox="0 0 120 24"></svg>
+            <svg id="bf-ram-spark" viewBox="0 0 120 24"></svg>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="rd-action-bar hx-actions pre-actions" role="group" aria-label="BactFlow actions">
+      <button type="button" class="btn" onclick="catFastq()" id="read-cat" name="action-assem" value="stats">Initiate read cat</button>
+      <button type="button" class="btn" onclick="filterReads()" id="illumina-filter-bt" name="action-assem" value="filter" style="display: none;">Filter reads</button>
+      <button type="button" class="btn" onclick="read_stat()" id="read-stat" name="action-assem" value="stats">Display read statistics</button>
+      <button type="button" class="btn" onclick="read_vis()" name="action-assem" value="vis" id="vis-bt">Visualize reads</button>
+      <button type="button" class="btn" id="rd-theme-bt" title="Switch theme">Theme</button>
+    </div>
   </div>
-  </form>  
+</div>
+
+</form>
 
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle1"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle10"></script>
 <script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre15"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

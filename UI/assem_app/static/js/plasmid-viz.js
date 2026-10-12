@@ -29,7 +29,6 @@
           [10, 25, 50, -1],
           [10, 25, 50, "All"],
         ],
-        scrollX: true,
       });
     }, 300);
   }
@@ -70,10 +69,19 @@
     }
     const layoutBase = {
       margin: { t: 40, r: 20, b: 60, l: 60 },
-      paper_bgcolor: "#ffffff",
-      plot_bgcolor: "#ffffff",
-      font: { size: 12 },
+      paper_bgcolor: "#0f1419",
+      plot_bgcolor: "#0f1419",
+      font: { size: 12, color: "#e7edf4", family: "IBM Plex Sans, sans-serif" },
+      xaxis: { gridcolor: "#2a3441", zerolinecolor: "#2a3441", color: "#9aa8b5" },
+      yaxis: { gridcolor: "#2a3441", zerolinecolor: "#2a3441", color: "#9aa8b5" },
     };
+    function layout(extra) {
+      const e = extra || {};
+      return Object.assign({}, layoutBase, e, {
+        xaxis: Object.assign({}, layoutBase.xaxis, e.xaxis || {}),
+        yaxis: Object.assign({}, layoutBase.yaxis, e.yaxis || {}),
+      });
+    }
     const config = { responsive: true, displayModeBar: false };
     const label = kind === "virus" ? "Virus" : "Plasmid";
     const scoreTitle =
@@ -97,7 +105,7 @@
             name: label + " contigs",
           },
         ],
-        Object.assign({}, layoutBase, {
+        layout({
           title: label + " contigs per genome",
           yaxis: { title: "Count", rangemode: "tozero" },
           xaxis: { tickangle: -30 },
@@ -119,7 +127,7 @@
             name: "Score",
           },
         ],
-        Object.assign({}, layoutBase, {
+        layout({
           title: scoreTitle,
           xaxis: { title: scoreAxis, range: [0, 1.05] },
           yaxis: { title: "Contigs", rangemode: "tozero" },
@@ -143,7 +151,7 @@
             hovertemplate: "%{y}<br>%{x} bp<br>%{text}<extra></extra>",
           },
         ],
-        Object.assign({}, layoutBase, {
+        layout({
           title: "Longest predicted " + label.toLowerCase() + "s (top 40)",
           xaxis: { title: "Length (bp)" },
           yaxis: { automargin: true },
@@ -171,7 +179,7 @@
               marker: { colors: colors.pie },
             },
           ],
-          Object.assign({}, layoutBase, {
+          layout({
             title: pieTitle,
             margin: { t: 40, r: 10, b: 10, l: 10 },
             showlegend: true,
@@ -223,11 +231,18 @@
     if (section) {
       section.style.display = "block";
     }
+    const summaryBox = el(summaryId);
+    const firstChart = el(chartPrefix + "-chart-by-genome");
+    const chartsBox = firstChart ? firstChart.parentElement : null;
+    const setShown = (shown) => {
+      [summaryBox, chartsBox, out].forEach((node) => {
+        if (node) {
+          node.style.display = shown ? "" : "none";
+        }
+      });
+    };
     if (empty) {
-      if (hint) {
-        hint.textContent = "";
-      }
-      const summaryBox = el(summaryId);
+      setShown(false);
       if (summaryBox) {
         summaryBox.innerHTML = "";
       }
@@ -242,8 +257,16 @@
           node.innerHTML = "";
         }
       });
-      out.innerHTML = `<div class="alert alert-info mb-0" role="status">${emptyMessage(kind, genomes)}</div>`;
+      out.innerHTML = "";
+      if (hint) {
+        hint.innerHTML = emptyMessage(kind, genomes);
+        hint.classList.add("bf-empty-note");
+      }
       return true;
+    }
+    setShown(true);
+    if (hint) {
+      hint.classList.remove("bf-empty-note");
     }
     if (hint) {
       hint.textContent = count

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run BactFlow UI modules in locally built, slim Docker images.
+# Launch a BactFlow UI module with Docker, Apptainer/Singularity, or Conda.
 
 set -euo pipefail
 
@@ -15,7 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
     cat << EOF
 ${GREEN}BactFlow Module Runner${NC}
-Pull the latest Docker Hub image for each module (or build locally with --local).
+Start a UI module. This is the supported way to run BactFlow
+(Docker, Apptainer/Singularity, or Conda). Do not call docker / singularity / python yourself.
 
 ${YELLOW}USAGE:${NC}
     $0 <module> <work_dir> [options]
@@ -23,37 +24,38 @@ ${YELLOW}USAGE:${NC}
 ${YELLOW}MODULES:${NC}
     preassem    Flask UI on port 5000 (seqkit / plots)
     assem       Flask UI on port 5002 (Flye / SPAdes / Unicycler / QUAST)
-    postassem   Flask UI on port 5001 (uses the existing post-assembly image)
+    postassem   Flask UI on port 5001 (annotation / taxonomy / variants)
 
 ${YELLOW}REQUIRED:${NC}
-    work_dir    Absolute working directory mounted into the container.
-                FASTQ folders and --out_dir must live under this path.
+    work_dir    Absolute working directory (mounted into containers).
+                FASTQ folders and --out_dir should live under this path.
 
 ${YELLOW}OPTIONS:${NC}
+    --service NAME      Runtime: docker (default), apptainer, or conda
     --no-browser        Don't automatically open a browser
-    --install-browser-hook
-                        Install/start the host browser hook (for raw docker run)
     --port PORT         Host port (default: 5000 / 5002 / 5001)
-    --cpus N            CPU limit (default: auto for preassem, 10 for assem/postassem)
-    --memory SIZE       Memory limit (default: auto for preassem, 16g for assem/postassem)
-    --pull              Re-pull even if the image is already present (default already refreshes)
-    --local             Build/run from the local Dockerfile instead of Docker Hub
-    --rebuild           Rebuild the local image (implies --local)
-    --tag TAG           Use a specific Hub tag (e.g. v1.0) instead of auto-latest
+    --cpus N            CPU limit (Docker / Apptainer when supported)
+    --memory SIZE       Memory limit (Docker; Apptainer when supported)
+    --pull              Re-pull the Hub image / rebuild the converted Apptainer image
+    --local             Build/run from the local Dockerfile (docker / apptainer)
+    --rebuild           Rebuild local Docker image, Apptainer image, or Conda env
+    --tag TAG           Pin a Hub tag (e.g. v1.0) instead of auto-latest
     --help              Show this help message
 
 ${YELLOW}EXAMPLES:${NC}
-    $0 preassem /home/user/work_dir
-    $0 assem /home/user/work_dir --cpus 16 --memory 32g --port 5002
-    $0 postassem /home/user/work_dir --pull
-    $0 assem /home/user/work_dir --local --rebuild
+    $0 assem /home/user/work_dir
+    $0 assem /home/user/work_dir --service docker --cpus 16 --memory 32g
+    $0 assem /home/user/work_dir --service apptainer
+    $0 assem /home/user/work_dir --service conda
+    $0 preassem /home/user/work_dir --local --rebuild
+    $0 postassem /home/user/work_dir --service singularity --tag v0.01
 
 EOF
     exit 1
 }
 
 ensure_browser_hook() {
-    # Tiny host daemon so raw `docker run` containers can open the desktop browser.
+    # Tiny host daemon so the Docker service can open the desktop browser.
     local hook="${SCRIPT_DIR}/scripts/bactflow_browser_hook.sh"
     if [[ ! -f "${hook}" ]]; then
         return 0
@@ -134,15 +136,147 @@ port_in_use() {
     fi
 }
 
+normalize_service() {
+    local raw="${1,,}"
+    case "${raw}" in
+        docker|podman) echo "docker" ;;
+        apptainer|singularity|aptainer) echo "apptainer" ;;
+        conda|mamba) echo "conda" ;;
+        *) echo "" ;;
+    esac
+}
+
+normalize_module() {
+    case "${1}" in
+        pre|preassem|pre-assembly|pre_assem|preassembly) echo "preassem" ;;
+        ass|assem|assembly) echo "assem" ;;
+        post|postassem|post-assembly|post_assem|postassembly) echo "postassem" ;;
+        *) echo "${1}" ;;
+    esac
+}
+
 ensure_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         echo -e "${RED}Error:${NC} Docker is not installed or not on PATH."
+        echo "Use --service apptainer or --service conda if you cannot use Docker."
         exit 1
     fi
     if ! docker info >/dev/null 2>&1; then
         echo -e "${RED}Error:${NC} Docker daemon is not reachable. Start Docker and add your user to the docker group."
+        echo "Sites without Docker privileges can use --service apptainer or --service conda."
         exit 1
     fi
+}
+
+ensure_apptainer() {
+    if command -v apptainer >/dev/null 2>&1; then
+        APPTAINER_BIN="apptainer"
+        return 0
+    fi
+    if command -v singularity >/dev/null 2>&1; then
+        APPTAINER_BIN="singularity"
+        return 0
+    fi
+    echo -e "${RED}Error:${NC} Apptainer/Singularity is not installed or not on PATH."
+    echo "Install Apptainer (no docker group needed), or use --service conda."
+    exit 1
+}
+
+# Singularity 3.0 has no --env; APPTAINERENV_/SINGULARITYENV_ work on old and new.
+apptainer_export() {
+    local key="$1"
+    local val="$2"
+    export "${key}=${val}"
+    export "SINGULARITYENV_${key}=${val}"
+    export "APPTAINERENV_${key}=${val}"
+}
+
+apptainer_help_has() {
+    local flag="$1"
+    grep -qE "(^|[[:space:]])${flag}([[:space:],]|$)" <<<"${APPTAINER_RUN_HELP}"
+}
+
+# True if Singularity/Apptainer can actually start this image (file or sandbox dir).
+apptainer_image_ok() {
+    local img="$1"
+    [[ -e "${img}" ]] || return 1
+    "${APPTAINER_BIN}" exec "${img}" /bin/true >/dev/null 2>&1
+}
+
+apptainer_squashfs_offset() {
+    local sif="$1"
+    local offset=""
+    if command -v python3 >/dev/null 2>&1; then
+        offset="$(python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); i=d.find(b"hsqs"); sys.exit(1) if i<0 else print(i)' "${sif}" 2>/dev/null || true)"
+    fi
+    if [[ -z "${offset}" ]]; then
+        offset="$(LC_ALL=C grep -aob $'hsqs' "${sif}" 2>/dev/null | head -1 | cut -d: -f1 || true)"
+    fi
+    [[ "${offset}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${offset}"
+}
+
+# Old setuid Singularity (3.0) + a new kernel often cannot mount SIF squashfs
+# (EINVAL). A sandbox directory uses the same rootfs without that mount.
+apptainer_sif_to_sandbox() {
+    local sif="$1"
+    local dest="$2"
+    local offset
+    command -v unsquashfs >/dev/null 2>&1 || return 1
+    offset="$(apptainer_squashfs_offset "${sif}")" || return 1
+    [[ "${offset}" =~ ^[0-9]+$ ]] || return 1
+    echo -e "${BLUE}Kernel cannot mount this .sif; extracting a sandbox to ${dest} ...${NC}"
+    rm -rf "${dest}"
+    unsquashfs -o "${offset}" -f -d "${dest}" "${sif}" || return 1
+    [[ -d "${dest}/.singularity.d" ]]
+}
+
+find_conda_base() {
+    local candidate
+    if command -v conda >/dev/null 2>&1; then
+        conda info --base 2>/dev/null && return 0
+    fi
+    for candidate in \
+        "${HOME}/miniforge3" \
+        "${HOME}/mambaforge" \
+        "${HOME}/miniconda3" \
+        "${HOME}/anaconda3" \
+        "/opt/conda" \
+        "/opt/miniconda3"
+    do
+        if [[ -x "${candidate}/bin/conda" ]]; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+ensure_conda() {
+    CONDA_BASE="$(find_conda_base || true)"
+    if [[ -z "${CONDA_BASE}" ]]; then
+        echo -e "${RED}Error:${NC} conda/mamba was not found."
+        echo "Install Miniforge or Miniconda in your home directory (no sudo):"
+        echo "  curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+        echo "  bash Miniforge3-Linux-x86_64.sh -b -p \"\$HOME/miniforge3\""
+        exit 1
+    fi
+    # shellcheck disable=SC1091
+    set +u
+    source "${CONDA_BASE}/etc/profile.d/conda.sh"
+    if command -v mamba >/dev/null 2>&1; then
+        CONDA_EXE="mamba"
+    else
+        CONDA_EXE="conda"
+        export PATH="${CONDA_BASE}/bin:${PATH}"
+        # shellcheck disable=SC1091
+        source "${CONDA_BASE}/etc/profile.d/conda.sh"
+    fi
+    set -u
+}
+
+conda_env_exists() {
+    conda env list 2>/dev/null | awk '{print $1}' | grep -qx "bactflow"
 }
 
 image_exists() {
@@ -248,7 +382,7 @@ resolve_module_image() {
     else
         echo -e "${BLUE}Using requested Hub tag: ${tag}${NC}"
     fi
-
+    IMAGE_TAG="${tag}"
     IMAGE="farhadm1990/${hub_repo}:${tag}"
 
     # Always pull the resolved tag so digest stays current when Hub updates the same tag.
@@ -268,6 +402,444 @@ resolve_module_image() {
     fi
 }
 
+# Convert an OCI/Docker image without using Singularity's old Docker API
+# client (1.22). Prefer `docker save` → docker-archive:// when Docker works.
+# Third argument "sandbox" builds a chroot directory (no squashfs mount).
+apptainer_build_from() {
+    local dest="$1"
+    local src="$2"
+    local sandbox="${3:-}"
+    local authdir
+    authdir="$(mktemp -d "${TMPDIR:-/tmp}/bactflow-apptainer-auth.XXXXXX")"
+    printf '%s\n' '{"auths":{}}' > "${authdir}/config.json"
+    printf '%s\n' '{"auths":{}}' > "${authdir}/auth.json"
+    unset APPTAINER_DOCKER_USERNAME APPTAINER_DOCKER_PASSWORD \
+        SINGULARITY_DOCKER_USERNAME SINGULARITY_DOCKER_PASSWORD \
+        DOCKER_USERNAME DOCKER_PASSWORD || true
+    # Stop Apptainer/Singularity from sending a stale `docker login`.
+    export DOCKER_CONFIG="${authdir}"
+    export APPTAINER_AUTHFILE="${authdir}/auth.json"
+    export SINGULARITY_AUTHFILE="${authdir}/auth.json"
+
+    local args=(build --force)
+    if [[ "${sandbox}" == sandbox ]]; then
+        args+=(--sandbox)
+        rm -rf "${dest}"
+    fi
+    if "${APPTAINER_BIN}" build --help 2>/dev/null | grep -q -- '--authfile'; then
+        args+=(--authfile "${authdir}/auth.json")
+    fi
+    echo -e "${BLUE}Building ${dest}${NC}"
+    echo -e "${BLUE}Source: ${src}${NC}"
+    local ok=0
+    if "${APPTAINER_BIN}" "${args[@]}" "${dest}" "${src}"; then
+        ok=1
+    fi
+    rm -rf "${authdir}"
+    unset APPTAINER_AUTHFILE SINGULARITY_AUTHFILE DOCKER_CONFIG || true
+    [[ "${ok}" == 1 ]]
+}
+
+# docker pull (modern CLI) then tar → image. Avoids Hub auth inside Singularity
+# and avoids docker-daemon:// which needs Docker API ≥ 1.24.
+apptainer_build_from_docker_tar() {
+    local dest="$1"
+    local image="$2"
+    local tar_path="$3"
+    local sandbox="${4:-}"
+    if ! docker pull "${image}"; then
+        if ! docker image inspect "${image}" >/dev/null 2>&1; then
+            return 1
+        fi
+        echo -e "${YELLOW}docker pull failed; using the image already on this machine.${NC}"
+    fi
+    echo -e "${BLUE}docker save → ${tar_path}${NC}"
+    docker save -o "${tar_path}" "${image}" || return 1
+    local src="docker-archive://${tar_path}"
+    # Absolute paths need three slashes: docker-archive:///abs/path.tar
+    if [[ "${tar_path}" == /* ]]; then
+        src="docker-archive://${tar_path}"
+    fi
+    apptainer_build_from "${dest}" "${src}" "${sandbox}"
+    local ok=$?
+    rm -f "${tar_path}"
+    return "${ok}"
+}
+
+resolve_apptainer_sif() {
+    local hub_repo="$1"
+    local local_image="$2"
+    local dockerfile="$3"
+    local context="$4"
+    local fallback_tag="${5:-}"
+    local sif_dir="${BACTFLOW_SIF_DIR:-${HOME}/.bactflow/sif}"
+    mkdir -p "${sif_dir}"
+
+    local tag="${IMAGE_TAG}"
+    local src
+    local sif_file
+    local sandbox
+    local mark="${sif_dir}/.prefer_sandbox"
+    local want_sandbox=false
+    [[ -f "${mark}" ]] && want_sandbox=true
+
+    if [[ "${USE_LOCAL}" == true ]]; then
+        ensure_docker
+        IMAGE="${local_image}"
+        if [[ "${REBUILD}" == true ]] || ! image_exists "${IMAGE}"; then
+            if [[ -z "${dockerfile}" || ! -f "${dockerfile}" ]]; then
+                echo -e "${RED}Error:${NC} Local Dockerfile missing for ${MODULE}"
+                exit 1
+            fi
+            build_image "${IMAGE}" "${dockerfile}" "${context}"
+        fi
+        tag="local"
+        src="docker-archive"
+        sif_file="${sif_dir}/${hub_repo}_local.sif"
+        sandbox="${sif_dir}/${hub_repo}_local"
+    else
+        if [[ -z "${tag}" ]]; then
+            echo -e "${BLUE}Resolving latest Docker Hub tag for farhadm1990/${hub_repo} ...${NC}"
+            tag="$(resolve_latest_hub_tag "${hub_repo}" "${fallback_tag}")"
+            echo -e "${GREEN}Latest tag: ${tag}${NC}"
+        else
+            echo -e "${BLUE}Using requested Hub tag: ${tag}${NC}"
+        fi
+        IMAGE_TAG="${tag}"
+        IMAGE="farhadm1990/${hub_repo}:${tag}"
+        src="docker://${IMAGE}"
+        sif_file="${sif_dir}/${hub_repo}_${tag}.sif"
+        sandbox="${sif_dir}/${hub_repo}_${tag}"
+    fi
+
+    if [[ "${FORCE_PULL}" != true && "${REBUILD}" != true ]]; then
+        if [[ -d "${sandbox}" ]] && apptainer_image_ok "${sandbox}"; then
+            echo -e "${BLUE}Using existing sandbox ${sandbox}${NC}"
+            echo -e "${YELLOW}Pass --pull to rebuild it from ${src}${NC}"
+            SIF="${sandbox}"
+            return 0
+        fi
+        if [[ -f "${sif_file}" ]]; then
+            if apptainer_image_ok "${sif_file}"; then
+                echo -e "${BLUE}Using existing ${sif_file}${NC}"
+                echo -e "${YELLOW}Pass --pull to rebuild it from ${src}${NC}"
+                SIF="${sif_file}"
+                return 0
+            fi
+            echo -e "${YELLOW}Existing .sif cannot be mounted (typical of Singularity 3.0 on a new kernel).${NC}"
+            if apptainer_sif_to_sandbox "${sif_file}" "${sandbox}" && apptainer_image_ok "${sandbox}"; then
+                date > "${mark}"
+                SIF="${sandbox}"
+                return 0
+            fi
+            want_sandbox=true
+        fi
+    fi
+
+    local dest="${sif_file}"
+    local mode=""
+    if [[ "${want_sandbox}" == true ]]; then
+        dest="${sandbox}"
+        mode="sandbox"
+    fi
+
+    local tar_path="${sif_dir}/.${hub_repo}_${tag}.tar"
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        echo -e "${BLUE}Converting Docker image to ${APPTAINER_BIN} via docker save (no Docker daemon API)...${NC}"
+        if apptainer_build_from_docker_tar "${dest}" "${IMAGE}" "${tar_path}" "${mode}"; then
+            if apptainer_image_ok "${dest}"; then
+                SIF="${dest}"
+                return 0
+            fi
+            if [[ -f "${dest}" ]] && apptainer_sif_to_sandbox "${dest}" "${sandbox}" && apptainer_image_ok "${sandbox}"; then
+                date > "${mark}"
+                SIF="${sandbox}"
+                return 0
+            fi
+            echo -e "${YELLOW}Built image is not runnable; trying sandbox from Docker tar...${NC}"
+            if [[ "${mode}" != sandbox ]] && apptainer_build_from_docker_tar "${sandbox}" "${IMAGE}" "${tar_path}" sandbox && apptainer_image_ok "${sandbox}"; then
+                date > "${mark}"
+                SIF="${sandbox}"
+                return 0
+            fi
+        fi
+        echo -e "${YELLOW}docker save conversion failed; trying ${src} ...${NC}"
+    fi
+
+    if [[ "${src}" == docker://* ]] && apptainer_build_from "${dest}" "${src}" "${mode}"; then
+        if apptainer_image_ok "${dest}"; then
+            SIF="${dest}"
+            return 0
+        fi
+        if [[ -f "${dest}" ]] && apptainer_sif_to_sandbox "${dest}" "${sandbox}" && apptainer_image_ok "${sandbox}"; then
+            date > "${mark}"
+            SIF="${sandbox}"
+            return 0
+        fi
+    fi
+
+    echo -e "${RED}Error:${NC} Could not build a runnable image for ${MODULE}"
+    echo "Apptainer/Singularity converts the published Docker Hub image."
+    echo "On old Singularity (3.0) a .sif often cannot be mounted; BactFlow then"
+    echo "extracts a sandbox directory under ${sif_dir}."
+    echo "Need either a working docker CLI, or:"
+    echo "  ./bactflow.sh ${MODULE} \"${WORK_DIR}\" --service conda"
+    exit 1
+}
+
+wait_for_ui() {
+    local pid="$1"
+    echo -e "${BLUE}Waiting for the UI to become ready...${NC}"
+    READY=false
+    local i
+    for i in $(seq 1 90); do
+        if curl -fsS -o /dev/null "http://127.0.0.1:${HOST_PORT}/"; then
+            READY=true
+            break
+        fi
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            echo -e "${RED}Process exited before the UI started.${NC}"
+            cat "${LOG_FILE}"
+            exit 1
+        fi
+        sleep 1
+    done
+
+    if [[ "${READY}" != true ]]; then
+        echo -e "${RED}Timed out waiting for http://127.0.0.1:${HOST_PORT}/${NC}"
+        echo "Last logs:"
+        tail -n 80 "${LOG_FILE}" || true
+        exit 1
+    fi
+
+    echo -e "${GREEN}UI is ready at http://127.0.0.1:${HOST_PORT}${NC}"
+    if [[ "${OPEN_BROWSER}" == true ]]; then
+        sleep 0.5
+        open_browser "http://127.0.0.1:${HOST_PORT}/" || true
+    else
+        echo -e "${YELLOW}Browser auto-open disabled (--no-browser). Open: http://127.0.0.1:${HOST_PORT}/${NC}"
+    fi
+}
+
+follow_until_exit() {
+    local pid="$1"
+    echo -e "\n${BLUE}Logs:${NC}\n"
+    tail -f "${LOG_FILE}" &
+    TAIL_PID=$!
+    wait "${pid}"
+    kill "${TAIL_PID}" >/dev/null 2>&1 || true
+    echo -e "\n${GREEN}=== ${MODULE} stopped ===${NC}"
+}
+
+export_runtime_env() {
+    export BACTFLOW_MODULE="${MODULE}"
+    export BACTFLOW_HOST_PORT="${HOST_PORT}"
+    export BACTFLOW_PUBLIC_URL="http://127.0.0.1:${HOST_PORT}/"
+    export BACTFLOW_NO_BROWSER=1
+    export BACTFLOW_SERVICE="${SERVICE}"
+    export HOME="${WORK_DIR}"
+    export NXF_HOME="${WORK_DIR}/.nextflow"
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        export BACTFLOW_CPUS="${CPU_VALUE}"
+        export NXF_OPTS="${NXF_OPTS:-}"
+    fi
+}
+
+run_docker() {
+    ensure_docker
+    resolve_module_image \
+        "${HUB_REPO}" \
+        "${LOCAL_IMAGE}" \
+        "${DOCKERFILE}" \
+        "${BUILD_CONTEXT}" \
+        "${FALLBACK_TAG}"
+
+    CONTAINER_NAME="bactflow_${MODULE}_$$"
+    LOG_FILE="/tmp/${CONTAINER_NAME}.log"
+    : > "${LOG_FILE}"
+
+    echo -e "\n${GREEN}=== Running ${MODULE} (docker) ===${NC}"
+    echo "Work directory: ${WORK_DIR}"
+    echo "Image: ${IMAGE}"
+    echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
+    echo "Port mapping: ${HOST_PORT} → ${CONTAINER_PORT}"
+    echo -e "${CYAN}Access URL: http://127.0.0.1:${HOST_PORT}${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
+
+    if [[ "${OPEN_BROWSER}" == true ]]; then
+        ensure_browser_hook
+    fi
+
+    cleanup() {
+        echo -e "\n${YELLOW}Stopping container...${NC}"
+        docker stop "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+        rm -f "${LOG_FILE}"
+    }
+    trap cleanup INT TERM EXIT
+
+    local extra_host=()
+    if docker run --help 2>/dev/null | grep -q -- '--add-host'; then
+        extra_host=(--add-host=host.docker.internal:host-gateway)
+    fi
+
+    docker run --rm \
+        --name "${CONTAINER_NAME}" \
+        --init \
+        ${CPUS} \
+        ${MEMORY} \
+        "${extra_host[@]}" \
+        -p "${HOST_PORT}:${CONTAINER_PORT}" \
+        -v "${WORK_DIR}:${WORK_DIR}" \
+        -w "${WORK_DIR}" \
+        -e BACTFLOW_IN_DOCKER=1 \
+        -e BACTFLOW_NO_BROWSER=1 \
+        -e BACTFLOW_MODULE="${MODULE}" \
+        -e BACTFLOW_HOST_PORT="${CONTAINER_PORT}" \
+        -e BACTFLOW_PUBLIC_URL="http://127.0.0.1:${HOST_PORT}/" \
+        -e BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}" \
+        -e BACTFLOW_SERVICE=docker \
+        -e HOME="${WORK_DIR}" \
+        -e NXF_HOME="${WORK_DIR}/.nextflow" \
+        "${IMAGE}" > "${LOG_FILE}" 2>&1 &
+    local pid=$!
+    wait_for_ui "${pid}"
+    follow_until_exit "${pid}"
+}
+
+run_apptainer() {
+    ensure_apptainer
+    resolve_apptainer_sif \
+        "${HUB_REPO}" \
+        "${LOCAL_IMAGE}" \
+        "${DOCKERFILE}" \
+        "${BUILD_CONTEXT}" \
+        "${FALLBACK_TAG}"
+
+    LOG_FILE="/tmp/bactflow_${MODULE}_apptainer_$$.log"
+    : > "${LOG_FILE}"
+
+    echo -e "\n${GREEN}=== Running ${MODULE} (${APPTAINER_BIN}) ===${NC}"
+    echo "Work directory: ${WORK_DIR}"
+    echo "Image: ${SIF}"
+    echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
+    echo -e "${CYAN}Access URL: http://127.0.0.1:${HOST_PORT}${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
+
+    local APPTAINER_RUN_HELP extra app_in_sif
+    APPTAINER_RUN_HELP="$("${APPTAINER_BIN}" exec --help 2>&1 || true)"
+    extra=(--bind "${WORK_DIR}:${WORK_DIR}")
+    if apptainer_help_has --pwd; then
+        extra+=(--pwd "${WORK_DIR}")
+    fi
+    if apptainer_help_has --home; then
+        extra+=(--home "${WORK_DIR}")
+    fi
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]] && apptainer_help_has --cpus; then
+        extra+=(--cpus "${CPU_VALUE}")
+    fi
+    if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]] && apptainer_help_has --memory; then
+        extra+=(--memory "${MEM_VALUE}")
+    fi
+
+    export_runtime_env
+    # Host network: the process binds HOST_PORT on the machine (no docker -p).
+    apptainer_export BACTFLOW_HOST_PORT "${HOST_PORT}"
+    apptainer_export BACTFLOW_IN_DOCKER 1
+    apptainer_export BACTFLOW_NO_BROWSER 1
+    apptainer_export BACTFLOW_MODULE "${MODULE}"
+    apptainer_export BACTFLOW_PUBLIC_URL "http://127.0.0.1:${HOST_PORT}/"
+    apptainer_export BACTFLOW_SERVICE apptainer
+    apptainer_export HOME "${WORK_DIR}"
+    apptainer_export NXF_HOME "${WORK_DIR}/.nextflow"
+    # Only new Apptainer/Singularity accept --env KEY=VAL (3.0 prints Usage and exits).
+    if apptainer_help_has --env; then
+        extra+=(--env "BACTFLOW_IN_DOCKER=1")
+        extra+=(--env "BACTFLOW_NO_BROWSER=1")
+        extra+=(--env "BACTFLOW_MODULE=${MODULE}")
+        extra+=(--env "BACTFLOW_HOST_PORT=${HOST_PORT}")
+        extra+=(--env "BACTFLOW_PUBLIC_URL=http://127.0.0.1:${HOST_PORT}/")
+        extra+=(--env "BACTFLOW_SERVICE=apptainer")
+        extra+=(--env "HOME=${WORK_DIR}")
+        extra+=(--env "NXF_HOME=${WORK_DIR}/.nextflow")
+    fi
+
+    cleanup() {
+        echo -e "\n${YELLOW}Stopping ${APPTAINER_BIN} process...${NC}"
+        if [[ -n "${APP_PID:-}" ]]; then
+            kill "${APP_PID}" >/dev/null 2>&1 || true
+            wait "${APP_PID}" >/dev/null 2>&1 || true
+        fi
+        rm -f "${LOG_FILE}"
+    }
+    trap cleanup INT TERM EXIT
+
+    app_in_sif="/app/$(basename "${APP_PY}")"
+    # exec + entrypoint: old Singularity Docker conversions often have an empty runscript.
+    "${APPTAINER_BIN}" exec \
+        "${extra[@]}" \
+        "${SIF}" \
+        /usr/local/bin/bactflow-entrypoint python "${app_in_sif}" > "${LOG_FILE}" 2>&1 &
+    APP_PID=$!
+    wait_for_ui "${APP_PID}"
+    follow_until_exit "${APP_PID}"
+}
+
+run_conda() {
+    ensure_conda
+    if [[ "${USE_LOCAL}" == true || -n "${IMAGE_TAG}" || "${FORCE_PULL}" == true ]]; then
+        echo -e "${YELLOW}Note: --local / --tag / --pull apply to docker and apptainer, not conda.${NC}"
+    fi
+
+    if [[ "${REBUILD}" == true ]] || ! conda_env_exists; then
+        echo -e "${BLUE}Creating/updating the bactflow Conda environment (first time can take a while)...${NC}"
+        bash "${SCRIPT_DIR}/scripts/setup_bactflow_env.sh" "${SCRIPT_DIR}/config.yml" bactflow
+        # setup_bactflow_env.sh leaves the shell unactivated
+        # shellcheck disable=SC1091
+        set +u
+        source "${CONDA_BASE}/etc/profile.d/conda.sh"
+        set -u
+    else
+        echo -e "${BLUE}Using existing Conda env 'bactflow'${NC}"
+        echo -e "${YELLOW}Pass --rebuild to update it from config.yml${NC}"
+    fi
+
+    # conda activate scripts are not `set -u` safe (MKL INTERFACE_LAYER backup).
+    set +u
+    conda activate bactflow
+    set -u
+
+    LOG_FILE="/tmp/bactflow_${MODULE}_conda_$$.log"
+    : > "${LOG_FILE}"
+
+    echo -e "\n${GREEN}=== Running ${MODULE} (conda) ===${NC}"
+    echo "Work directory: ${WORK_DIR}"
+    echo "Env: ${CONDA_PREFIX:-bactflow}"
+    echo "App: ${APP_PY}"
+    echo -e "${CYAN}Access URL: http://127.0.0.1:${HOST_PORT}${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
+
+    export_runtime_env
+    unset BACTFLOW_IN_DOCKER || true
+
+    cleanup() {
+        echo -e "\n${YELLOW}Stopping Conda UI...${NC}"
+        if [[ -n "${APP_PID:-}" ]]; then
+            kill "${APP_PID}" >/dev/null 2>&1 || true
+            wait "${APP_PID}" >/dev/null 2>&1 || true
+        fi
+        rm -f "${LOG_FILE}"
+    }
+    trap cleanup INT TERM EXIT
+
+    (
+        cd "${WORK_DIR}"
+        python "${APP_PY}"
+    ) > "${LOG_FILE}" 2>&1 &
+    APP_PID=$!
+    wait_for_ui "${APP_PID}"
+    follow_until_exit "${APP_PID}"
+}
+
 OPEN_BROWSER=true
 HOST_PORT=""
 MODULE=""
@@ -278,9 +850,31 @@ REBUILD=false
 USE_LOCAL=false
 FORCE_PULL=false
 IMAGE_TAG=""
+SERVICE="docker"
+APPTAINER_BIN=""
+SIF=""
+APP_PY=""
+CONDA_BASE=""
+CONDA_EXE="conda"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --service)
+            SERVICE="$(normalize_service "${2:-}")"
+            if [[ -z "${SERVICE}" ]]; then
+                echo -e "${RED}Error:${NC} --service must be docker, apptainer, or conda"
+                usage
+            fi
+            shift 2
+            ;;
+        --service=*)
+            SERVICE="$(normalize_service "${1#--service=}")"
+            if [[ -z "${SERVICE}" ]]; then
+                echo -e "${RED}Error:${NC} --service must be docker, apptainer, or conda"
+                usage
+            fi
+            shift
+            ;;
         --no-browser)
             OPEN_BROWSER=false
             shift
@@ -288,13 +882,11 @@ while [[ $# -gt 0 ]]; do
         --install-browser-hook)
             ensure_browser_hook
             echo -e "${GREEN}Browser hook installed/started (port ${BACTFLOW_BROWSER_HOOK_PORT:-19264}).${NC}"
-            echo "For raw docker run, map -p HOST:CONTAINER and optionally:"
-            echo "  -e BACTFLOW_HOST_PORT=HOST -e BACTFLOW_PUBLIC_URL=http://127.0.0.1:HOST/"
+            echo "You do not need this flag for normal use; ./bactflow.sh starts the hook itself."
             exit 0
             ;;
         --rebuild)
             REBUILD=true
-            USE_LOCAL=true
             shift
             ;;
         --local)
@@ -347,7 +939,15 @@ if [[ -z "${MODULE}" || -z "${WORK_DIR}" ]]; then
     usage
 fi
 
-ensure_docker
+MODULE="$(normalize_module "${MODULE}")"
+# Historic docker behaviour: --rebuild means rebuild the local image.
+if [[ "${SERVICE}" == "docker" && "${REBUILD}" == true ]]; then
+    USE_LOCAL=true
+fi
+if [[ "${SERVICE}" == "conda" ]]; then
+    USE_LOCAL=false
+fi
+
 detect_resources
 
 WORK_DIR="$(realpath "${WORK_DIR}")"
@@ -360,6 +960,7 @@ DOCKERFILE=""
 HUB_REPO=""
 LOCAL_IMAGE=""
 FALLBACK_TAG=""
+BUILD_CONTEXT=""
 case "${MODULE}" in
     preassem)
         HUB_REPO="bactflow_preassem"
@@ -371,6 +972,7 @@ case "${MODULE}" in
         DEFAULT_MEMORY=""
         CONTAINER_PORT="5000"
         DEFAULT_HOST_PORT="5000"
+        APP_PY="${SCRIPT_DIR}/UI/pre_assem_app/pre_assembly.py"
         ;;
     assem)
         HUB_REPO="bactflow_assem"
@@ -382,6 +984,7 @@ case "${MODULE}" in
         DEFAULT_MEMORY="16g"
         CONTAINER_PORT="5002"
         DEFAULT_HOST_PORT="5002"
+        APP_PY="${SCRIPT_DIR}/UI/assem_app/assembly.py"
         ;;
     postassem)
         HUB_REPO="bactflow_postassem"
@@ -393,6 +996,7 @@ case "${MODULE}" in
         DEFAULT_MEMORY="16g"
         CONTAINER_PORT="5001"
         DEFAULT_HOST_PORT="5001"
+        APP_PY="${SCRIPT_DIR}/UI/post_assem_app/post_assembly.py"
         ;;
     *)
         echo -e "${RED}Error:${NC} Unknown module '${MODULE}'"
@@ -441,97 +1045,12 @@ if port_in_use "${HOST_PORT}"; then
     exit 1
 fi
 
-resolve_module_image \
-    "${HUB_REPO}" \
-    "${LOCAL_IMAGE}" \
-    "${DOCKERFILE}" \
-    "${BUILD_CONTEXT:-$(dirname "${DOCKERFILE}")}" \
-    "${FALLBACK_TAG}"
-
-CONTAINER_NAME="bactflow_${MODULE}_$$"
-LOG_FILE="/tmp/${CONTAINER_NAME}.log"
-: > "${LOG_FILE}"
-
-echo -e "\n${GREEN}=== Running ${MODULE} ===${NC}"
-echo "Work directory: ${WORK_DIR}"
-echo "Image: ${IMAGE}"
-echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
-echo "Port mapping: ${HOST_PORT} → ${CONTAINER_PORT}"
-echo -e "${CYAN}Access URL: http://127.0.0.1:${HOST_PORT}${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
-
-# Keep a host browser hook alive for this session and for raw `docker run` users.
-if [[ "${OPEN_BROWSER}" == true ]]; then
-    ensure_browser_hook
-fi
-
-cleanup() {
-    echo -e "\n${YELLOW}Stopping container...${NC}"
-    docker stop "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-    rm -f "${LOG_FILE}"
-}
-trap cleanup INT TERM EXIT
-
-# host.docker.internal lets the container reach the browser hook on the host.
-DOCKER_EXTRA_HOST=()
-if docker run --help 2>/dev/null | grep -q -- '--add-host'; then
-    DOCKER_EXTRA_HOST=(--add-host=host.docker.internal:host-gateway)
-fi
-
-docker run --rm \
-    --name "${CONTAINER_NAME}" \
-    --init \
-    ${CPUS} \
-    ${MEMORY} \
-    "${DOCKER_EXTRA_HOST[@]}" \
-    -p "${HOST_PORT}:${CONTAINER_PORT}" \
-    -v "${WORK_DIR}:${WORK_DIR}" \
-    -w "${WORK_DIR}" \
-    -e BACTFLOW_IN_DOCKER=1 \
-    -e BACTFLOW_NO_BROWSER=1 \
-    -e BACTFLOW_MODULE="${MODULE}" \
-    -e BACTFLOW_HOST_PORT="${HOST_PORT}" \
-    -e BACTFLOW_PUBLIC_URL="http://127.0.0.1:${HOST_PORT}/" \
-    -e BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}" \
-    -e HOME="${WORK_DIR}" \
-    -e NXF_HOME="${WORK_DIR}/.nextflow" \
-    "${IMAGE}" > "${LOG_FILE}" 2>&1 &
-DOCKER_PID=$!
-
-echo -e "${BLUE}Waiting for the UI to become ready...${NC}"
-READY=false
-for i in $(seq 1 60); do
-    if curl -fsS -o /dev/null "http://127.0.0.1:${HOST_PORT}/"; then
-        READY=true
-        break
-    fi
-    if ! kill -0 "${DOCKER_PID}" 2>/dev/null; then
-        echo -e "${RED}Container exited before the UI started.${NC}"
-        cat "${LOG_FILE}"
-        exit 1
-    fi
-    sleep 1
-done
-
-if [[ "${READY}" != true ]]; then
-    echo -e "${RED}Timed out waiting for http://127.0.0.1:${HOST_PORT}/${NC}"
-    echo "Last container logs:"
-    tail -n 80 "${LOG_FILE}" || true
-    exit 1
-fi
-
-echo -e "${GREEN}UI is ready at http://127.0.0.1:${HOST_PORT}${NC}"
-if [[ "${OPEN_BROWSER}" == true ]]; then
-    # Slight delay so the first HTTP response is fully settled before the tab opens.
-    sleep 0.5
-    open_browser "http://127.0.0.1:${HOST_PORT}/" || true
-else
-    echo -e "${YELLOW}Browser auto-open disabled (--no-browser). Open: http://127.0.0.1:${HOST_PORT}/${NC}"
-fi
-
-echo -e "\n${BLUE}Container logs:${NC}\n"
-tail -f "${LOG_FILE}" &
-TAIL_PID=$!
-wait "${DOCKER_PID}"
-kill "${TAIL_PID}" >/dev/null 2>&1 || true
-echo -e "\n${GREEN}=== ${MODULE} stopped ===${NC}"
+case "${SERVICE}" in
+    docker) run_docker ;;
+    apptainer) run_apptainer ;;
+    conda) run_conda ;;
+    *)
+        echo -e "${RED}Error:${NC} Unknown service '${SERVICE}'"
+        usage
+        ;;
+esac

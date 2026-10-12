@@ -16,7 +16,7 @@ Options:
     --coverage_filter       If you want to normalize all your genomes to a certain coverage (default false).
     --coverage              Only if '--coverage_filter true'; default is 50.
     --genome_size           Genome size for coverage normalizaiton. Only if '--coverage_filter true'; default is 6.
-    --out_dir               Output directory of your final results. Default "genebrosh_output". All assemblers write FASTA files into asm_out_dir/fastas (existing files are kept). QUAST is rebuilt from every FASTA in that folder (or circulated_fasta).
+    --out_dir               Output directory of your final results. Default "genebrosh_output". All assemblers write FASTA files into asm_out_dir/fastas (files from earlier runs with the same name are replaced). QUAST is rebuilt from every FASTA in that folder (or circulated_fasta).
     --tensor_batch          Medaka tensorflow batch size. Lower it in low coverage genomes. Default 200.
     --nanofilter            Filtering reads for length and quality; default true.
     --min_length            If '--nanofilter' true, filter reads below a certain read length (default 1000). 
@@ -66,18 +66,16 @@ def assemblerLabel() {
     return 'assembly'
 }
 
-// Copy a file into destDir only when that basename is not already there.
-// Returning null skips publishing (keeps existing Illumina files, still adds ONT/PacBio).
-def publishNewBasename(filename, destDir, suffix) {
+// Publish FASTA files under their own name; a fresh run replaces older files with the same name.
+def publishFasta(filename, suffix) {
     def fname = file(filename.toString()).getName()
     if (suffix && !fname.toLowerCase().endsWith(suffix)) {
         return null
     }
-    def dest = file("${destDir}/${fname}")
-    return dest.exists() ? null : fname
+    return fname
 }
 
-// Merge FASTA files into the shared published folder without replacing names that already exist.
+// Copy FASTA files into the shared published folder, replacing older copies from earlier runs.
 def poolFastas(String srcGlob, String destDir) {
     return """
     mkdir -p '${destDir}'
@@ -86,13 +84,8 @@ def poolFastas(String srcGlob, String destDir) {
         if [ -f "\$f" ]
         then
             dest='${destDir}'/"\$(basename "\$f")"
-            if [ ! -e "\$dest" ]
-            then
-                cp "\$f" "\$dest"
-                echo "Added \$dest"
-            else
-                echo "Kept existing \$dest"
-            fi
+            cp -f "\$f" "\$dest"
+            echo "Wrote \$dest"
         fi
     done
     """
@@ -123,11 +116,10 @@ workflow {
 
         
         if(params.setup_only){
-            def env_check =  envSetUP()
-            testify(env_check)
+            def env_check = testify(envSetUP())
         } else {
-            def env_check =  envSetUP()
-            testify(env_check)
+            // Every later step waits for the environment check, not just the setup.
+            def env_check = testify(envSetUP())
 
         def pooled_out
         def dedup_fastq
@@ -357,7 +349,7 @@ workflow {
 
 
 process envSetUP {
-    publishDir "${params.out_dir}", mode: 'copy', overwrite: false  
+    publishDir "${params.out_dir}", mode: 'copy', overwrite: true  
     output:
     path('environment_created'), emit: env_check//, optional: true //to prevent stoping if it failed
 
@@ -582,7 +574,7 @@ process assembly_flye1 {
   //  errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${cov_fastqs}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
@@ -684,7 +676,7 @@ process assembly_flye2 {
    // errorStrategy 'ignore'
     label 'Assemlby'
     tag "Assembling ${filt_fastqs}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
@@ -782,7 +774,7 @@ process assembly_spades {
     debug false
     label 'Assemlby'
     tag "SPAdes assembling ${fastq_dir}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
@@ -875,7 +867,7 @@ process assembly_unicycler {
     debug false
     label 'Assemlby'
     tag "Unicycler hybrid assembling ${long_reads}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
@@ -1061,7 +1053,7 @@ process assembly_pacbio {
     debug true
     label 'Assemlby'
     tag "PacBio assembling ${ready_dir}"
-    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, fastaPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
@@ -1143,7 +1135,7 @@ process assembly_pacbio {
 
 // circulating the genomes
 process circulator {
-    publishDir path: "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: false, pattern: '*.fasta', saveAs: { publishNewBasename(it, circPoolDir(), '.fasta') }
+    publishDir path: "${params.out_dir}/circulated_fasta", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check

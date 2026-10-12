@@ -1,7 +1,7 @@
 /* VS Code-like terminal panel */
 .bf-terminal-wrap {
   background: #1e1e1e !important;
-  border: 1px solid #3c3c3c;
+  border: 1px solid var(--hx-border, #2a3441);
   border-radius: 6px;
   padding: 0 !important;
   margin: 0 10px 10px 0;
@@ -62,7 +62,7 @@
 
 .bf-status {
   background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  border-bottom: 1px solid var(--hx-border, #2a3441);
   color: #9cdcfe;
   font-family: Consolas, "Cascadia Code", "Courier New", monospace;
   font-size: 12px;
@@ -80,7 +80,7 @@
   width: 100%;
   box-sizing: border-box;
   background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  border-bottom: 1px solid var(--hx-border, #2a3441);
   padding: 8px 14px 9px;
 }
 
@@ -111,7 +111,7 @@
   min-width: 80px;
   height: 10px;
   background: #111;
-  border: 1px solid #3c3c3c;
+  border: 1px solid var(--hx-border, #2a3441);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -226,3 +226,170 @@
 .log-default { color: #d4d4d4; }
 .log-path { color: #ce9178; }
 .log-purple { color: #c586c0; }
+
+/* Per-process progress panel */
+.bf-process-panel {
+  background: #252526;
+  border-bottom: 1px solid var(--hx-border, #2a3441);
+  padding: 10px 12px 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.bf-process-overall {
+  margin-bottom: 12px;
+}
+
+.bf-process-overall-head,
+.bf-proc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.bf-process-overall-title {
+  color: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.bf-process-overall-meta,
+.bf-proc-meta {
+  color: #9cdcfe;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bf-process-track {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  background: #111;
+  border: 1px solid var(--hx-border, #2a3441);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bf-process-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0e639c, #4fc1ff);
+  transition: width 0.45s ease;
+}
+
+.bf-process-fill.is-workflow {
+  background: linear-gradient(90deg, #264f78, #4fc1ff 55%, #89d185);
+}
+
+.bf-process-fill.is-wait {
+  background: repeating-linear-gradient(
+    -55deg,
+    #3c3c3c,
+    #3c3c3c 6px,
+    #505050 6px,
+    #505050 12px
+  );
+  width: 100% !important;
+  opacity: 0.55;
+}
+
+.bf-process-fill.is-run {
+  background: linear-gradient(90deg, #0e639c, #4fc1ff);
+  box-shadow: 0 0 8px rgba(79, 193, 255, 0.35);
+}
+
+.bf-process-fill.is-done {
+  background: linear-gradient(90deg, #3a7d44, #89d185);
+  transition: width 0.25s ease;
+}
+
+.bf-process-fill.is-cached {
+  background: linear-gradient(90deg, #6a9955, #b5cea8);
+}
+
+.bf-process-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bf-proc-card {
+  background: #1e1e1e;
+  border: 1px solid var(--hx-border, #2a3441);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.bf-proc-card.is-done {
+  border-color: #3a7d44;
+}
+
+.bf-proc-card.is-run {
+  border-color: #0e639c;
+}
+
+.bf-proc-name {
+  color: #4fc1ff;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bf-proc-card.is-done .bf-proc-name {
+  color: #89d185;
+}
+
+.bf-proc-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.bf-proc-badge.is-wait {
+  background: #264f78;
+  color: #9cdcfe;
+}
+
+.bf-proc-badge.is-run {
+  background: #0e639c;
+  color: #fff;
+}
+
+.bf-proc-badge.is-done {
+  background: #3a7d44;
+  color: #fff;
+}
+
+.bf-proc-badge.is-cached {
+  background: #6a9955;
+  color: #fff;
+}
+
+.bf-proc-pct {
+  color: #dcdcaa;
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 36px;
+  text-align: right;
+}
+
+@keyframes bf-proc-wait {
+  from { background-position: 0 0; }
+  to { background-position: 24px 0; }
+}
