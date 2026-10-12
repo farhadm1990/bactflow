@@ -31,6 +31,38 @@
   --rd-plasma-blend: screen;
 }
 
+html[data-theme="plain"] {
+  --rd-bg: #1e1e1e;
+  --rd-panel: #252526;
+  --rd-panel-2: #2d2d2d;
+  --rd-nav-bg: #252526;
+  --rd-bar-bg: #252526;
+  --rd-card-bg: #252526;
+  --rd-menu-bg: #252526;
+  --rd-ring-hole: #1e1e1e;
+  --rd-node-bg: #1e1e1e;
+  --rd-border: #3c3c3c;
+  --rd-line: #3c3c3c;
+  --rd-text: #cccccc;
+  --rd-muted: #858585;
+  --rd-blue: #007acc;
+  --rd-cyan: #3794ff;
+  --rd-violet: #c586c0;
+  --rd-green: #89d185;
+  --rd-amber: #dcdcaa;
+  --rd-red: #f14c4c;
+  --rd-shadow: none;
+  --rd-radius: 4px;
+  --rd-plasma-opacity: 0;
+  --rd-font: "Segoe UI", system-ui, sans-serif;
+  --rd-mono: Consolas, "Cascadia Mono", monospace;
+  color-scheme: dark;
+}
+
+html[data-theme="plain"] .rd-plasma {
+  display: none;
+}
+
 html[data-theme="light"] {
   --rd-bg: #eef2f9;
   --rd-panel: rgba(255, 255, 255, 0.78);
@@ -190,6 +222,19 @@ html[data-theme="light"] .rd-plasma svg {
   height: 100vh;
   width: 100%;
   color: var(--rd-text);
+}
+
+.rd-app.is-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rd-app.is-focus .rd-nav,
+.rd-app.is-focus .rd-right {
+  display: none;
+}
+
+.rd-app.is-focus .rd-body {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* —— Sidebar —— */
@@ -1183,6 +1228,8 @@ html[data-theme="light"] .rd-logs #output-bactflow {
 .rd-action-bar #rd-theme-bt {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 7px;
   background: var(--rd-panel-2) !important;
   color: var(--rd-text) !important;

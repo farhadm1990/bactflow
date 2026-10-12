@@ -3,9 +3,9 @@
 {% block title %} Post-assembly {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix1">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix2">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix2">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd29">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd36">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -245,7 +245,10 @@
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tRNA"> tRNA</label>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="rRNA"> rRNA</label>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tmRNA"> tmRNA</label>
-                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="repeat_region"> repeat_region</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="ncRNA"> ncRNA</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="crispr"> CRISPR</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="crispr-repeat"> CRISPR repeat</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="repeat_region"> Repeat</label>
                   </div>
                 </div>
               </div>
@@ -276,7 +279,14 @@
                   </div>
                 </div>
                 <div id="linear-opts" style="display: none;">
-                  <p class="text-muted small mb-2">Interactive linear map in the style of DNA Features Viewer. Forward strand above the axis, reverse below. Hover a gene for product and coordinates; zoom and pan so the full genome stays reachable.</p>
+                  <p class="text-muted small mb-2">Arrow-tipped linear map: forward genes point right, reverse point left. Ctrl/Cmd-click several genomes in the plot bar to stack them for comparison. Zoom in to see nucleotides; download PNG or HTML of the current view.</p>
+                  <label class="bf-linear-toggle" for="linear-hide-hypo-setup">
+                    <input type="checkbox" id="linear-hide-hypo-setup">
+                    Hide unannotated / hypothetical CDS
+                  </label>
+                  <label class="form-label mt-3">Custom feature colors (forward / reverse)</label>
+                  <div id="linear-color-editor" class="bf-linear-colors"></div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="linear-color-reset">Reset colors</button>
                 </div>
                 <button type="button" class="btn btn-primary w-100 mt-3" id="circ-plot-bt" onclick="createGenomePlot()" disabled>
                   Create circular plot
@@ -578,12 +588,28 @@
         <div class="bf-plot-bar" id="linear-plot-bar" style="display: none;">
           <span class="bf-plot-bar-title">Linear genome plot</span>
           <div class="bf-linear-pickers">
-            <label>Genome
-              <select id="linear-genome-sel" class="form-select form-select-sm"></select>
+            <label>Genomes
+              <select id="linear-genome-sel" class="form-select form-select-sm" multiple size="3" title="Ctrl/Cmd-click to stack genomes"></select>
             </label>
             <label>Contig
               <select id="linear-contig-sel" class="form-select form-select-sm"></select>
             </label>
+            <label class="bf-linear-toggle">
+              <input type="checkbox" id="linear-hide-hypo">
+              Hide unannotated proteins
+            </label>
+            <label class="bf-linear-search-wrap">Search
+              <input type="search" id="linear-search" class="form-control form-control-sm" placeholder="gene, product, locus…" autocomplete="off">
+            </label>
+            <span class="bf-linear-search-nav">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-prev" title="Previous match">Prev</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-next" title="Next match">Next</button>
+              <span id="linear-search-count" class="text-muted small"></span>
+            </span>
+          </div>
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadLinearPlot()">Download PNG</button>
+            <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadLinearHtml()">Download HTML</button>
           </div>
         </div>
         <div id="output-linear" style="border: 1px solid rgb(105, 105, 105); padding: 10px; margin: 10px; border-radius: 5px; width: 95%; overflow: hidden; color: var(--hx-text);">
@@ -594,6 +620,7 @@
             <h3 style="color: var(--hx-accent);">Linear map is being created...</h3>
           </div>
           <div id="linearPlot"></div>
+          <div class="bf-linear-legend" id="linear-legend" hidden></div>
         </div>
       </div>
       
@@ -923,7 +950,7 @@
               <small id="rd-ram-sub"></small>
             </div>
           </div>
-          <div class="rd-legacy-meters" aria-hidden="true">
+          <div class="rd-legacy-meters" id="bf-meters" aria-hidden="true">
             <div class="bf-meter-fill" id="bf-cpu-fill"></div>
             <div class="bf-meter-job" id="bf-cpu-job"></div>
             <span id="bf-cpu-val">—</span>
@@ -956,11 +983,11 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars14"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd29"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars15"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd30"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix43"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix53"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import glob
 import os
+import re
+from io import StringIO
 
 from Bio import SeqIO
 
@@ -19,18 +21,22 @@ ANNOT_EXTS = GBK_EXTS | GFF_EXTS
 SKIP_TYPES = {"source", "region", "comment"}
 
 TYPE_COLORS = {
-    "cds": "#3B82F6",
-    "trna": "#F59E0B",
-    "rrna": "#EF4444",
-    "tmrna": "#14B8A6",
-    "ncrna": "#22C55E",
-    "repeat_region": "#A855F7",
-    "gene": "#64748B",
-    "orig": "#EAB308",
-    "oric": "#EAB308",
+    "cds": "#E07A5F",
+    "trna": "#E9C46A",
+    "rrna": "#E76F51",
+    "tmrna": "#2A9D8F",
+    "ncrna": "#6A994E",
+    "repeat_region": "#4C6EF5",
+    "crispr": "#9B5DE5",
+    "crispr-repeat": "#C77DFF",
+    "crispr-spacer": "#B8C0FF",
+    "ncrna-region": "#A7C957",
+    "gene": "#6D6875",
+    "orig": "#F4A261",
+    "oric": "#F4A261",
     "gap": "#94A3B8",
 }
-DEFAULT_COLOR = "#64748B"
+DEFAULT_COLOR = "#6D6875"
 
 
 def _first(attrs, *keys):
@@ -76,6 +82,25 @@ def _ensure_contig(store, order, cid, length=0):
     return store[cid]
 
 
+def _norm_ftype(ftype, name="", product=""):
+    raw = str(ftype or "")
+    t = raw.lower().replace("_", "-")
+    blob = f"{name or ''} {product or ''} {raw}".lower()
+    if t in {"crispr-spacer", "crisprspacer"} or "crispr spacer" in blob:
+        return "crispr-spacer"
+    if t in {"crispr-repeat", "crisprrepeat"} or "crispr repeat" in blob:
+        return "crispr-repeat"
+    if t == "crispr" or (t == "repeat-region" and "crispr" in blob):
+        if "spacer" in blob:
+            return "crispr-spacer"
+        if "repeat" in blob and "array" not in blob:
+            return "crispr-repeat"
+        return "crispr"
+    if t == "repeat-region":
+        return "repeat_region"
+    return raw.lower()
+
+
 def _add_feature(contig, ftype, start, end, strand, name, product, locus):
     if ftype.lower() in SKIP_TYPES:
         return
@@ -83,7 +108,7 @@ def _add_feature(contig, ftype, start, end, strand, name, product, locus):
     end = max(int(end), start)
     contig["length"] = max(contig["length"], end)
     contig["features"].append({
-        "type": ftype,
+        "type": _norm_ftype(ftype, name, product),
         "start": start,
         "end": end,
         "strand": "-" if str(strand) in {"-", "-1", "-1.0"} else "+",
@@ -95,10 +120,16 @@ def _add_feature(contig, ftype, start, end, strand, name, product, locus):
 
 def parse_gff(path):
     store, order = {}, []
+    fasta_chunks = []
+    in_fasta = False
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             if line.startswith("##FASTA"):
-                break
+                in_fasta = True
+                continue
+            if in_fasta:
+                fasta_chunks.append(line)
+                continue
             if line.startswith("##sequence-region"):
                 parts = line.split()
                 if len(parts) >= 4:
@@ -122,11 +153,18 @@ def parse_gff(path):
                 _first(attrs, "locus_tag", "ID"),
             )
 
+    def _attach_seqs(records):
+        for rec in records:
+            cid = rec.id.split()[0]
+            contig = _ensure_contig(store, order, cid, len(rec.seq))
+            if not contig.get("seq"):
+                contig["seq"] = str(rec.seq).upper()
+
+    if fasta_chunks:
+        _attach_seqs(SeqIO.parse(StringIO("".join(fasta_chunks)), "fasta"))
     fasta = _companion_fasta(path)
     if fasta:
-        for rec in SeqIO.parse(fasta, "fasta"):
-            cid = rec.id.split()[0]
-            _ensure_contig(store, order, cid, len(rec.seq))
+        _attach_seqs(SeqIO.parse(fasta, "fasta"))
     return [store[cid] for cid in order if cid in store]
 
 
@@ -135,6 +173,7 @@ def parse_gbk(path):
     for rec in SeqIO.parse(path, "genbank"):
         cid = rec.id.split()[0] if rec.id else rec.name or os.path.basename(path)
         contig = _ensure_contig(store, order, cid, len(rec.seq))
+        contig["seq"] = str(rec.seq).upper()
         for feat in rec.features:
             if feat.location is None:
                 continue
@@ -156,21 +195,20 @@ def parse_gbk(path):
 
 
 def collect_annotation_files(root):
-    chosen = []
+    rank = {".gbff": 0, ".gbk": 1, ".gb": 2, ".gff3": 3, ".gff": 4}
+    by_stem = {}
     for dirpath, _dirnames, filenames in os.walk(root):
-        by_ext = {ext: [] for ext in ANNOT_EXTS}
         for name in filenames:
             ext = os.path.splitext(name)[1].lower()
-            if ext in ANNOT_EXTS:
-                by_ext[ext].append(os.path.join(dirpath, name))
-        picked = None
-        for ext in (".gbff", ".gbk", ".gb", ".gff3", ".gff"):
-            if by_ext.get(ext):
-                picked = sorted(by_ext[ext])[0]
-                break
-        if picked:
-            chosen.append(picked)
-    return chosen
+            if ext not in ANNOT_EXTS:
+                continue
+            stem = os.path.splitext(name)[0]
+            key = os.path.join(dirpath, stem)
+            prev = by_stem.get(key)
+            prev_rank = rank.get(os.path.splitext(prev)[1].lower(), 9) if prev else 9
+            if prev is None or rank.get(ext, 9) < prev_rank:
+                by_stem[key] = os.path.join(dirpath, name)
+    return sorted(by_stem.values())
 
 
 def load_genome(path):
@@ -185,10 +223,35 @@ def load_genome(path):
     return {"name": name, "path": path, "contigs": contigs}
 
 
+_GENOME_CACHE = {}
+
+
+def load_genome_cached(path):
+    path = os.path.abspath(path)
+    try:
+        stamp = (os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        stamp = (0, 0)
+    hit = _GENOME_CACHE.get(path)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    genome = load_genome(path)
+    _GENOME_CACHE[path] = (stamp, genome)
+    return genome
+
+
 def _wanted_types(feature_types):
     raw = feature_types if isinstance(feature_types, (list, tuple)) else str(feature_types or "cds").split(",")
     wanted = {str(t).strip().lower() for t in raw if str(t).strip()}
-    return wanted or {"cds"}
+    if not wanted:
+        wanted = {"cds"}
+    if wanted & {"ncrna", "ncrna-region"}:
+        wanted.update({"ncrna", "ncrna-region"})
+    if "crispr-repeat" in wanted:
+        wanted.update({"crispr-repeat", "crispr-spacer"})
+    if wanted & {"repeat", "repeat_region"}:
+        wanted.add("repeat_region")
+    return wanted
 
 
 def _pack_lanes(features):
@@ -236,25 +299,31 @@ def _fmt_bp(value):
     return f"{value} bp"
 
 
-def build_linear_figure(bakta_dir, feature_types=None, genome="", contig=""):
-    files = collect_annotation_files(bakta_dir)
-    if not files:
-        return None, {"error": "No .gbk/.gbff/.gff files found in Bakta output.", "genomes": [], "contigs": []}
+_HYPO_RE = re.compile(
+    r"hypothetical|uncharacterized|unknown function|putative protein|unannotated",
+    re.I,
+)
 
-    genomes = []
-    for path in files:
-        try:
-            genomes.append(load_genome(path))
-        except Exception:
-            continue
-    if not genomes:
-        return None, {"error": "Could not parse Bakta annotation files.", "genomes": [], "contigs": []}
 
-    names = [g["name"] for g in genomes]
-    chosen = next((g for g in genomes if g["name"] == genome), genomes[0])
-    contig_ids = [c["id"] for c in chosen["contigs"]]
-    wanted = _wanted_types(feature_types)
+def _is_hypothetical(feat):
+    if str(feat.get("type") or "").lower() != "cds":
+        return False
+    product = str(feat.get("product") or "").strip()
+    name = str(feat.get("name") or "").strip()
+    if not product:
+        return True
+    if _HYPO_RE.search(product):
+        return True
+    return name.lower() in {"cds", "hypothetical protein"}
 
+
+def _parse_genome_names(genome):
+    if isinstance(genome, (list, tuple)):
+        return [str(item).strip() for item in genome if str(item).strip()]
+    return [part.strip() for part in str(genome or "").split(",") if part.strip()]
+
+
+def _track_from_genome(chosen, contig, wanted):
     if contig and contig != "__all__":
         pieces = [c for c in chosen["contigs"] if c["id"] == contig]
         if not pieces:
@@ -263,14 +332,6 @@ def build_linear_figure(bakta_dir, feature_types=None, genome="", contig=""):
     else:
         pieces = list(chosen["contigs"])
         contig = contig or "__all__"
-
-    if not pieces:
-        return None, {
-            "error": "No contigs in the selected genome.",
-            "genomes": names,
-            "contigs": contig_ids,
-            "selected": {"genome": chosen["name"], "contig": contig},
-        }
 
     rows = []
     offset = 0
@@ -295,16 +356,16 @@ def build_linear_figure(bakta_dir, feature_types=None, genome="", contig=""):
     rev = [f for f in rows if f["strand"] == "-"]
     fwd_lanes = _pack_lanes(fwd)
     rev_lanes = _pack_lanes(rev)
-    lane_h = 0.42
-    y_max = 0.55 + fwd_lanes * lane_h
-    y_min = -(0.55 + rev_lanes * lane_h)
-
     features = []
     seen_types = []
+    hypo_count = 0
     for feat in fwd + rev:
         ftype = feat["type"].lower()
         if ftype not in seen_types:
             seen_types.append(ftype)
+        hypo = _is_hypothetical(feat)
+        if hypo:
+            hypo_count += 1
         features.append({
             "s": int(feat["abs_start"]),
             "e": int(feat["abs_end"]),
@@ -314,20 +375,148 @@ def build_linear_figure(bakta_dir, feature_types=None, genome="", contig=""):
             "n": (feat["name"] or ftype)[:80],
             "p": (feat["product"] or "")[:120],
             "c": feat["contig"],
+            "h": 1 if hypo else 0,
         })
-
     title_contig = "all contigs" if contig == "__all__" or len(pieces) > 1 else pieces[0]["id"]
-    return {"canvas": True}, {
-        "genomes": names,
-        "contigs": contig_ids,
-        "selected": {"genome": chosen["name"], "contig": contig},
-        "feature_count": len(rows),
+    return {
+        "name": chosen["name"],
+        "contig": contig,
         "length": total,
         "length_label": _fmt_bp(total),
-        "title": f"{chosen['name']} · {title_contig}",
         "fwd_lanes": fwd_lanes,
         "rev_lanes": rev_lanes,
         "types": seen_types,
         "features": features,
-        "boundaries": [{"id": b["id"], "start": b["start"]} for b in boundaries[1:]],
+        "boundaries": boundaries,
+        "title": f"{chosen['name']} · {title_contig}",
+        "hypo_count": hypo_count,
+        "feature_count": len(features),
     }
+
+
+def build_linear_figure(bakta_dir, feature_types=None, genome="", contig=""):
+    files = collect_annotation_files(bakta_dir)
+    if not files:
+        return None, {"error": "No .gbk/.gbff/.gff files found in Bakta output.", "genomes": [], "contigs": []}
+
+    genomes = []
+    for path in files:
+        try:
+            genomes.append(load_genome_cached(path))
+        except Exception:
+            continue
+    if not genomes:
+        return None, {"error": "Could not parse Bakta annotation files.", "genomes": [], "contigs": []}
+
+    names = [g["name"] for g in genomes]
+    wanted = _wanted_types(feature_types)
+    picked_names = _parse_genome_names(genome)
+    if picked_names:
+        chosen_list = [g for g in genomes if g["name"] in picked_names]
+        order = {name: idx for idx, name in enumerate(picked_names)}
+        chosen_list.sort(key=lambda item: order.get(item["name"], 999))
+    else:
+        chosen_list = [genomes[0]]
+    if not chosen_list:
+        chosen_list = [genomes[0]]
+
+    tracks = []
+    contig_ids = []
+    for chosen in chosen_list:
+        track = _track_from_genome(chosen, contig, wanted)
+        tracks.append(track)
+        for cid in [c["id"] for c in chosen["contigs"]]:
+            if cid not in contig_ids:
+                contig_ids.append(cid)
+
+    if not tracks or not any(t["length"] for t in tracks):
+        return None, {
+            "error": "No contigs in the selected genome.",
+            "genomes": names,
+            "contigs": contig_ids,
+            "selected": {"genomes": [t["name"] for t in tracks], "contig": contig or "__all__"},
+        }
+
+    types = []
+    for track in tracks:
+        for ftype in track["types"]:
+            if ftype not in types:
+                types.append(ftype)
+    length = max(int(track["length"] or 1) for track in tracks)
+    selected_names = [track["name"] for track in tracks]
+    title = tracks[0]["title"] if len(tracks) == 1 else f"{len(tracks)} genomes"
+    return {"canvas": True}, {
+        "genomes": names,
+        "contigs": contig_ids,
+        "selected": {
+            "genome": selected_names[0],
+            "genomes": selected_names,
+            "contig": tracks[0]["contig"],
+        },
+        "feature_count": sum(t["feature_count"] for t in tracks),
+        "hypo_count": sum(t["hypo_count"] for t in tracks),
+        "length": length,
+        "length_label": _fmt_bp(length),
+        "title": title,
+        "fwd_lanes": tracks[0]["fwd_lanes"],
+        "rev_lanes": tracks[0]["rev_lanes"],
+        "types": types,
+        "features": tracks[0]["features"],
+        "boundaries": tracks[0]["boundaries"],
+        "tracks": tracks,
+    }
+
+
+def _select_genome_pieces(bakta_dir, genome="", contig=""):
+    files = collect_annotation_files(bakta_dir)
+    if not files:
+        return None, None, []
+    if genome:
+        named = [path for path in files if os.path.splitext(os.path.basename(path))[0] == genome]
+        if named:
+            files = named
+    genomes = []
+    for path in files:
+        try:
+            genomes.append(load_genome_cached(path))
+        except Exception:
+            continue
+    if not genomes:
+        return None, None, []
+    chosen = next((g for g in genomes if g["name"] == genome), genomes[0])
+    if contig and contig != "__all__":
+        pieces = [c for c in chosen["contigs"] if c["id"] == contig] or list(chosen["contigs"])
+    else:
+        pieces = list(chosen["contigs"])
+    return chosen, contig or "__all__", pieces
+
+
+def slice_sequence(bakta_dir, genome="", contig="", start=1, end=1, limit=8000):
+    chosen, _sel, pieces = _select_genome_pieces(bakta_dir, genome, contig)
+    if not chosen or not pieces:
+        return {"start": 1, "end": 1, "seq": ""}
+    try:
+        start = max(int(start), 1)
+        end = max(int(end), start)
+    except (TypeError, ValueError):
+        start, end = 1, 1
+    if end - start + 1 > limit:
+        end = start + limit - 1
+    chunks = []
+    offset = 0
+    for piece in pieces:
+        length = max(int(piece.get("length") or 0), 1)
+        p0 = offset + 1
+        p1 = offset + length
+        a = max(start, p0)
+        b = min(end, p1)
+        if a <= b:
+            seq = piece.get("seq") or ""
+            i0 = a - p0
+            i1 = b - p0 + 1
+            if seq:
+                chunks.append(seq[i0:i1])
+            else:
+                chunks.append("N" * (i1 - i0))
+        offset += length
+    return {"start": start, "end": end, "seq": "".join(chunks)}

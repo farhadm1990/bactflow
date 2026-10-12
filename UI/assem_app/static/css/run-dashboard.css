@@ -224,6 +224,19 @@ html[data-theme="light"] .rd-plasma svg {
   color: var(--rd-text);
 }
 
+.rd-app.is-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rd-app.is-focus .rd-nav,
+.rd-app.is-focus .rd-right {
+  display: none;
+}
+
+.rd-app.is-focus .rd-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* —— Sidebar —— */
 .rd-nav {
   display: flex;

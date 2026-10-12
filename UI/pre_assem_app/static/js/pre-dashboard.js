@@ -15,12 +15,6 @@
     fail: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   };
 
-  const THEME_ICONS = {
-    dark: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
-    light:
-      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-  };
-
   const STEPS = {
     pool: { name: "Initiate read cat", icon: "pool", desc: "Lists FASTQ files and pools barcode or sample folders when Concat Reads is on" },
     trim: { name: "Size filter", icon: "trim", desc: "Removes FASTQ files below the size threshold", optional: true },
@@ -105,29 +99,60 @@
     /* —— Theme —— */
     initTheme() {
       const btn = document.getElementById("rd-theme-bt");
-      const apply = (theme) => {
-        document.documentElement.setAttribute("data-theme", theme);
+      const order = ["dark", "plain", "light"];
+      const labels = { dark: "Plasma", plain: "Plain dark", light: "Bright" };
+      let theme = "dark";
+      try {
+        const saved = localStorage.getItem("bactflow_theme");
+        theme = order.includes(saved) ? saved : "dark";
+      } catch (e) { /* ignore */ }
+      const paint = (value) => {
+        document.documentElement.setAttribute("data-theme", value);
         if (btn) {
-          const next = theme === "light" ? "dark" : "light";
-          btn.innerHTML = THEME_ICONS[next] + (next === "light" ? "Bright" : "Dark");
-          btn.title = "Switch to " + (next === "light" ? "bright" : "dark") + " theme";
+          const next = order[(order.indexOf(value) + 1) % order.length];
+          btn.textContent = labels[next];
+          btn.title = "Switch to " + labels[next];
         }
         this.restylePlots();
       };
-      let theme = "dark";
-      try {
-        theme = localStorage.getItem("bactflow_theme") === "light" ? "light" : "dark";
-      } catch (e) { /* ignore */ }
-      apply(theme);
-      if (btn) {
+      paint(theme);
+      if (btn && btn.dataset.themeBound !== "1") {
+        btn.dataset.themeBound = "1";
         btn.addEventListener("click", () => {
-          theme = theme === "light" ? "dark" : "light";
+          theme = order[(order.indexOf(theme) + 1) % order.length];
           try {
             localStorage.setItem("bactflow_theme", theme);
           } catch (e) { /* ignore */ }
-          apply(theme);
+          paint(theme);
         });
       }
+      this.bindFocus();
+    },
+
+    bindFocus() {
+      const btn = document.getElementById("rd-focus-bt");
+      const app = document.querySelector(".rd-app");
+      if (!btn || !app || btn.dataset.focusBound === "1") {
+        return;
+      }
+      btn.dataset.focusBound = "1";
+      const apply = (on) => {
+        app.classList.toggle("is-focus", on);
+        btn.textContent = on ? "Show panels" : "Focus";
+        btn.title = on ? "Show the setup menu and resource panels" : "Hide the setup menu and resource panels";
+      };
+      let on = false;
+      try {
+        on = localStorage.getItem("bactflow_focus") === "1";
+      } catch (e) { /* ignore */ }
+      apply(on);
+      btn.addEventListener("click", () => {
+        on = !app.classList.contains("is-focus");
+        try {
+          localStorage.setItem("bactflow_focus", on ? "1" : "0");
+        } catch (e) { /* ignore */ }
+        apply(on);
+      });
     },
 
     /* Process chain stays on screen and shrinks while the results column is scrolled. */

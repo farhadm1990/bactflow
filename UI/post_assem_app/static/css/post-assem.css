@@ -183,14 +183,20 @@ table.dataTable thead th {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 12px;
-    width: 98%;
+    width: 95%;
+    max-width: 95%;
     margin: 10px 10px 0;
     padding: 8px 12px;
     background: var(--hx-panel-2, #222b37);
     border: 1px solid #696969;
     border-bottom: 0;
     box-sizing: border-box;
+}
+
+#linear-plot-bar {
+    align-items: flex-start;
 }
 
 .bf-plot-bar-title {
@@ -204,7 +210,8 @@ table.dataTable thead th {
 }
 
 .bf-dl-png,
-.bf-dl-svg {
+.bf-dl-svg,
+.bf-dl-html {
     border: 0;
     color: #fff;
     font-weight: 600;
@@ -220,6 +227,16 @@ table.dataTable thead th {
 .bf-dl-png:hover,
 .bf-dl-png:focus {
     background: var(--hx-accent-dim, #1aa894);
+    color: #fff;
+}
+
+.bf-dl-html {
+    background: #64748b;
+}
+
+.bf-dl-html:hover,
+.bf-dl-html:focus {
+    background: #475569;
     color: #fff;
 }
 

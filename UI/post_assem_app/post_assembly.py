@@ -1366,6 +1366,28 @@ def linear():
     return jsonify(payload), 200
 
 
+@app.route("/linear-seq", methods=["POST"])
+def linear_seq():
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"seq": ""})
+    gbk_dir = os.path.join(out_dir, "bakta_out")
+    if not os.path.isdir(gbk_dir):
+        return jsonify({"seq": ""})
+    try:
+        from linear_plotter import slice_sequence
+        payload = slice_sequence(
+            gbk_dir,
+            genome=(request.form.get("linear_genome") or "").strip(),
+            contig=(request.form.get("linear_contig") or "").strip(),
+            start=request.form.get("start") or 1,
+            end=request.form.get("end") or 1,
+        )
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({"seq": "", "error": str(exc)})
+
+
     
 @app.route("/taxa-report", methods = ["POST"])
 def taxa_report():

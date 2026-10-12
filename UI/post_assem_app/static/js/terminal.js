@@ -1222,9 +1222,21 @@ const BactflowMeters = {
   history: { cpu: [], ram: [] },
   maxPoints: 40,
   timer: null,
+  _busy: false,
+  lastGood: null,
+
+  usable(s) {
+    if (!s || (s.cpu_percent == null && s.ram_percent == null)) {
+      return false;
+    }
+    if (s.error) {
+      return false;
+    }
+    return Number(s.ram_total_gb) > 0 || Number(s.ram_percent) > 0 || Number(s.ram_used_gb) > 0;
+  },
 
   init() {
-    if (!document.getElementById("bf-meters") || this.timer) {
+    if (this.timer) {
       return;
     }
     this.tick();
@@ -1306,9 +1318,10 @@ const BactflowMeters = {
   },
 
   apply(s) {
-    if (!s || s.ram_percent == null && s.cpu_percent == null) {
+    if (!this.usable(s)) {
       return false;
     }
+    this.lastGood = s;
     const cpuFill = document.getElementById("bf-cpu-fill");
     const ramFill = document.getElementById("bf-ram-fill");
     const cpuVal = document.getElementById("bf-cpu-val");
@@ -1361,11 +1374,10 @@ const BactflowMeters = {
   },
 
   async tick() {
-    if (document.hidden) {
+    if (document.hidden || this._busy) {
       return;
     }
-    const cpuVal = document.getElementById("bf-cpu-val");
-    const ramVal = document.getElementById("bf-ram-val");
+    this._busy = true;
     try {
       let payload = null;
       const stamp = Date.now();
@@ -1375,12 +1387,16 @@ const BactflowMeters = {
         `/static/sys_stats.json?t=${stamp}`
       ]) {
         try {
-          const res = await fetch(url, { cache: "no-store" });
+          const opts = { cache: "no-store" };
+          if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
+            opts.signal = AbortSignal.timeout(2000);
+          }
+          const res = await fetch(url, opts);
           if (!res.ok) {
             continue;
           }
           const data = await res.json();
-          if (data && (data.cpu_percent != null || data.ram_percent != null)) {
+          if (this.usable(data)) {
             payload = data;
             break;
           }
@@ -1388,12 +1404,11 @@ const BactflowMeters = {
           continue;
         }
       }
-      if (!this.apply(payload)) {
-        throw new Error("no stats fields");
+      if (payload) {
+        this.apply(payload);
       }
-    } catch (err) {
-      this.markWaiting(cpuVal);
-      this.markWaiting(ramVal);
+    } finally {
+      this._busy = false;
     }
   }
 };

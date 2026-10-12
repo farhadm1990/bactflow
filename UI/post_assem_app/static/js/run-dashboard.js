@@ -89,10 +89,6 @@
     frozenRows: null,
     serverRunning: false,
     lastStats: null,
-    _smoothCpu: null,
-    _smoothRam: null,
-    _shownCpu: null,
-    _shownRam: null,
     plannedKey: null,
     pinnedStages: null,
     lastTitle: "",
@@ -507,7 +503,7 @@
       meters._rdHooked = true;
       const orig = meters.apply.bind(meters);
       meters.apply = (s) => {
-        if (s && (s.cpu_percent != null || s.ram_percent != null)) {
+        if (s && (s.cpu_percent != null || s.ram_percent != null) && !s.error) {
           const live = !!s.running;
           if (live) {
             this._runMiss = 0;
@@ -1022,39 +1018,36 @@
     },
 
     renderGauges(s) {
-      if (s) {
+      if (s && !s.error && (s.cpu_percent != null || s.ram_percent != null) && (Number(s.ram_total_gb) > 0 || Number(s.ram_percent) > 0)) {
         this.lastStats = s;
       } else {
-        s = this.lastStats || {};
+        s = this.lastStats;
       }
-      let cpu = Math.max(0, Math.min(100, Math.round(Number(s.cpu_percent) || 0)));
-      let ram = Math.max(0, Math.min(100, Math.round(Number(s.ram_percent) || 0)));
-      const now = Date.now();
-      const due = !this._gaugeAt || now - this._gaugeAt > 3000;
-      const jumped = this._shownCpu == null || Math.abs(cpu - this._shownCpu) >= 3 || Math.abs(ram - this._shownRam) >= 2;
-      if (!due && !jumped) {
-        cpu = this._shownCpu;
-        ram = this._shownRam;
-      } else {
-        this._gaugeAt = now;
-        this._shownCpu = cpu;
-        this._shownRam = ram;
+      if (!s) {
+        return;
       }
+      const asked = this.requestedCores();
+      const jobCores = Number(s.job_cores);
+      const jobLive = s.running && Number.isFinite(jobCores);
+      let cpu = Number(s.cpu_percent) || 0;
+      if (jobLive && asked) {
+        cpu = (jobCores / asked) * 100;
+      }
+      cpu = Math.max(0, Math.min(100, cpu));
+      const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
-      if (cpuRing && cpuRing.dataset.pct !== String(cpu)) {
-        cpuRing.dataset.pct = String(cpu);
+      if (cpuRing) {
         cpuRing.style.setProperty("--rd-pct", cpu);
       }
-      if (ramRing && ramRing.dataset.pct !== String(ram)) {
-        ramRing.dataset.pct = String(ram);
+      if (ramRing) {
         ramRing.style.setProperty("--rd-pct", ram);
       }
-      this.setText("rd-cpu-pct", cpu + "%");
-      this.setText("rd-ram-pct", ram + "%");
+      this.setText("rd-cpu-pct", Math.round(cpu) + "%");
+      this.setText("rd-ram-pct", Math.round(ram) + "%");
       this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
       this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
-      this.setText("rd-m-res", `${cpu}% / ${ram}%`);
+      this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
 
     maybeAutoscroll() {

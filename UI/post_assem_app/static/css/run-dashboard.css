@@ -1263,6 +1263,41 @@ html[data-theme="light"] .rd-logs #output-bactflow {
   cursor: grab;
 }
 
+.bf-linear-canvas:active {
+  cursor: grabbing;
+}
+
+.bf-linear-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 4px 2px;
+  font-size: 0.8rem;
+  color: var(--rd-muted, #9ca3af);
+}
+
+.bf-linear-legend[hidden] {
+  display: none;
+}
+
+.bf-linear-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bf-linear-legend-item i,
+.bf-linear-legend-item b {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.bf-linear-legend-item i + b {
+  margin-left: -2px;
+}
+
 .bf-linear-tip {
   position: absolute;
   z-index: 3;
@@ -1562,7 +1597,73 @@ body.helix-shell #assem-results-pane table thead th {
   min-width: 140px;
 }
 
+.bf-linear-pickers select[multiple] {
+  min-width: 180px;
+  height: 4.6em;
+  max-height: 4.6em;
+  overflow-y: auto;
+}
+
+.bf-linear-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--rd-muted, #9ca3af);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bf-linear-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--rd-muted, #9ca3af);
+}
+
+.bf-linear-search-wrap input {
+  min-width: 180px;
+}
+
+.bf-linear-search-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bf-linear-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 220px;
+}
+
+.bf-linear-color-row {
+  display: grid;
+  grid-template-columns: 7.5rem 28px 28px;
+  align-items: center;
+  column-gap: 8px;
+  font-size: 0.78rem;
+  color: var(--rd-muted, #9ca3af);
+}
+
+.bf-linear-color-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bf-linear-color-row input[type="color"] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
 #linearPlot {
-  min-height: 420px;
+  min-height: 520px;
   width: 100%;
 }

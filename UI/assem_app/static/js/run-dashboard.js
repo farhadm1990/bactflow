@@ -158,6 +158,36 @@
           paint(theme);
         });
       }
+      this.bindFocus();
+    },
+
+    bindFocus() {
+      const btn = document.getElementById("rd-focus-bt");
+      const app = document.querySelector(".rd-app");
+      if (!btn || !app || btn.dataset.focusBound === "1") {
+        return;
+      }
+      btn.dataset.focusBound = "1";
+      const apply = (on) => {
+        app.classList.toggle("is-focus", on);
+        btn.textContent = on ? "Show panels" : "Focus";
+        btn.title = on ? "Show the setup menu and resource panels" : "Hide the setup menu and resource panels";
+        if (this.alignLogsWithNextflow) {
+          requestAnimationFrame(() => this.alignLogsWithNextflow());
+        }
+      };
+      let on = false;
+      try {
+        on = localStorage.getItem("bactflow_focus") === "1";
+      } catch (e) { /* ignore */ }
+      apply(on);
+      btn.addEventListener("click", () => {
+        on = !app.classList.contains("is-focus");
+        try {
+          localStorage.setItem("bactflow_focus", on ? "1" : "0");
+        } catch (e) { /* ignore */ }
+        apply(on);
+      });
     },
 
     /* —— Operator popup —— */

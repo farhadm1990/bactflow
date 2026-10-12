@@ -9,9 +9,9 @@
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd16">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd19">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre10">
-<script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
+<script>try{var t=localStorage.getItem("bactflow_theme");if(t==="light"||t==="plain")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 {% endblock %}
 
 {% block content %}
@@ -182,6 +182,7 @@
         <div class="rd-top-stat"><label>Step</label><strong class="rd-run-id" id="pre-header-action">—</strong></div>
         <div class="rd-top-stat"><label>Started</label><strong id="rd-header-started">—</strong></div>
         <div class="rd-top-stat"><label>Elapsed</label><strong id="rd-header-elapsed">—</strong></div>
+        <button type="button" class="rd-chip-btn" id="rd-focus-bt">Focus</button>
         <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View results</button>
       </div>
     </header>
@@ -380,7 +381,7 @@
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
 <script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle10"></script>
 <script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre13"></script>
+<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre15"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
