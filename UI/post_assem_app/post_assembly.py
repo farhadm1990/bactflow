@@ -1263,6 +1263,30 @@ def linear():
     return jsonify(payload), 200
 
 
+@app.route("/linear-links", methods=["POST"])
+def linear_links():
+    out_dir = request.form.get("out_dir")
+    if not out_dir:
+        return jsonify({"links": [], "error": "missing_out_dir"})
+    gbk_dir = os.path.join(out_dir, "bakta_out")
+    if not os.path.isdir(gbk_dir):
+        return jsonify({"links": [], "error": "no_bakta_dir"})
+    try:
+        from linear_plotter import build_synteny_links
+        payload = build_synteny_links(
+            gbk_dir,
+            genome=(request.form.get("linear_genome") or "").strip(),
+            contig=(request.form.get("linear_contig") or "").strip(),
+            mode=(request.form.get("cord_mode") or "pairwise").strip(),
+            reference=(request.form.get("cord_ref") or "").strip(),
+            min_pid=request.form.get("min_pid") or 30,
+            feature_types=_selected_gene_types(),
+        )
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({"links": [], "error": str(exc)})
+
+
 @app.route("/linear-seq", methods=["POST"])
 def linear_seq():
     out_dir = request.form.get("out_dir")

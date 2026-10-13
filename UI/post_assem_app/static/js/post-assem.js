@@ -1520,61 +1520,77 @@ function linearDownloadName(host, ext) {
   return `${(host && host._linearName) || "linear_genome"}_${from}-${to}.${ext}`;
 }
 
-const LINEAR_PNG_LEVELS = [
-  { id: "basic", label: "Basic", scale: 1, cap: 2048 },
-  { id: "medium", label: "Medium", scale: 2, cap: 4096 },
-  { id: "high", label: "High", scale: 8 / 3, cap: 5461 },
-  { id: "higher", label: "Higher", scale: 10 / 3, cap: 6827 },
-  { id: "max", label: "Max", scale: 4, cap: 8192 },
-];
+const LINEAR_PNG_MAX = 16384;
+const LINEAR_PNG_MIN = 320;
 
-function linearPngLevelIndex() {
-  const el = document.getElementById("linear-png-res");
-  const n = el ? Number(el.value) : 1;
-  if (!Number.isFinite(n) || n < 0) {
-    return 1;
+function linearPngParseDim(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    return 0;
   }
-  return Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Math.round(n)));
+  return Math.max(LINEAR_PNG_MIN, Math.min(LINEAR_PNG_MAX, Math.round(n)));
 }
 
-function linearPngLevel() {
-  return LINEAR_PNG_LEVELS[linearPngLevelIndex()] || LINEAR_PNG_LEVELS[1];
+function linearPngDims() {
+  const wEl = document.getElementById("linear-png-w") || document.getElementById("linear-png-w-bar");
+  const hEl = document.getElementById("linear-png-h") || document.getElementById("linear-png-h-bar");
+  return {
+    width: linearPngParseDim(wEl && wEl.value),
+    height: linearPngParseDim(hEl && hEl.value),
+  };
 }
 
 function bindLinearPngRes() {
-  const slider = document.getElementById("linear-png-res");
-  if (!slider) {
-    return;
-  }
-  let stored = "1";
-  try {
-    const raw = localStorage.getItem("bactflow_linear_png_res5");
-    if (raw === "0" || raw === "1" || raw === "2" || raw === "3" || raw === "4") {
-      stored = raw;
-    }
-  } catch (_err) {}
-  const apply = (value) => {
-    const idx = Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Math.round(Number(value) || 0)));
-    const level = LINEAR_PNG_LEVELS[idx];
-    slider.value = String(idx);
-    slider.setAttribute("aria-valuetext", level.label);
-    slider.closest(".bf-linear-res")?.querySelectorAll(".bf-linear-res-ticks span").forEach((tick) => {
-      tick.classList.toggle("is-active", Number(tick.dataset.level) === idx);
-    });
-    const label = document.getElementById("linear-png-res-label");
-    if (label) {
-      label.textContent = level.label;
-    }
+  const fields = [
+    ["linear-png-w", "linear-png-w-bar"],
+    ["linear-png-h", "linear-png-h-bar"],
+  ];
+  const applyStored = () => {
+    let stored = {};
     try {
-      localStorage.setItem("bactflow_linear_png_res5", String(idx));
+      stored = JSON.parse(localStorage.getItem("bactflow_linear_png_dims") || "{}") || {};
+    } catch (_err) {
+      stored = {};
+    }
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && val) {
+        el.value = String(val);
+      }
+    };
+    if (stored.width) {
+      setVal("linear-png-w", stored.width);
+      setVal("linear-png-w-bar", stored.width);
+    }
+    if (stored.height) {
+      setVal("linear-png-h", stored.height);
+      setVal("linear-png-h-bar", stored.height);
+    }
+  };
+  const persist = () => {
+    const dims = linearPngDims();
+    try {
+      localStorage.setItem("bactflow_linear_png_dims", JSON.stringify(dims));
     } catch (_err) {}
   };
-  if (!slider.dataset.bound) {
-    slider.dataset.bound = "1";
-    slider.addEventListener("input", () => apply(Number(slider.value)));
-    slider.addEventListener("change", () => apply(Number(slider.value)));
-  }
-  apply(Number(stored));
+  fields.forEach((pair) => {
+    pair.forEach((id, idx) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.bound) {
+        return;
+      }
+      el.dataset.bound = "1";
+      el.addEventListener("input", () => {
+        const other = document.getElementById(pair[idx ? 0 : 1]);
+        if (other && other !== el) {
+          other.value = el.value;
+        }
+        persist();
+      });
+      el.addEventListener("change", persist);
+    });
+  });
+  applyStored();
 }
 
 function downloadLinearPlot() {
@@ -1631,9 +1647,10 @@ function downloadLinearHtml() {
     fillLinearLegend.toString(),
     drawLinearCanvas.toString(),
     linearDownloadName.toString(),
-    "const LINEAR_PNG_LEVELS = " + JSON.stringify(LINEAR_PNG_LEVELS) + ";",
-    linearPngLevelIndex.toString(),
-    linearPngLevel.toString(),
+    "const LINEAR_PNG_MAX = " + LINEAR_PNG_MAX + ";",
+    "const LINEAR_PNG_MIN = " + LINEAR_PNG_MIN + ";",
+    linearPngParseDim.toString(),
+    linearPngDims.toString(),
     downloadLinearPlot.toString(),
     "const SNAP = " + JSON.stringify(snap) + ";",
     "drawLinearCanvas(document.getElementById('linearPlot'), SNAP.data, SNAP);",
@@ -1808,6 +1825,211 @@ function fillSelect(sel, values, selected, allLabel) {
   }
 }
 
+function linearCordifyOn() {
+  const el = document.getElementById("linear-cordify");
+  return !!(el && el.checked);
+}
+
+function linearCordMode() {
+  const el = document.querySelector("input[name='linear-cord-mode']:checked");
+  return (el && el.value) || "pairwise";
+}
+
+function linearCordMinPid() {
+  const el = document.getElementById("linear-cord-min");
+  return el ? Number(el.value) || 30 : 30;
+}
+
+function setLinearCordInfoOpen(open) {
+  const btn = document.getElementById("linear-cord-info");
+  const pop = document.getElementById("linear-cord-info-pop");
+  if (!btn || !pop) {
+    return;
+  }
+  pop.hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function syncLinearCordUi() {
+  const on = linearCordifyOn();
+  const opts = document.getElementById("linear-cord-opts");
+  const ref = document.getElementById("linear-cord-ref");
+  if (opts) {
+    opts.hidden = !on;
+  }
+  if (ref) {
+    ref.disabled = !on || linearCordMode() !== "reference";
+  }
+  const min = document.getElementById("linear-cord-min");
+  const lab = document.getElementById("linear-cord-min-label");
+  if (min && lab) {
+    lab.textContent = `${min.value}%`;
+  }
+  if (!on) {
+    setLinearCordInfoOpen(false);
+  }
+}
+
+function fillLinearCordRef(names, selected) {
+  const ref = document.getElementById("linear-cord-ref");
+  if (!ref) {
+    return;
+  }
+  fillSelect(ref, names || [], selected || ref.value);
+}
+
+function setLinearCordScore(html, title) {
+  const el = document.getElementById("linear-cord-score");
+  if (!el) {
+    return;
+  }
+  if (!html) {
+    el.hidden = true;
+    el.innerHTML = "";
+    el.removeAttribute("title");
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = html;
+  if (title) {
+    el.title = title;
+  }
+}
+
+function escapeLinearHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+function formatLinearCordScore(payload) {
+  const scores = (payload && payload.scores) || [];
+  if (!scores.length) {
+    return escapeLinearHtml((payload && payload.error) || "No homologs above the identity cutoff.");
+  }
+  return scores.map((row) => {
+    const aai = Number(row.aai != null ? row.aai : row.mean_pid).toFixed(1);
+    const rbh = Number(row.rbh) || 0;
+    const frac = row.frac != null ? `  ·  ${Number(row.frac).toFixed(0)}% genes` : "";
+    const vs = payload.mode === "reference"
+      ? `${escapeLinearHtml(row.b)} vs ${escapeLinearHtml(row.a)}`
+      : `${escapeLinearHtml(row.a)} ↔ ${escapeLinearHtml(row.b)}`;
+    return `<span class="bf-linear-cord-pair">${vs}: AAI ${aai}%  ·  ${rbh} orthologs${frac}</span>`;
+  }).join("");
+}
+
+let linearCordTimer = 0;
+let linearCordCache = { key: "", payload: null };
+
+function currentCordKey() {
+  const contigSel = document.getElementById("linear-contig-sel");
+  const ref = document.getElementById("linear-cord-ref");
+  return [
+    selectedLinearGenomes().join(","),
+    (contigSel && contigSel.value) || "",
+    linearCordMode(),
+    (ref && ref.value) || "",
+  ].join("|");
+}
+
+function filterCordPayload(raw, minPid) {
+  const floor = Number(minPid) || 0;
+  const links = ((raw && raw.links) || []).filter((link) => Number(link.pid) >= floor);
+  const groups = {};
+  links.forEach((link) => {
+    const key = `${link.a}\0${link.b}`;
+    const alt = `${link.b}\0${link.a}`;
+    const g = groups[key] || groups[alt] || {
+      n: 0,
+      rbh: 0,
+      sum: 0,
+    };
+    g.n += 1;
+    if (link.kind === "rbh") {
+      g.rbh += 1;
+      g.sum += Number(link.pid) || 0;
+    }
+    groups[key] = g;
+  });
+  const scores = ((raw && raw.scores) || []).map((row) => {
+    const g = groups[`${row.a}\0${row.b}`] || groups[`${row.b}\0${row.a}`] || { n: 0, rbh: 0, sum: 0 };
+    const aai = g.rbh ? g.sum / g.rbh : 0;
+    const denom = Math.min(Number(row.genes_a) || 1, Number(row.genes_b) || 1) || 1;
+    return {
+      ...row,
+      n: g.n,
+      rbh: g.rbh,
+      aai: Number(aai.toFixed(2)),
+      mean_pid: Number(aai.toFixed(2)),
+      frac: Number((100 * g.rbh / denom).toFixed(1)),
+    };
+  });
+  return { ...raw, links, scores, min_pid: floor };
+}
+
+function applyCordPayload(payload) {
+  const host = document.getElementById("linearPlot");
+  const filtered = filterCordPayload(payload, linearCordMinPid());
+  setLinearCordScore(formatLinearCordScore(filtered), (payload && payload.method) || "");
+  if (host && typeof host._setSynteny === "function") {
+    host._setSynteny(filtered);
+  }
+}
+
+async function fetchLinearLinks() {
+  const host = document.getElementById("linearPlot");
+  if (!linearCordifyOn()) {
+    linearCordCache = { key: "", payload: null };
+    setLinearCordScore("");
+    if (host && typeof host._setSynteny === "function") {
+      host._setSynteny({ links: [], scores: [], mode: "pairwise" });
+    }
+    return;
+  }
+  const picked = selectedLinearGenomes();
+  if (picked.length < 2) {
+    setLinearCordScore("Stack at least two genomes to cordify.");
+    return;
+  }
+  const key = currentCordKey();
+  if (linearCordCache.key === key && linearCordCache.payload) {
+    applyCordPayload(linearCordCache.payload);
+    return;
+  }
+  const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
+  setLinearCordScore("Computing synteny…");
+  const body = new FormData(form);
+  body.set("linear_genome", picked.join(","));
+  const contigSel = document.getElementById("linear-contig-sel");
+  if (contigSel && contigSel.value) {
+    body.set("linear_contig", contigSel.value);
+  }
+  body.set("cord_mode", linearCordMode());
+  const ref = document.getElementById("linear-cord-ref");
+  body.set("cord_ref", (ref && ref.value) || picked[0] || "");
+  body.set("min_pid", "20");
+  try {
+    const res = await fetch("/linear-links", { method: "POST", body });
+    const payload = await res.json().catch(() => ({}));
+    linearCordCache = { key, payload };
+    applyCordPayload(payload);
+  } catch (error) {
+    setLinearCordScore(error.message || "Could not compute synteny.");
+  }
+}
+
+function scheduleLinearLinks() {
+  clearTimeout(linearCordTimer);
+  linearCordTimer = setTimeout(fetchLinearLinks, 80);
+}
+
 function bindLinearPickers() {
   bindLinearPngRes();
   const genomeSel = document.getElementById("linear-genome-sel");
@@ -1865,6 +2087,62 @@ function bindLinearPickers() {
       }
     });
   }
+  const cordify = document.getElementById("linear-cordify");
+  if (cordify && !cordify.dataset.bound) {
+    cordify.dataset.bound = "1";
+    cordify.addEventListener("change", () => {
+      syncLinearCordUi();
+      fillLinearCordRef(selectedLinearGenomes());
+      scheduleLinearLinks();
+    });
+  }
+  document.querySelectorAll("input[name='linear-cord-mode']").forEach((el) => {
+    if (el.dataset.bound) {
+      return;
+    }
+    el.dataset.bound = "1";
+    el.addEventListener("change", () => {
+      syncLinearCordUi();
+      scheduleLinearLinks();
+    });
+  });
+  const cordRef = document.getElementById("linear-cord-ref");
+  if (cordRef && !cordRef.dataset.bound) {
+    cordRef.dataset.bound = "1";
+    cordRef.addEventListener("change", () => scheduleLinearLinks());
+  }
+  const cordMin = document.getElementById("linear-cord-min");
+  if (cordMin && !cordMin.dataset.bound) {
+    cordMin.dataset.bound = "1";
+    cordMin.addEventListener("input", () => {
+      syncLinearCordUi();
+      if (linearCordCache.payload) {
+        applyCordPayload(linearCordCache.payload);
+        return;
+      }
+      scheduleLinearLinks();
+    });
+  }
+  const infoBtn = document.getElementById("linear-cord-info");
+  if (infoBtn && !infoBtn.dataset.bound) {
+    infoBtn.dataset.bound = "1";
+    infoBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = infoBtn.getAttribute("aria-expanded") !== "true";
+      setLinearCordInfoOpen(open);
+    });
+    document.addEventListener("click", (event) => {
+      const pop = document.getElementById("linear-cord-info-pop");
+      if (!pop || pop.hidden) {
+        return;
+      }
+      if (pop.contains(event.target) || infoBtn.contains(event.target)) {
+        return;
+      }
+      setLinearCordInfoOpen(false);
+    });
+  }
+  syncLinearCordUi();
   ["linear-search-prev", "linear-search-next"].forEach((id) => {
     const btn = document.getElementById(id);
     if (!btn || btn.dataset.bound) {
@@ -2198,6 +2476,86 @@ function drawLinearCanvas(host, data, restore) {
     return feat.strand === "-" ? pair[1] : pair[0];
   };
 
+  const hexRgba = (hex, alpha) => {
+    const raw = String(hex || "").replace("#", "");
+    if (raw.length !== 6) {
+      return `rgba(148,163,184,${alpha})`;
+    }
+    const r = parseInt(raw.slice(0, 2), 16);
+    const g = parseInt(raw.slice(2, 4), 16);
+    const b = parseInt(raw.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  };
+
+  const median = (values) => {
+    if (!values.length) {
+      return 0;
+    }
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  };
+
+  const applySyntenyAlign = (links, mode, refName) => {
+    if (!links || !links.length || tracks.length < 2) {
+      return;
+    }
+    aligned = true;
+    const origins = {};
+    const nameOf = (track) => track.name;
+    if (mode === "reference") {
+      const ref = tracks.some((t) => t.name === refName) ? refName : tracks[0].name;
+      origins[ref] = 0;
+      tracks.forEach((track) => {
+        if (track.name === ref) {
+          return;
+        }
+        const deltas = [];
+        links.forEach((link) => {
+          let refMid;
+          let otherMid;
+          if (link.a === ref && link.b === track.name) {
+            refMid = (link.as + link.ae) / 2;
+            otherMid = (link.bs + link.be) / 2;
+          } else if (link.b === ref && link.a === track.name) {
+            refMid = (link.bs + link.be) / 2;
+            otherMid = (link.as + link.ae) / 2;
+          } else {
+            return;
+          }
+          origins[ref] = origins[ref] || 0;
+          deltas.push(otherMid - refMid + origins[ref]);
+        });
+        if (deltas.length) {
+          origins[track.name] = median(deltas);
+        }
+      });
+    } else {
+      origins[nameOf(tracks[0])] = 0;
+      for (let i = 1; i < tracks.length; i += 1) {
+        const prev = tracks[i - 1].name;
+        const cur = tracks[i].name;
+        const prevOrigin = origins[prev] || 0;
+        const deltas = [];
+        links.forEach((link) => {
+          let prevMid;
+          let curMid;
+          if (link.a === prev && link.b === cur) {
+            prevMid = (link.as + link.ae) / 2;
+            curMid = (link.bs + link.be) / 2;
+          } else if (link.b === prev && link.a === cur) {
+            prevMid = (link.bs + link.be) / 2;
+            curMid = (link.as + link.ae) / 2;
+          } else {
+            return;
+          }
+          deltas.push(curMid - prevMid + prevOrigin);
+        });
+        origins[cur] = deltas.length ? median(deltas) : prevOrigin;
+      }
+    }
+    alignOrigin = origins;
+  };
+
   const visibleOf = (track) => (track.features || []).filter((feat) => !(hideHypo && feat.h));
 
   const featText = (feat, protein) => {
@@ -2212,6 +2570,13 @@ function drawLinearCanvas(host, data, restore) {
   let searchIdx = 0;
   let aligned = !!(restore && restore.aligned);
   let alignOrigin = Object.assign({}, (restore && restore.alignOrigin) || {});
+  let syntenyLinks = Array.isArray(restore && restore.syntenyLinks) ? restore.syntenyLinks.slice() : [];
+  let syntenyScores = Array.isArray(restore && restore.syntenyScores) ? restore.syntenyScores.slice() : [];
+  let syntenyMode = (restore && restore.syntenyMode) || "pairwise";
+  let syntenyRef = (restore && restore.syntenyRef) || "";
+  let ribbonHits = [];
+  let cordifyEnabled = syntenyLinks.length > 0 || (typeof linearCordifyOn === "function" && linearCordifyOn());
+  const cordifyOn = () => !!(cordifyEnabled && tracks.length > 1 && syntenyLinks.length > 0);
 
   const originOf = (track) => {
     if (!aligned) {
@@ -2230,9 +2595,9 @@ function drawLinearCanvas(host, data, restore) {
     return Math.max(36, Math.min(80, Math.floor((w - padL - 18) / 8)));
   };
 
-  const layout = () => {
-    const w = Math.max(320, host.clientWidth || 800);
-    const padL = tracks.length > 1 ? 118 : 64;
+  const layout = (widthOpt) => {
+    const w = Math.max(320, Number(widthOpt) || host.clientWidth || 800);
+    const padL = tracks.length > 1 ? (cordifyOn() ? 158 : 132) : 64;
     const padR = 18;
     const padT = 36;
     const padB = 48;
@@ -2248,13 +2613,15 @@ function drawLinearCanvas(host, data, restore) {
       const plot = midBand * 2 + packed.fwdLanes * (laneH + laneGap) + packed.revLanes * (laneH + laneGap);
       return { track, packed, plot, header };
     });
-    const h = padT + rows.reduce((sum, row) => sum + row.header + row.plot + 18, 0) + padB;
     let y = padT;
-    rows.forEach((row) => {
+    rows.forEach((row, idx) => {
       row.top = y + row.header;
       row.mid = row.top + midBand + row.packed.fwdLanes * (laneH + laneGap);
-      y += row.header + row.plot + 18;
+      row.bottom = row.mid + midBand + row.packed.revLanes * (laneH + laneGap);
+      row.gapBelow = (cordifyOn() && idx < rows.length - 1) ? 176 : 22;
+      y += row.header + row.plot + row.gapBelow;
     });
+    const h = y + padB;
     return { w, h, padL, padR, padT, padB, span, pxPerBp, showBases, midBand, laneH, laneGap, rows };
   };
 
@@ -2263,8 +2630,8 @@ function drawLinearCanvas(host, data, restore) {
     return box.padL + ((bp - org - view0) / box.span) * (box.w - box.padL - box.padR);
   };
 
-  const paintOn = (target, scale, asScreen) => {
-    const box = layout();
+  const paintOn = (target, scale, asScreen, widthOpt) => {
+    const box = layout(widthOpt);
     const dpr = Math.max(1, Number(scale) || 1);
     target.width = Math.max(1, Math.floor(box.w * dpr));
     target.height = Math.max(1, Math.floor(box.h * dpr));
@@ -2304,7 +2671,177 @@ function drawLinearCanvas(host, data, restore) {
     const showTickLabels = !box.showBases || step * box.pxPerBp >= 36;
     const minLabelW = 36;
 
+    const rowOf = {};
     box.rows.forEach((row) => {
+      rowOf[row.track.name] = row;
+    });
+    const featOn = (track, start, end, name) => {
+      const list = visibleOf(track);
+      return list.find((feat) => feat.s === start && feat.e === end)
+        || list.find((feat) => feat.n === name && Math.abs(feat.s - start) < 4);
+    };
+    const plotLeft = box.padL;
+    const plotRight = box.w - box.padR;
+    const geneRect = (row, feat) => {
+      const origin = originOf(row.track);
+      const g0 = origin + view0;
+      const g1 = origin + view1;
+      const s0 = feat.s - 1;
+      if (feat.e < g0 || s0 > g1) {
+        return null;
+      }
+      const x = xOf(Math.max(s0, g0), box, origin);
+      const width = Math.max(0.6, xOf(Math.min(feat.e, g1), box, origin) - x);
+      const lane = feat.lane || 0;
+      const reverse = feat.strand === "-";
+      const y = reverse
+        ? row.mid + box.midBand + lane * (box.laneH + box.laneGap)
+        : row.mid - box.midBand - box.laneH - lane * (box.laneH + box.laneGap);
+      const left = Math.max(plotLeft, x);
+      const right = Math.min(plotRight, x + width);
+      if (right - left < 0.4) {
+        return null;
+      }
+      return { x: left, y, w: right - left, h: box.laneH };
+    };
+    const visibleRibbons = [];
+    if (cordifyOn()) {
+      syntenyLinks.forEach((link) => {
+        const rowA = rowOf[link.a];
+        const rowB = rowOf[link.b];
+        if (!rowA || !rowB) {
+          return;
+        }
+        const fa = featOn(rowA.track, link.as, link.ae, link.an);
+        const fb = featOn(rowB.track, link.bs, link.be, link.bn);
+        if (!fa || !fb) {
+          return;
+        }
+        const ra = geneRect(rowA, fa);
+        const rb = geneRect(rowB, fb);
+        if (!ra || !rb) {
+          return;
+        }
+        visibleRibbons.push({ link, fa, ra, rb });
+      });
+    }
+    const thickCords = visibleRibbons.length > 0 && visibleRibbons.length <= 20;
+    const minRibbonW = thickCords ? Math.max(10, Math.min(42, 8 + box.pxPerBp * 4)) : 0;
+    const widenRect = (rect) => {
+      if (!rect) {
+        return null;
+      }
+      let x = rect.x;
+      let w = rect.w;
+      if (minRibbonW && w < minRibbonW) {
+        const cx = x + w / 2;
+        x = cx - minRibbonW / 2;
+        w = minRibbonW;
+      }
+      const left = Math.max(plotLeft, x);
+      const right = Math.min(plotRight, x + w);
+      if (right - left < 0.4) {
+        return null;
+      }
+      return { x: left, y: rect.y, w: right - left, h: rect.h };
+    };
+    const scoreForPair = (nameA, nameB) => syntenyScores.find((item) => (
+      (item.a === nameA && item.b === nameB) || (item.b === nameA && item.a === nameB)
+    ));
+    const scoreLines = (row, prev) => {
+      if (syntenyMode === "reference") {
+        if (row.track.name === syntenyRef) {
+          return ["reference"];
+        }
+        const sc = scoreForPair(syntenyRef, row.track.name);
+        if (!sc) {
+          return [];
+        }
+        const aai = Number(sc.aai != null ? sc.aai : sc.mean_pid).toFixed(1);
+        return [`AAI ${aai}%`, `vs ${syntenyRef}`, `${Number(sc.rbh) || 0} orthologs`];
+      }
+      if (!prev) {
+        return [];
+      }
+      const sc = scoreForPair(prev.track.name, row.track.name);
+      if (!sc) {
+        return [];
+      }
+      const aai = Number(sc.aai != null ? sc.aai : sc.mean_pid).toFixed(1);
+      return [`AAI ${aai}%`, `vs ${prev.track.name}`, `${Number(sc.rbh) || 0} orthologs`];
+    };
+    const drawGutterScore = (lines, top, height) => {
+      if (!lines.length || height < 12) {
+        return;
+      }
+      const maxW = Math.max(40, box.padL - 14);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(4, top, maxW + 2, height);
+      ctx.clip();
+      ctx.font = "600 10px Segoe UI, sans-serif";
+      ctx.fillStyle = ink;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      const lh = 12;
+      let y = top + Math.max(0, (height - lines.length * lh) / 2);
+      lines.forEach((line) => {
+        let shown = String(line);
+        while (shown.length > 4 && ctx.measureText(shown).width > maxW) {
+          shown = shown.slice(0, -1);
+        }
+        if (shown !== String(line)) {
+          shown = shown.replace(/…$/, "").replace(/\.?$/, "") + "…";
+        }
+        ctx.fillText(shown, 8, y);
+        y += lh;
+      });
+      ctx.restore();
+    };
+    if (asScreen) {
+      ribbonHits = [];
+    }
+    visibleRibbons.forEach((item) => {
+      const ra = widenRect(item.ra);
+      const rb = widenRect(item.rb);
+      if (!ra || !rb) {
+        return;
+      }
+      const top = ra.y <= rb.y ? ra : rb;
+      const bot = ra.y <= rb.y ? rb : ra;
+      const y1 = top.y + top.h;
+      const y2 = bot.y;
+      const midY = (y1 + y2) / 2;
+      const thin = Math.min(top.w, bot.w) < 14;
+      const alpha = Math.max(thin ? 0.2 : 0.12, 0.1 + 0.28 * Math.min(1, (Number(item.link.pid) || 0) / 100));
+      ctx.beginPath();
+      ctx.moveTo(top.x, y1);
+      ctx.lineTo(top.x + top.w, y1);
+      ctx.bezierCurveTo(top.x + top.w, midY, bot.x + bot.w, midY, bot.x + bot.w, y2);
+      ctx.lineTo(bot.x, y2);
+      ctx.bezierCurveTo(bot.x, midY, top.x, midY, top.x, y1);
+      ctx.closePath();
+      ctx.fillStyle = hexRgba(colorOf(item.fa), alpha);
+      ctx.fill();
+      if (thickCords) {
+        ctx.lineWidth = Math.max(1.25, Math.min(3.2, 0.7 + box.pxPerBp));
+        ctx.strokeStyle = hexRgba(colorOf(item.fa), Math.min(0.62, alpha + 0.22));
+        ctx.stroke();
+      }
+      if (asScreen) {
+        ribbonHits.push({
+          y1,
+          y2,
+          x1: top.x,
+          x1w: top.x + top.w,
+          x2: bot.x,
+          x2w: bot.x + bot.w,
+          link: item.link,
+        });
+      }
+    });
+
+    box.rows.forEach((row, rIdx) => {
       const trackLen = Math.max(1, Number(row.track.length) || length);
       const origin = originOf(row.track);
       const g0 = origin + view0;
@@ -2316,11 +2853,12 @@ function drawLinearCanvas(host, data, restore) {
       if (tracks.length > 1) {
         const label = row.track.name || row.track.title || "genome";
         const hasHit = aligned && Object.prototype.hasOwnProperty.call(alignOrigin, row.track.name);
+        const isRef = syntenyMode === "reference" && syntenyRef && row.track.name === syntenyRef;
         ctx.save();
         ctx.beginPath();
         ctx.rect(4, row.mid - 18, box.padL - 10, 32);
         ctx.clip();
-        ctx.fillText(label, 8, row.mid - 4);
+        ctx.fillText((isRef ? "★ " : "") + label, 8, row.mid - 4);
         ctx.fillStyle = muted;
         ctx.font = "10px ui-monospace, Consolas, monospace";
         ctx.fillText(
@@ -2444,6 +2982,21 @@ function drawLinearCanvas(host, data, restore) {
         }
       }
     });
+    if (cordifyOn()) {
+      box.rows.forEach((row, rIdx) => {
+        const prev = rIdx ? box.rows[rIdx - 1] : null;
+        const lines = scoreLines(row, prev);
+        if (!lines.length) {
+          return;
+        }
+        if (prev) {
+          const top = prev.bottom + 8;
+          drawGutterScore(lines, top, Math.max(36, row.top - 8 - top));
+        } else {
+          drawGutterScore(lines, row.mid + 16, 40);
+        }
+      });
+    }
 
     let lx = box.padL;
     ctx.textAlign = "left";
@@ -2471,7 +3024,21 @@ function drawLinearCanvas(host, data, restore) {
         seqByTrack,
         aligned,
         alignOrigin,
+        syntenyLinks,
+        syntenyScores,
+        syntenyMode,
+        syntenyRef,
       };
+      const hint = (ids, value) => {
+        ids.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && !el.value) {
+            el.placeholder = String(value);
+          }
+        });
+      };
+      hint(["linear-png-w", "linear-png-w-bar"], Math.round(box.w));
+      hint(["linear-png-h", "linear-png-h-bar"], Math.round(box.h));
     }
     return box;
   };
@@ -2480,42 +3047,73 @@ function drawLinearCanvas(host, data, restore) {
     paintOn(canvas, window.devicePixelRatio || 1, true);
   };
 
-  const exportScaleFor = (box, maxDim) => {
-    const w = Math.max(1, box.w);
-    const h = Math.max(1, box.h);
-    return Math.max(1, Math.min(maxDim / w, maxDim / h, Math.sqrt((maxDim * maxDim) / (w * h))));
-  };
-
   host._linearExportPng = (done) => {
-    const box = layout();
-    const level = typeof linearPngLevel === "function" ? linearPngLevel() : { scale: 2, cap: 4096 };
-    const wanted = Math.max(1, Math.min(level.scale, exportScaleFor(box, level.cap)));
-    const tryScale = (scale) => {
-      const bump = document.createElement("canvas");
-      bump.width = Math.max(1, Math.floor(box.w * scale));
-      bump.height = Math.max(1, Math.floor(box.h * scale));
-      if (!bump.getContext("2d") || bump.width < 2 || bump.height < 2) {
-        if (scale > 1.05) {
-          tryScale(Math.max(1, scale / 2));
-          return;
-        }
-        canvas.toBlob(done, "image/png");
-        return;
-      }
-      paintOn(bump, scale, false);
-      bump.toBlob((blob) => {
+    const dims = typeof linearPngDims === "function" ? linearPngDims() : { width: 0, height: 0 };
+    const maxDim = typeof LINEAR_PNG_MAX === "number" ? LINEAR_PNG_MAX : 16384;
+    const screen = layout();
+    const layoutW = dims.width || screen.w;
+    const box = layout(layoutW);
+    const bg = document.documentElement.getAttribute("data-theme") === "light" ? "#f8fafc" : "#1e1e1e";
+    const fail = () => canvas.toBlob(done, "image/png");
+    const finish = (cnv) => {
+      cnv.toBlob((blob) => {
         if (blob) {
           done(blob);
           return;
         }
-        if (scale > 1.05) {
-          tryScale(Math.max(1, scale / 2));
-          return;
-        }
-        canvas.toBlob(done, "image/png");
+        fail();
       }, "image/png");
     };
-    tryScale(wanted);
+    const cap = (w, h) => {
+      const m = Math.max(w, h, 1);
+      if (m <= maxDim) {
+        return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
+      }
+      const s = maxDim / m;
+      return { w: Math.max(1, Math.round(w * s)), h: Math.max(1, Math.round(h * s)) };
+    };
+    if (dims.width && dims.height) {
+      const fit = Math.min(dims.width / box.w, dims.height / box.h);
+      const inner = document.createElement("canvas");
+      paintOn(inner, fit, false, layoutW);
+      const out = cap(dims.width, dims.height);
+      const bump = document.createElement("canvas");
+      bump.width = out.w;
+      bump.height = out.h;
+      const ctx = bump.getContext("2d");
+      if (!ctx) {
+        fail();
+        return;
+      }
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, bump.width, bump.height);
+      ctx.drawImage(inner, (bump.width - inner.width) / 2, (bump.height - inner.height) / 2);
+      finish(bump);
+      return;
+    }
+    let scale = 1;
+    let widthOpt = 0;
+    if (dims.width) {
+      scale = 1;
+      widthOpt = layoutW;
+    } else if (dims.height) {
+      scale = dims.height / Math.max(1, screen.h);
+      widthOpt = 0;
+    } else {
+      scale = 2;
+      widthOpt = 0;
+    }
+    const src = widthOpt ? box : screen;
+    const out = cap(src.w * scale, src.h * scale);
+    const bump = document.createElement("canvas");
+    bump.width = out.w;
+    bump.height = out.h;
+    if (!bump.getContext("2d")) {
+      fail();
+      return;
+    }
+    paintOn(bump, out.w / src.w, false, widthOpt || undefined);
+    finish(bump);
   };
 
   const featureAt = (px, py) => {
@@ -2667,7 +3265,31 @@ function drawLinearCanvas(host, data, restore) {
     }
     const feat = featureAt(event.offsetX, event.offsetY);
     if (!feat) {
-      tip.hidden = true;
+      const py = event.offsetY;
+      const px = event.offsetX;
+      let hit = null;
+      for (let i = ribbonHits.length - 1; i >= 0; i -= 1) {
+        const rib = ribbonHits[i];
+        const spanY = rib.y2 - rib.y1;
+        if (!spanY || py < Math.min(rib.y1, rib.y2) || py > Math.max(rib.y1, rib.y2)) {
+          continue;
+        }
+        const t = (py - rib.y1) / spanY;
+        const left = rib.x1 + t * (rib.x2 - rib.x1);
+        const right = rib.x1w + t * (rib.x2w - rib.x1w);
+        if (px >= Math.min(left, right) - 2 && px <= Math.max(left, right) + 2) {
+          hit = rib.link;
+          break;
+        }
+      }
+      if (!hit) {
+        tip.hidden = true;
+        return;
+      }
+      tip.hidden = false;
+      tip.textContent = `${hit.an} ↔ ${hit.bn}  ·  ${Number(hit.pid).toFixed(1)}% AA identity  ·  ${Number(hit.cov).toFixed(0)}% coverage  ·  ${hit.kind === "rbh" ? "reciprocal best hit" : "paralog"}`;
+      tip.style.left = Math.min(event.offsetX + 14, (host.clientWidth || 400) - 220) + "px";
+      tip.style.top = event.offsetY + 16 + "px";
       return;
     }
     tip.hidden = false;
@@ -2690,6 +3312,23 @@ function drawLinearCanvas(host, data, restore) {
   host._setHideHypo = (value) => {
     hideHypo = !!value;
     paint();
+  };
+  host._setSynteny = (payload) => {
+    syntenyLinks = Array.isArray(payload && payload.links) ? payload.links : [];
+    syntenyScores = Array.isArray(payload && payload.scores) ? payload.scores : [];
+    syntenyMode = (payload && payload.mode) || (typeof linearCordMode === "function" ? linearCordMode() : "pairwise");
+    syntenyRef = (payload && payload.reference) || "";
+    cordifyEnabled = syntenyLinks.length > 0 && (typeof linearCordifyOn !== "function" || linearCordifyOn());
+    if (linearCordifyOn() && syntenyLinks.length && tracks.length > 1 && !searchQuery.trim()) {
+      applySyntenyAlign(syntenyLinks, syntenyMode, syntenyRef);
+    } else if (!searchQuery.trim() && !linearCordifyOn()) {
+      aligned = false;
+      alignOrigin = {};
+      view0 = 0;
+      view1 = length;
+    }
+    paint();
+    scheduleSeq();
   };
   const updateSearchCount = () => {
     const el = document.getElementById("linear-search-count");
@@ -2854,6 +3493,8 @@ async function createLinearPlot(opts) {
     hideSectionError("linear-error");
     fillSelect(genomeSel, data.genomes || [], (data.selected || {}).genomes || (data.selected || {}).genome);
     fillSelect(contigSel, data.contigs || [], (data.selected || {}).contig, "All contigs");
+    fillLinearCordRef((data.selected || {}).genomes || selectedLinearGenomes());
+    syncLinearCordUi();
     const bar = document.getElementById("linear-plot-bar");
     if (bar) {
       bar.style.display = "flex";
@@ -2869,7 +3510,14 @@ async function createLinearPlot(opts) {
         seqByTrack: restore.seqByTrack,
         aligned: restore.aligned,
         alignOrigin: restore.alignOrigin,
+        syntenyLinks: restore.syntenyLinks,
+        syntenyScores: restore.syntenyScores,
+        syntenyMode: restore.syntenyMode,
+        syntenyRef: restore.syntenyRef,
       } : undefined);
+      if (linearCordifyOn() && !(restore && restore.syntenyLinks && restore.syntenyLinks.length)) {
+        fetchLinearLinks();
+      }
     } else if (plotEl && data.figure && window.Plotly) {
       await Plotly.react(plotEl, data.figure.data, data.figure.layout, {
         responsive: true,

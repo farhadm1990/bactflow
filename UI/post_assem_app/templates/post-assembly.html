@@ -3,9 +3,9 @@
 {% block title %} Post-assembly {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix6">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix7">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix2">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd43">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd49">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -279,23 +279,23 @@
                   </div>
                 </div>
                 <div id="linear-opts" style="display: none;">
-                  <p class="text-muted small mb-2">Arrow-tipped linear map: forward genes point right, reverse point left. Ctrl/Cmd-click several genomes in the plot bar to stack them for comparison. Zoom in to see nucleotides; download PNG or HTML of the current view.</p>
+                  <p class="text-muted small mb-2">Arrow-tipped linear map: forward genes point right, reverse point left. Ctrl/Cmd-click several genomes in the plot bar to stack them. Turn on <strong>Cordify / align</strong> to shift genomes so homologs line up, draw gene cords, and report two-way AAI (pairwise neighbours, or every genome vs a reference). Zoom in to see nucleotides; download PNG or HTML of the current view.</p>
                   <label class="bf-linear-toggle" for="linear-hide-hypo-setup">
                     <input type="checkbox" id="linear-hide-hypo-setup">
                     Hide unannotated / hypothetical CDS
                   </label>
-                  <label class="form-label mt-3" for="linear-png-res">PNG download resolution</label>
-                  <div class="bf-linear-res">
-                    <input type="range" class="form-range" id="linear-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
-                    <div class="bf-linear-res-ticks" aria-hidden="true">
-                      <span data-level="0">Basic</span>
-                      <span data-level="1">Medium</span>
-                      <span data-level="2">·</span>
-                      <span data-level="3">·</span>
-                      <span data-level="4">Max</span>
-                    </div>
-                    <p class="text-muted small mb-0">Current: <strong id="linear-png-res-label">Medium</strong>. Basic is the lightest file; Max is sharpest and heaviest.</p>
+                  <label class="form-label mt-3">PNG download size (pixels)</label>
+                  <div class="bf-linear-png-dims bf-linear-png-dims-setup">
+                    <label>Width
+                      <input type="number" id="linear-png-w" min="320" max="16384" step="1" inputmode="numeric" placeholder="auto">
+                    </label>
+                    <span aria-hidden="true">×</span>
+                    <label>Height
+                      <input type="number" id="linear-png-h" min="320" max="16384" step="1" inputmode="numeric" placeholder="auto">
+                    </label>
+                    <span>px</span>
                   </div>
+                  <p class="text-muted small mb-0">Leave a side empty to keep the plot’s aspect ratio. Both empty exports the current view.</p>
                   <label class="form-label mt-3">Custom feature colors (forward / reverse)</label>
                   <div id="linear-color-editor" class="bf-linear-colors"></div>
                   <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="linear-color-reset">Reset colors</button>
@@ -609,16 +609,40 @@
               <input type="checkbox" id="linear-hide-hypo">
               Hide unannotated proteins
             </label>
-            <label class="bf-linear-search-wrap">Search
-              <input type="search" id="linear-search" class="form-control form-control-sm" placeholder="gene, product, locus…" autocomplete="off">
+            <label class="bf-linear-toggle" title="Link homologous genes across stacked genomes">
+              <input type="checkbox" id="linear-cordify">
+              Cordify / align
             </label>
-            <span class="bf-linear-search-nav">
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-prev" title="Previous match">Prev</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-next" title="Next match">Next</button>
-              <span id="linear-search-count" class="text-muted small"></span>
+            <span id="linear-cord-opts" class="bf-linear-cord-opts" hidden>
+              <label><input type="radio" name="linear-cord-mode" value="pairwise" checked> Pairwise</label>
+              <label><input type="radio" name="linear-cord-mode" value="reference"> Reference</label>
+              <label>Reference
+                <select id="linear-cord-ref" class="form-select form-select-sm" disabled></select>
+              </label>
+              <label>Min identity
+                <input type="range" id="linear-cord-min" min="20" max="100" value="30" step="1">
+                <span id="linear-cord-min-label">30%</span>
+              </label>
+              <span class="bf-linear-cord-report">
+                <span id="linear-cord-score" class="bf-linear-cord-score" hidden></span>
+                <button type="button" class="bf-linear-info" id="linear-cord-info" aria-expanded="false" aria-controls="linear-cord-info-pop" title="How cords and identity scores are calculated">i</button>
+                <div id="linear-cord-info-pop" class="bf-linear-info-pop" hidden>
+                  <p><strong>Cords</strong> join homologous genes across stacked genomes. Proteins come from Bakta translations or the companion <code>.faa</code>. Matches are <em>reciprocal best hits</em> (Tatusov et al., Science 1997): each gene’s best partner in the other genome must also choose it back. Extra high-identity links are paralogs.</p>
+                  <p><strong>Pairwise</strong> compares neighbouring tracks (1–2, 2–3, …). <strong>Reference</strong> compares every other genome only to the genome you pick. Tracks are shifted so those homologs line up.</p>
+                  <p><strong>Identity (each cord)</strong> is percent amino-acid identity from global Needleman–Wunsch alignment (Needleman &amp; Wunsch, 1970) with BLOSUM62 (Henikoff &amp; Henikoff, 1992), as in clinker (Gilchrist &amp; Chooi, Bioinformatics 2021). Hover a cord for that pair’s identity and coverage.</p>
+                  <p><strong>AAI (genome score)</strong> is two-way average amino-acid identity: the mean identity of those reciprocal best hits (Konstantinidis &amp; Tiedje, PNAS 2005). Typical same-species values are around 95–96%. The min-identity slider hides cords below the cutoff (default 30%, clinker’s threshold).</p>
+                </div>
+              </span>
             </span>
           </div>
           <div class="bf-plot-bar-actions">
+            <label class="bf-linear-png-dims" title="PNG pixel size. Empty = current view.">
+              PNG
+              <input type="number" id="linear-png-w-bar" min="320" max="16384" step="1" inputmode="numeric" placeholder="W" aria-label="PNG width in pixels">
+              <span aria-hidden="true">×</span>
+              <input type="number" id="linear-png-h-bar" min="320" max="16384" step="1" inputmode="numeric" placeholder="H" aria-label="PNG height in pixels">
+              px
+            </label>
             <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadLinearPlot()">Download PNG</button>
             <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadLinearHtml()">Download HTML</button>
           </div>
@@ -631,7 +655,19 @@
             <h3 style="color: var(--hx-accent);">Linear map is being created...</h3>
           </div>
           <div id="linearPlot"></div>
-          <div class="bf-linear-legend" id="linear-legend" hidden></div>
+          <div class="bf-linear-footer">
+            <div class="bf-linear-legend" id="linear-legend" hidden></div>
+            <div class="bf-linear-search-row">
+              <label class="bf-linear-search-wrap">Search
+                <input type="search" id="linear-search" class="form-control form-control-sm" placeholder="gene, product, locus…" autocomplete="off">
+              </label>
+              <span class="bf-linear-search-nav">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-prev" title="Previous match">Prev</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="linear-search-next" title="Next match">Next</button>
+                <span id="linear-search-count" class="text-muted small"></span>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -998,7 +1034,7 @@
 <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd35"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix66"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix74"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
