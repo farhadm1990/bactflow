@@ -306,6 +306,7 @@ function run_wf(action){
         
       case "help":
       {
+        revealTerminalForHelp();
         BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
     
@@ -415,6 +416,7 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault();
       e.stopPropagation();
       window.__bactflowUserStopped = false;
+      revealTerminalForHelp();
       BactflowTerminal.clear();
       document.getElementById("run-bt").disabled = true;
       document.getElementById("stop-bt").disabled = false;
@@ -742,6 +744,19 @@ function setTerminalVisible(visible) {
   logs.style.display = "";
   if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
     requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
+  }
+}
+
+function revealTerminalForHelp() {
+  setTerminalVisible(true);
+  const dash = window.BactflowRunDashboard;
+  if (dash && typeof dash.scrollTo === "function") {
+    requestAnimationFrame(() => dash.scrollTo(".rd-logs"));
+    return;
+  }
+  const logs = document.querySelector(".rd-center .rd-logs") || document.querySelector(".rd-logs");
+  if (logs) {
+    logs.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
@@ -1505,6 +1520,63 @@ function linearDownloadName(host, ext) {
   return `${(host && host._linearName) || "linear_genome"}_${from}-${to}.${ext}`;
 }
 
+const LINEAR_PNG_LEVELS = [
+  { id: "basic", label: "Basic", scale: 1, cap: 2048 },
+  { id: "medium", label: "Medium", scale: 2, cap: 4096 },
+  { id: "high", label: "High", scale: 8 / 3, cap: 5461 },
+  { id: "higher", label: "Higher", scale: 10 / 3, cap: 6827 },
+  { id: "max", label: "Max", scale: 4, cap: 8192 },
+];
+
+function linearPngLevelIndex() {
+  const el = document.getElementById("linear-png-res");
+  const n = el ? Number(el.value) : 1;
+  if (!Number.isFinite(n) || n < 0) {
+    return 1;
+  }
+  return Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Math.round(n)));
+}
+
+function linearPngLevel() {
+  return LINEAR_PNG_LEVELS[linearPngLevelIndex()] || LINEAR_PNG_LEVELS[1];
+}
+
+function bindLinearPngRes() {
+  const slider = document.getElementById("linear-png-res");
+  if (!slider) {
+    return;
+  }
+  let stored = "1";
+  try {
+    const raw = localStorage.getItem("bactflow_linear_png_res5");
+    if (raw === "0" || raw === "1" || raw === "2" || raw === "3" || raw === "4") {
+      stored = raw;
+    }
+  } catch (_err) {}
+  const apply = (value) => {
+    const idx = Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Math.round(Number(value) || 0)));
+    const level = LINEAR_PNG_LEVELS[idx];
+    slider.value = String(idx);
+    slider.setAttribute("aria-valuetext", level.label);
+    slider.closest(".bf-linear-res")?.querySelectorAll(".bf-linear-res-ticks span").forEach((tick) => {
+      tick.classList.toggle("is-active", Number(tick.dataset.level) === idx);
+    });
+    const label = document.getElementById("linear-png-res-label");
+    if (label) {
+      label.textContent = level.label;
+    }
+    try {
+      localStorage.setItem("bactflow_linear_png_res5", String(idx));
+    } catch (_err) {}
+  };
+  if (!slider.dataset.bound) {
+    slider.dataset.bound = "1";
+    slider.addEventListener("input", () => apply(Number(slider.value)));
+    slider.addEventListener("change", () => apply(Number(slider.value)));
+  }
+  apply(Number(stored));
+}
+
 function downloadLinearPlot() {
   const host = document.getElementById("linearPlot");
   if (!host) {
@@ -1559,6 +1631,9 @@ function downloadLinearHtml() {
     fillLinearLegend.toString(),
     drawLinearCanvas.toString(),
     linearDownloadName.toString(),
+    "const LINEAR_PNG_LEVELS = " + JSON.stringify(LINEAR_PNG_LEVELS) + ";",
+    linearPngLevelIndex.toString(),
+    linearPngLevel.toString(),
     downloadLinearPlot.toString(),
     "const SNAP = " + JSON.stringify(snap) + ";",
     "drawLinearCanvas(document.getElementById('linearPlot'), SNAP.data, SNAP);",
@@ -1734,6 +1809,7 @@ function fillSelect(sel, values, selected, allLabel) {
 }
 
 function bindLinearPickers() {
+  bindLinearPngRes();
   const genomeSel = document.getElementById("linear-genome-sel");
   const contigSel = document.getElementById("linear-contig-sel");
   const hypo = document.getElementById("linear-hide-hypo");
@@ -2412,15 +2488,15 @@ function drawLinearCanvas(host, data, restore) {
 
   host._linearExportPng = (done) => {
     const box = layout();
-    const caps = [16384, 8192, 4096];
-    const tryCap = (idx) => {
-      const scale = exportScaleFor(box, caps[idx]);
+    const level = typeof linearPngLevel === "function" ? linearPngLevel() : { scale: 2, cap: 4096 };
+    const wanted = Math.max(1, Math.min(level.scale, exportScaleFor(box, level.cap)));
+    const tryScale = (scale) => {
       const bump = document.createElement("canvas");
       bump.width = Math.max(1, Math.floor(box.w * scale));
       bump.height = Math.max(1, Math.floor(box.h * scale));
       if (!bump.getContext("2d") || bump.width < 2 || bump.height < 2) {
-        if (idx + 1 < caps.length) {
-          tryCap(idx + 1);
+        if (scale > 1.05) {
+          tryScale(Math.max(1, scale / 2));
           return;
         }
         canvas.toBlob(done, "image/png");
@@ -2432,14 +2508,14 @@ function drawLinearCanvas(host, data, restore) {
           done(blob);
           return;
         }
-        if (idx + 1 < caps.length) {
-          tryCap(idx + 1);
+        if (scale > 1.05) {
+          tryScale(Math.max(1, scale / 2));
           return;
         }
         canvas.toBlob(done, "image/png");
       }, "image/png");
     };
-    tryCap(0);
+    tryScale(wanted);
   };
 
   const featureAt = (px, py) => {

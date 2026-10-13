@@ -1587,6 +1587,39 @@ body.helix-shell #assem-results-pane table thead th {
   cursor: pointer;
 }
 
+.bf-linear-res {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  font-size: 0.78rem;
+  color: var(--rd-muted, #9ca3af);
+}
+
+.bf-linear-res input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--rd-violet, #8b5cf6);
+}
+
+.bf-linear-res-ticks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.bf-linear-res-ticks span:nth-child(1) { text-align: left; }
+.bf-linear-res-ticks span:nth-child(2),
+.bf-linear-res-ticks span:nth-child(3),
+.bf-linear-res-ticks span:nth-child(4) { text-align: center; }
+.bf-linear-res-ticks span:nth-child(5) { text-align: right; }
+
+.bf-linear-res-ticks span.is-active {
+  color: var(--rd-text, #e7edf4);
+  font-weight: 650;
+}
+
 .bf-linear-pickers {
   display: flex;
   flex-wrap: wrap;

@@ -414,6 +414,7 @@ function run_wf(action){
         
       case "help":
       {
+        revealTerminalForHelp();
         BactflowTerminal.clear();
         document.getElementById('help-bt').disabled = true;
        
@@ -665,6 +666,19 @@ function setTerminalVisible(visible) {
   logs.style.display = "";
   if (window.BactflowRunDashboard && BactflowRunDashboard.alignLogsWithNextflow) {
     requestAnimationFrame(() => BactflowRunDashboard.alignLogsWithNextflow());
+  }
+}
+
+function revealTerminalForHelp() {
+  setTerminalVisible(true);
+  const dash = window.BactflowRunDashboard;
+  if (dash && typeof dash.scrollTo === "function") {
+    requestAnimationFrame(() => dash.scrollTo(".rd-logs"));
+    return;
+  }
+  const logs = document.querySelector(".rd-center .rd-logs") || document.querySelector(".rd-logs");
+  if (logs) {
+    logs.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 

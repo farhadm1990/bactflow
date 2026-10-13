@@ -196,7 +196,15 @@ table.dataTable thead th {
 }
 
 #linear-plot-bar {
-    align-items: flex-start;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 10px 14px;
+}
+
+#linear-plot-bar .bf-linear-pickers {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .bf-plot-bar-title {
@@ -206,7 +214,14 @@ table.dataTable thead th {
 
 .bf-plot-bar-actions {
     display: flex;
-    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
+#linear-plot-bar .bf-plot-bar-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .bf-dl-png,

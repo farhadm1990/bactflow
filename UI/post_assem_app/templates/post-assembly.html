@@ -3,9 +3,9 @@
 {% block title %} Post-assembly {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix2">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix6">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix2">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd40">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd43">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -284,6 +284,18 @@
                     <input type="checkbox" id="linear-hide-hypo-setup">
                     Hide unannotated / hypothetical CDS
                   </label>
+                  <label class="form-label mt-3" for="linear-png-res">PNG download resolution</label>
+                  <div class="bf-linear-res">
+                    <input type="range" class="form-range" id="linear-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
+                    <div class="bf-linear-res-ticks" aria-hidden="true">
+                      <span data-level="0">Basic</span>
+                      <span data-level="1">Medium</span>
+                      <span data-level="2">·</span>
+                      <span data-level="3">·</span>
+                      <span data-level="4">Max</span>
+                    </div>
+                    <p class="text-muted small mb-0">Current: <strong id="linear-png-res-label">Medium</strong>. Basic is the lightest file; Max is sharpest and heaviest.</p>
+                  </div>
                   <label class="form-label mt-3">Custom feature colors (forward / reverse)</label>
                   <div id="linear-color-editor" class="bf-linear-colors"></div>
                   <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="linear-color-reset">Reset colors</button>
@@ -586,7 +598,6 @@
         <h4 class="text-left mb-3">Linear genome map: <strong id="linear-type-label">(selected gene types)</strong></h4>
         <div id="linear-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
         <div class="bf-plot-bar" id="linear-plot-bar" style="display: none;">
-          <span class="bf-plot-bar-title">Linear genome plot</span>
           <div class="bf-linear-pickers">
             <label>Genomes
               <select id="linear-genome-sel" class="form-select form-select-sm" multiple size="3" title="Ctrl/Cmd-click to stack genomes"></select>
@@ -987,7 +998,7 @@
 <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd35"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix62"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix66"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
