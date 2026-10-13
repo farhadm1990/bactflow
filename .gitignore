@@ -1,0 +1,2 @@
+# Live CPU/RAM snapshots written while a Flask UI is running.
+UI/*/static/sys_stats.json
