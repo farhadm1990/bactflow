@@ -1,54 +1,54 @@
 #!/bin/bash
-# Launch a BactFlow UI module with Docker, Apptainer/Singularity, or Conda.
+# Launch the unified BactFlow UI with Docker, Apptainer/Singularity, or Conda.
 
 set -euo pipefail
 
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# $'…' stores a real ESC. Single-quoted '\033' printed the codes as text in --help.
+if [[ -t 1 ]]; then
+    GREEN=$'\033[32m'
+    RED=$'\033[31m'
+    YELLOW=$'\033[33m'
+    BLUE=$'\033[34m'
+    CYAN=$'\033[36m'
+    NC=$'\033[0m'
+else
+    GREEN="" RED="" YELLOW="" BLUE="" CYAN="" NC=""
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
     cat << EOF
-${GREEN}BactFlow Module Runner${NC}
-Start a UI module. This is the supported way to run BactFlow
-(Docker, Apptainer/Singularity, or Conda). Do not call docker / singularity / python yourself.
+${GREEN}BactFlow${NC}
+Start the unified UI (Home, QC, Assembly, Post-assembly, Wiki).
+Do not call docker / singularity / python yourself.
 
 ${YELLOW}USAGE:${NC}
-    $0 <module> <work_dir> [options]
-
-${YELLOW}MODULES:${NC}
-    preassem    Flask UI on port 5000 (seqkit / plots)
-    assem       Flask UI on port 5002 (Flye / SPAdes / Unicycler / QUAST)
-    postassem   Flask UI on port 5001 (annotation / taxonomy / variants)
+    $0 run <work_dir> [options]
 
 ${YELLOW}REQUIRED:${NC}
-    work_dir    Absolute working directory (mounted into containers).
+    work_dir    Working directory (mounted into containers).
                 FASTQ folders and --out_dir should live under this path.
 
 ${YELLOW}OPTIONS:${NC}
     --service NAME      Runtime: docker (default), apptainer, or conda
     --no-browser        Don't automatically open a browser
-    --port PORT         Host port (default: 5000 / 5002 / 5001)
+    --port PORT         Host port (default: 5000)
     --cpus N            CPU limit (Docker / Apptainer when supported)
     --memory SIZE       Memory limit (Docker; Apptainer when supported)
     --pull              Re-pull the Hub image / rebuild the converted Apptainer image
     --local             Build/run from the local Dockerfile (docker / apptainer)
-    --rebuild           Rebuild local Docker image, Apptainer image, or Conda env
+    --rebuild           Rebuild the local Docker image, Apptainer image, or Conda env
     --tag TAG           Pin a Hub tag (e.g. v1.0) instead of auto-latest
     --help              Show this help message
 
 ${YELLOW}EXAMPLES:${NC}
-    $0 assem /home/user/work_dir
-    $0 assem /home/user/work_dir --service docker --cpus 16 --memory 32g
-    $0 assem /home/user/work_dir --service apptainer
-    $0 assem /home/user/work_dir --service conda
-    $0 preassem /home/user/work_dir --local --rebuild
-    $0 postassem /home/user/work_dir --service singularity --tag v0.01
+    $0 run /home/user/work_dir
+    $0 run /home/user/work_dir --service conda
+    $0 run /home/user/work_dir --service docker --local --rebuild
+    $0 run /home/user/work_dir --service docker --cpus 16 --memory 32g
+    $0 run /home/user/work_dir --service apptainer
+    docker compose up --build
 
 EOF
     exit 1
@@ -146,12 +146,14 @@ normalize_service() {
     esac
 }
 
-normalize_module() {
+legacy_module_name() {
     case "${1}" in
-        pre|preassem|pre-assembly|pre_assem|preassembly) echo "preassem" ;;
-        ass|assem|assembly) echo "assem" ;;
-        post|postassem|post-assembly|post_assem|postassembly) echo "postassem" ;;
-        *) echo "${1}" ;;
+        pre|preassem|pre-assembly|pre_assem|preassembly|ass|assem|assembly|post|postassem|post-assembly|post_assem|postassembly)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
     esac
 }
 
@@ -264,14 +266,10 @@ ensure_conda() {
     # shellcheck disable=SC1091
     set +u
     source "${CONDA_BASE}/etc/profile.d/conda.sh"
-    if command -v mamba >/dev/null 2>&1; then
-        CONDA_EXE="mamba"
-    else
-        CONDA_EXE="conda"
-        export PATH="${CONDA_BASE}/bin:${PATH}"
-        # shellcheck disable=SC1091
-        source "${CONDA_BASE}/etc/profile.d/conda.sh"
-    fi
+    # Keep CONDA_EXE as conda. Mamba 2 rejects `shell.posix`, which conda.sh
+    # uses for `conda activate`. Use mamba only for env create/update.
+    export CONDA_EXE="${CONDA_BASE}/bin/conda"
+    export PATH="${CONDA_BASE}/bin:${PATH}"
     set -u
 }
 
@@ -583,7 +581,7 @@ resolve_apptainer_sif() {
     echo "On old Singularity (3.0) a .sif often cannot be mounted; BactFlow then"
     echo "extracts a sandbox directory under ${sif_dir}."
     echo "Need either a working docker CLI, or:"
-    echo "  ./bactflow.sh ${MODULE} \"${WORK_DIR}\" --service conda"
+    echo "  ./bactflow.sh run \"${WORK_DIR}\" --service conda"
     exit 1
 }
 
@@ -628,7 +626,7 @@ follow_until_exit() {
     TAIL_PID=$!
     wait "${pid}"
     kill "${TAIL_PID}" >/dev/null 2>&1 || true
-    echo -e "\n${GREEN}=== ${MODULE} stopped ===${NC}"
+    echo -e "\n${GREEN}=== BactFlow stopped ===${NC}"
 }
 
 export_runtime_env() {
@@ -658,7 +656,7 @@ run_docker() {
     LOG_FILE="/tmp/${CONTAINER_NAME}.log"
     : > "${LOG_FILE}"
 
-    echo -e "\n${GREEN}=== Running ${MODULE} (docker) ===${NC}"
+    echo -e "\n${GREEN}=== Running BactFlow (docker) ===${NC}"
     echo "Work directory: ${WORK_DIR}"
     echo "Image: ${IMAGE}"
     echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
@@ -718,7 +716,7 @@ run_apptainer() {
     LOG_FILE="/tmp/bactflow_${MODULE}_apptainer_$$.log"
     : > "${LOG_FILE}"
 
-    echo -e "\n${GREEN}=== Running ${MODULE} (${APPTAINER_BIN}) ===${NC}"
+    echo -e "\n${GREEN}=== Running BactFlow (${APPTAINER_BIN}) ===${NC}"
     echo "Work directory: ${WORK_DIR}"
     echo "Image: ${SIF}"
     echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
@@ -811,7 +809,7 @@ run_conda() {
     LOG_FILE="/tmp/bactflow_${MODULE}_conda_$$.log"
     : > "${LOG_FILE}"
 
-    echo -e "\n${GREEN}=== Running ${MODULE} (conda) ===${NC}"
+    echo -e "\n${GREEN}=== Running BactFlow (conda) ===${NC}"
     echo "Work directory: ${WORK_DIR}"
     echo "Env: ${CONDA_PREFIX:-bactflow}"
     echo "App: ${APP_PY}"
@@ -842,8 +840,9 @@ run_conda() {
 
 OPEN_BROWSER=true
 HOST_PORT=""
-MODULE=""
+MODULE="ui"
 WORK_DIR=""
+CMD=""
 USER_CPUS=""
 USER_MEMORY=""
 REBUILD=false
@@ -921,8 +920,20 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         *)
-            if [[ -z "${MODULE}" ]]; then
-                MODULE="$1"
+            if [[ -z "${CMD}" ]]; then
+                if [[ "$1" == "run" || "$1" == "start" || "$1" == "ui" ]]; then
+                    CMD="run"
+                elif legacy_module_name "$1"; then
+                    echo -e "${RED}Error:${NC} Separate module launches were removed."
+                    echo "Use: $0 run <work_dir> [--service docker|apptainer|conda]"
+                    exit 1
+                elif [[ -d "$1" ]]; then
+                    CMD="run"
+                    WORK_DIR="$1"
+                else
+                    echo -e "${RED}Error:${NC} Unknown argument '$1'"
+                    usage
+                fi
             elif [[ -z "${WORK_DIR}" ]]; then
                 WORK_DIR="$1"
             else
@@ -934,12 +945,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "${MODULE}" || -z "${WORK_DIR}" ]]; then
-    echo -e "${RED}Error:${NC} Module and work directory are required"
+if [[ "${CMD}" != "run" || -z "${WORK_DIR}" ]]; then
+    echo -e "${RED}Error:${NC} Usage: $0 run <work_dir> [--service docker|apptainer|conda]"
     usage
 fi
-
-MODULE="$(normalize_module "${MODULE}")"
 # Historic docker behaviour: --rebuild means rebuild the local image.
 if [[ "${SERVICE}" == "docker" && "${REBUILD}" == true ]]; then
     USE_LOCAL=true
@@ -950,59 +959,22 @@ fi
 
 detect_resources
 
-WORK_DIR="$(realpath "${WORK_DIR}")"
 if [[ ! -d "${WORK_DIR}" ]]; then
     echo -e "${RED}Error:${NC} Directory '${WORK_DIR}' does not exist"
     exit 1
 fi
+WORK_DIR="$(realpath "${WORK_DIR}")"
 
-DOCKERFILE=""
-HUB_REPO=""
-LOCAL_IMAGE=""
-FALLBACK_TAG=""
-BUILD_CONTEXT=""
-case "${MODULE}" in
-    preassem)
-        HUB_REPO="bactflow_preassem"
-        LOCAL_IMAGE="bactflow/preassem:local"
-        DOCKERFILE="${SCRIPT_DIR}/UI/pre_assem_app/Dockerfile"
-        BUILD_CONTEXT="${SCRIPT_DIR}/UI/pre_assem_app"
-        FALLBACK_TAG="v1.0"
-        DEFAULT_CPUS=""
-        DEFAULT_MEMORY=""
-        CONTAINER_PORT="5000"
-        DEFAULT_HOST_PORT="5000"
-        APP_PY="${SCRIPT_DIR}/UI/pre_assem_app/pre_assembly.py"
-        ;;
-    assem)
-        HUB_REPO="bactflow_assem"
-        LOCAL_IMAGE="bactflow/assem:local"
-        DOCKERFILE="${SCRIPT_DIR}/UI/assem_app/Dockerfile"
-        BUILD_CONTEXT="${SCRIPT_DIR}/UI/assem_app"
-        FALLBACK_TAG="v1.0"
-        DEFAULT_CPUS="10"
-        DEFAULT_MEMORY="16g"
-        CONTAINER_PORT="5002"
-        DEFAULT_HOST_PORT="5002"
-        APP_PY="${SCRIPT_DIR}/UI/assem_app/assembly.py"
-        ;;
-    postassem)
-        HUB_REPO="bactflow_postassem"
-        LOCAL_IMAGE="bactflow/postassem:local"
-        DOCKERFILE="${SCRIPT_DIR}/UI/post_assem_app/Dockerfile"
-        BUILD_CONTEXT="${SCRIPT_DIR}/UI/post_assem_app"
-        FALLBACK_TAG="v0.01"
-        DEFAULT_CPUS="10"
-        DEFAULT_MEMORY="16g"
-        CONTAINER_PORT="5001"
-        DEFAULT_HOST_PORT="5001"
-        APP_PY="${SCRIPT_DIR}/UI/post_assem_app/post_assembly.py"
-        ;;
-    *)
-        echo -e "${RED}Error:${NC} Unknown module '${MODULE}'"
-        usage
-        ;;
-esac
+HUB_REPO="bactflow"
+LOCAL_IMAGE="bactflow:v1.0"
+DOCKERFILE="${SCRIPT_DIR}/UI/bactflow_app/Dockerfile"
+BUILD_CONTEXT="${SCRIPT_DIR}"
+FALLBACK_TAG="v1.0"
+DEFAULT_CPUS="10"
+DEFAULT_MEMORY="16g"
+CONTAINER_PORT="5000"
+DEFAULT_HOST_PORT="5000"
+APP_PY="${SCRIPT_DIR}/UI/bactflow_app/app.py"
 
 if [[ -n "${USER_CPUS}" ]]; then
     CPUS="--cpus=${USER_CPUS}"

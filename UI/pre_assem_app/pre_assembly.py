@@ -31,9 +31,14 @@ except ImportError:
 base_dir = os.path.abspath(os.path.dirname(__file__))
 if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
+_HUB = os.path.abspath(os.path.join(base_dir, "..", "bactflow_app"))
+if _HUB not in sys.path:
+    sys.path.insert(0, _HUB)
 ASSEM_APP_DIR = os.path.abspath(os.path.join(base_dir, "..", "assem_app"))
 if ASSEM_APP_DIR not in sys.path:
     sys.path.append(ASSEM_APP_DIR)
+
+BF_MODULE = "qc"
 
 app = Flask(__name__, 
             template_folder = os.path.join(base_dir, "templates"),
@@ -52,8 +57,37 @@ export NXF_ANSI_LOG=false
 """
 
 
-def with_nextflow_java(command):
-    return NF_JAVA_SETUP + "\n" + command
+def with_nextflow_java(command, mem_gb=None):
+    extra = ""
+    if mem_gb:
+        from memory_cap import nxf_opts_export
+        extra = nxf_opts_export(mem_gb)
+    return extra + NF_JAVA_SETUP + "\n" + command
+
+
+def _lock_acquire(label, kind="sync"):
+    from run_lock import try_acquire
+    return try_acquire(BF_MODULE, os.getpid(), label, kind=kind)
+
+
+def _lock_worker(pid):
+    from run_lock import update_lock
+    update_lock(pid=pid, kind="worker")
+
+
+def _lock_release(pid=None):
+    from run_lock import release
+    release(module=BF_MODULE, pid=pid)
+
+
+def _memory_from_form(form=None):
+    from memory_cap import parse_and_cap
+    src = form if form is not None else request.form
+    return parse_and_cap(src.get("memory_gb"))
+
+
+def _busy_json(message):
+    return jsonify({"error": message, "message": message, "running": True}), 409
 
 
 from pool_reads import (
@@ -517,6 +551,10 @@ def run_bact(command, process_status, output_queue):
     process.stdout.close()
     process.wait()
     process_status["running"] = False
+    try:
+        _lock_release(pid=os.getpid())
+    except Exception:
+        pass
 
 
 
@@ -585,21 +623,25 @@ def bact_check():
 def install_bactflow():
     if request.method == 'POST':
 
-        out_dir = request.form.get("out_dir")
+        out_dir = request.form.get("out_dir") or "./bactflow_out"
         if process_status["running"]:
             return jsonify({"message": "Installation is already in progress", "running": True}), 400
+        ok, err = _lock_acquire("QC")
+        if not ok:
+            return _busy_json(err)
         process_status["running"] = True
-            
 
+        mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
+        from memory_cap import inject_nextflow_memory, preamble
+        command = f"nextflow run {base_dir}/main.nf --setup_only true --out_dir {shlex.quote(str(out_dir))} -ansi-log true"
+        command = inject_nextflow_memory(command, out_dir, request.form.get("cpus") or 1, mem_gb)
+        command = preamble(mem_gb, mem_host, mem_capped) + command
+        command = with_nextflow_java(command, mem_gb)
 
-        command = with_nextflow_java(f"""
-        
-        nextflow run {base_dir}/main.nf --setup_only true --out_dir {out_dir}
-        """)
-    
         back_process = Process(target=run_bact, args=(command, process_status, output_queue))
         _start_worker_process(back_process)
-      
+        _lock_worker(back_process.pid)
+
         return jsonify({"message": "Installation started", "running": True}), 200
     elif request.method == 'GET':
         return jsonify({"running": process_status["running"]})
@@ -608,6 +650,17 @@ def install_bactflow():
 @app.route('/ls-fastq', methods = ['POST', 'GET'])
 def ls_fastq():
     if request.method == 'POST':
+        ok, err = _lock_acquire("QC")
+        if not ok:
+            return _busy_json(err)
+        try:
+            return _ls_fastq_body()
+        finally:
+            _lock_release()
+    return jsonify({"error": "POST required"}), 405
+
+
+def _ls_fastq_body():
         try:
             fastq_dir, correction = resolve_fastq_dir(request.form.get("fastq_dir"))
         except PoolReadsError as exc:
@@ -706,37 +759,58 @@ def trim_list():
 def filter_illumina():
     if not is_illumina_form(request.form):
         return jsonify({"error": "Illumina filtering is only available when Read type is Illumina."}), 400
-    dest, err = run_illumina_filter(request.form, report_progress=True)
-    if err:
-        return jsonify({"error": err, "message": err}), 400
-    kept = list_fastq_files(dest)
-    return jsonify({
-        "status": "completed",
-        "message": f"Filtered Illumina reads written to {dest} ({len(kept)} files).",
-        "reads_dir": dest,
-    }), 200
+    ok, err = _lock_acquire("QC")
+    if not ok:
+        return _busy_json(err)
+    try:
+        dest, err = run_illumina_filter(request.form, report_progress=True)
+        if err:
+            return jsonify({"error": err, "message": err}), 400
+        kept = list_fastq_files(dest)
+        return jsonify({
+            "status": "completed",
+            "message": f"Filtered Illumina reads written to {dest} ({len(kept)} files).",
+            "reads_dir": dest,
+        }), 200
+    finally:
+        _lock_release()
 
 
 @app.route("/filter-long-reads", methods=["POST"])
 def filter_long_reads():
     if is_illumina_form(request.form):
         return jsonify({"error": "Use Filter reads with Illumina selected for paired-end filtering."}), 400
-    dest, err = run_long_read_filter(request.form, report_progress=True)
-    if err:
-        return jsonify({"error": err, "message": err}), 400
-    kept = list_fastq_files(dest)
-    return jsonify({
-        "status": "completed",
-        "message": f"Filtered reads written to {dest} ({len(kept)} files).",
-        "reads_dir": dest,
-    }), 200
+    ok, err = _lock_acquire("QC")
+    if not ok:
+        return _busy_json(err)
+    try:
+        dest, err = run_long_read_filter(request.form, report_progress=True)
+        if err:
+            return jsonify({"error": err, "message": err}), 400
+        kept = list_fastq_files(dest)
+        return jsonify({
+            "status": "completed",
+            "message": f"Filtered reads written to {dest} ({len(kept)} files).",
+            "reads_dir": dest,
+        }), 200
+    finally:
+        _lock_release()
 
 
 @app.route('/reads-stat', methods = ['POST', 'GET'])
 def stat_reads():
     if request.method != 'POST':
         return stats_error("POST required", 405)
+    ok, err = _lock_acquire("QC")
+    if not ok:
+        return _busy_json(err)
+    try:
+        return _stat_reads_body()
+    finally:
+        _lock_release()
 
+
+def _stat_reads_body():
     try:
         try:
             cpus = max(1, int(request.form.get("cpus") or 1))
@@ -1424,7 +1498,16 @@ def build_illumina_figures(summaries):
 def plot_qual():
     if request.method != "POST":
         return jsonify({"error": "POST required"}), 405
+    ok, err = _lock_acquire("QC")
+    if not ok:
+        return _busy_json(err)
+    try:
+        return _plot_qual_body()
+    finally:
+        _lock_release()
 
+
+def _plot_qual_body():
     declared = (request.form.get("read_platform") or "auto").lower()
     try:
         cpus = max(1, int(request.form.get("cpus") or 4))

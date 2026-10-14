@@ -197,16 +197,21 @@ body.helix-shell .text-muted {
   color: var(--hx-danger) !important;
 }
 
-.hx-actions #help-bt {
-  background: var(--hx-panel-2) !important;
-  color: var(--hx-text) !important;
-}
-
 .hx-actions #rep-bt,
 .hx-actions .btn-hx-secondary {
   background: transparent !important;
   border-color: var(--hx-accent) !important;
   color: var(--hx-accent) !important;
+}
+
+.hx-actions #report-bt {
+  background: linear-gradient(90deg, #f59e0b, #ea580c) !important;
+  border-color: transparent !important;
+  color: #1a0f05 !important;
+}
+
+.hx-actions #report-bt:hover:not(:disabled) {
+  filter: brightness(1.06);
 }
 
 .hx-actions .btn:disabled {
@@ -615,15 +620,15 @@ body.helix-shell .bf-side-scroll {
 }
 
 @media (max-width: 992px) {
-  :root {
-    --hx-rail: 100%;
+  body.helix-shell .rd-app {
+    --hx-rail: var(--rd-nav, 240px);
   }
 
   .hx-row {
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
   }
 
-  .hx-rail {
+  body.helix-shell:not(:has(.rd-app)) .hx-rail {
     position: relative;
     top: 0;
     height: auto;
@@ -633,7 +638,7 @@ body.helix-shell .bf-side-scroll {
     flex: 1 1 100%;
   }
 
-  .hx-stage {
+  body.helix-shell:not(:has(.rd-app)) .hx-stage {
     width: 100% !important;
     height: auto;
     min-height: 60vh;

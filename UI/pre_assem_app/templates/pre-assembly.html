@@ -10,7 +10,7 @@
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd19">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre10">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pre-dashboard.css') }}?v=pre11">
 <script>try{var t=localStorage.getItem("bactflow_theme");if(t==="light"||t==="plain")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 {% endblock %}
 
@@ -38,13 +38,6 @@
 <div class="rd-app">
 
   <aside class="rd-nav rd-nav-setup" aria-label="Analysis setup">
-    <a class="rd-brand" href="https://github.com/farhadm1990/bactflow" target="_blank" rel="noopener noreferrer">
-      <img class="rd-brand-mark" src="{{ url_for('static', filename='images/logo.png') }}" alt="">
-      <div class="rd-brand-text">
-        <strong>BactFlow</strong>
-        <span>From reads to insights.</span>
-      </div>
-    </a>
     <div class="rd-nav-btn is-active rd-setup-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg> Analysis Setup</div>
     <div class="rd-setup-scroll">
 
@@ -90,6 +83,11 @@
               <label for="cpus" class="form-label">CPUs</label>
               <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
             </div>
+            <div class="mb-3">
+              <label for="memory_gb" class="form-label">Memory (GB)</label>
+              <input type="number" class="form-control" id="memory_gb" name="memory_gb" min="2" step="1" value="8"/>
+              <div class="form-text" id="memory-hint">Hard cap for this run. BactFlow will not use more than this, and will lower the value if it exceeds this machine.</div>
+            </div>
 
             <div class="mb-3" id="pacbioKindGroup" style="display: none;">
               <label for="pacbio_read_kind" class="form-label">PacBio read kind (hint)</label>
@@ -116,11 +114,15 @@
               </div>
             </div>
 
-            <div class="mb-3">
-              <label for="extension" class="form-label">Extension</label>
-              <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
-              <div class="form-text">
-                Auto-detected if needed. PacBio chunks are often <code>.subreads.fastq</code>.
+            <div id="concatReadsParams" class="pre-reveal" style="display: none;">
+              <div class="mb-3" id="extensionGroup">
+                <label for="extension" class="form-label">FASTQ extension</label>
+                <input type="text" class="form-control" id="extension" name="extension" placeholder=".fastq.gz" value=".fastq.gz"/>
+                <div class="form-text">
+                  Files with this suffix in each sample / barcode folder are pooled.
+                  Leave as <code>.fastq.gz</code> unless your chunks are
+                  <code>.fastq</code> or PacBio <code>.subreads.fastq</code>.
+                </div>
               </div>
             </div>
 
@@ -379,9 +381,9 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle10"></script>
-<script src="{{ url_for('static', filename = 'js/meters.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre15"></script>
+<script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle12"></script>
+<script src="{{ url_for('static', filename = 'js/meters.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre17"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

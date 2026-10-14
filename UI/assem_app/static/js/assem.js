@@ -353,10 +353,11 @@ function run_wf(action){
         prepareFreshRunUI();
         updateButtonStates("running");
         fetch(`/run_bactflow?action-assem=${action}`, { method: "POST", body : formData })
-        .then((response) => {
+        .then(async (response) => {
         if(!response.ok) {
+          const message = ((await response.text()) || "").trim();
           BactflowTerminal.clear();
-          BactflowTerminal.append("Error starting BactFlow. It might already be running?!", true);
+          BactflowTerminal.append(message || "Error starting BactFlow. It might already be running?!", true);
           BactflowTerminal.setStatus("Failed to start", "error");
           document.getElementById('run-bt').disabled = false;
           document.getElementById('help-bt').disabled = false;
@@ -693,15 +694,18 @@ function showEmptyTerminal() {
 }
 
 function isPipelineRunning() {
-  if (lastPipelineProcessDone()) {
+  const dash = window.BactflowRunDashboard;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return false;
   }
-  const runBt = document.getElementById("run-bt");
-  if (runBt && runBt.disabled) {
+  if (dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running") {
     return true;
   }
-  const dash = window.BactflowRunDashboard;
-  return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled && !(dash && (dash.endedAt || dash.nfFinished))) {
+    return true;
+  }
+  return false;
 }
 
 const RESULT_PANEL_IDS = [
@@ -742,6 +746,8 @@ function setResultsOpen(open, opts) {
   resultsOpen = !!open;
   const card = document.getElementById("rd-results");
   const btn = document.getElementById("rep-bt");
+  const running = isPipelineRunning();
+  document.documentElement.classList.toggle("rd-live-results", !!(resultsOpen && running));
   if (card) {
     card.classList.toggle("is-shown", resultsOpen);
   }
@@ -749,7 +755,7 @@ function setResultsOpen(open, opts) {
     btn.textContent = resultsOpen ? "Hide results" : "Display results";
   }
   setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
-  if (isPipelineRunning()) {
+  if (running) {
     setTerminalVisible(true);
     return;
   }
@@ -770,6 +776,7 @@ function toggleResults() {
       if (has) {
         setResultsOpen(true);
       }
+      setTerminalVisible(true);
       return;
     }
     if (runHasFinishedOk()) {

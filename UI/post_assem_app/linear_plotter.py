@@ -9,6 +9,7 @@ genome stays visible with hover, zoom, and pan.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 from io import StringIO
@@ -22,6 +23,7 @@ SKIP_TYPES = {"source", "region", "comment"}
 
 TYPE_COLORS = {
     "cds": "#E07A5F",
+    "amr": "#EF4444",
     "trna": "#E9C46A",
     "rrna": "#E76F51",
     "tmrna": "#2A9D8F",
@@ -276,16 +278,161 @@ def load_genome(path):
         raise ValueError(f"Unsupported annotation file: {path}")
     genome = {"name": name, "path": path, "contigs": contigs}
     _attach_faa(genome)
+    _attach_amr(genome)
     return genome
 
 
 _GENOME_CACHE = {}
 
 
+def _companion_json(annot_path):
+    stem, _ = os.path.splitext(annot_path or "")
+    candidate = stem + ".json"
+    if os.path.isfile(candidate):
+        return candidate
+    parent = os.path.dirname(annot_path or "")
+    hits = glob.glob(os.path.join(parent, "*.json")) if parent else []
+    prefer = os.path.basename(stem).lower()
+    for hit in hits:
+        if os.path.splitext(os.path.basename(hit))[0].lower() == prefer:
+            return hit
+    return hits[0] if len(hits) == 1 else None
+
+
+# Bakta records every AMRFinderPlus hit as expert.type == "amrfinder".
+# AMRFinderPlus --plus also catalogs metal/biocide/stress/virulence genes
+# (Feldgarden et al., Sci. Rep. 2021). Those are not antibiotic AMR.
+_AMR_SCOPE_RE = re.compile(
+    r"\b(stress|metal|metalloid|biocide|virulen|acid resistance|heat (shock|resistance))\b",
+    re.I,
+)
+_AMR_METAL_PRODUCT_RE = re.compile(
+    r"arsenite|arsenate|arsenic|mercur(y|ic)|copper|cuprous|silver\b|cadmium|"
+    r"zinc\b|nickel|cobalt|chromate|chromium|tellur|bismuth|lead\b|selenite|"
+    r"molybden|tungsten|metal(loid)?|metallochaperone|quaternary ammonium|"
+    r"benzalkonium|disinfectant",
+    re.I,
+)
+_AMR_METAL_GENE_RE = re.compile(
+    r"^(ars|mer|cop|cue|cus|pco|sil|czc|cad|znt|ncr|chr|pbr|ter|teh|tel|"
+    r"ncc|cnr|rcn|qac|sugE|emrE)\w*$",
+    re.I,
+)
+
+
+def _is_antibiotic_amrfinder(info):
+    """Keep true antibiotic resistance; drop metal/stress/biocide/virulence."""
+    if not info:
+        return False
+    blob = " ".join(
+        str(info.get(key) or "")
+        for key in ("class", "subclass", "scope", "element_type", "gene", "product")
+    )
+    if _AMR_SCOPE_RE.search(blob) or _AMR_METAL_PRODUCT_RE.search(blob):
+        return False
+    gene = str(info.get("gene") or "").strip()
+    if gene and _AMR_METAL_GENE_RE.match(gene):
+        return False
+    return True
+
+
+def _amr_info_from_expert(feat):
+    experts = [
+        item for item in (feat.get("expert") or [])
+        if str(item.get("type") or "").strip().lower() == "amrfinder"
+    ]
+    if not experts:
+        return None
+    best = max(experts, key=lambda item: int(item.get("rank") or 0))
+    gene = str(best.get("gene") or feat.get("gene") or "").strip()
+    product = str(best.get("product") or feat.get("product") or "").strip()
+    method = str(best.get("method") or "").strip()
+    ident = str(best.get("id") or "").strip()
+    klass = str(
+        best.get("class")
+        or best.get("subclass")
+        or best.get("scope")
+        or best.get("element_type")
+        or ""
+    ).strip()
+    info = {
+        "gene": gene,
+        "product": product,
+        "method": method,
+        "id": ident,
+        "class": klass,
+        "label": "",
+    }
+    if not _is_antibiotic_amrfinder(info):
+        return None
+    bits = ["AMRFinder"]
+    if method:
+        bits.append(method)
+    if klass:
+        bits.append(klass)
+    if ident:
+        bits.append(ident)
+    info["label"] = " · ".join(bits)
+    return info
+
+
+def _attach_amr(genome):
+    """Flag CDS that Bakta already scored with AMRFinderPlus."""
+    json_path = _companion_json(genome.get("path") or "")
+    if not json_path:
+        return
+    try:
+        with open(json_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return
+    by_locus = {}
+    by_pos = {}
+    for feat in payload.get("features") or []:
+        info = _amr_info_from_expert(feat)
+        if not info:
+            continue
+        locus = str(feat.get("locus") or feat.get("locus_tag") or "").strip()
+        if locus:
+            by_locus[locus] = info
+        seq = str(feat.get("sequence") or "").strip()
+        try:
+            start = int(feat.get("start"))
+            stop = int(feat.get("stop"))
+        except (TypeError, ValueError):
+            continue
+        if seq:
+            by_pos[(seq, start, stop)] = info
+    if not by_locus and not by_pos:
+        return
+    count = 0
+    seen = set()
+    for contig in genome.get("contigs") or []:
+        cid = contig.get("id")
+        for feat in contig.get("features") or []:
+            if str(feat.get("type") or "").lower() not in {"cds", "cds_with_stop"}:
+                continue
+            info = by_locus.get(str(feat.get("locus") or "").strip())
+            if not info:
+                info = by_pos.get((cid, int(feat.get("start") or 0), int(feat.get("end") or 0)))
+            if not info:
+                continue
+            key = (cid, int(feat.get("start") or 0), int(feat.get("end") or 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            feat["amr"] = info
+            count += 1
+    genome["amr_count"] = count
+
+
 def load_genome_cached(path):
     path = os.path.abspath(path)
+    json_path = _companion_json(path)
     try:
         stamp = (os.path.getmtime(path), os.path.getsize(path))
+        if json_path:
+            stamp = stamp + (os.path.getmtime(json_path), os.path.getsize(json_path))
     except OSError:
         stamp = (0, 0)
     hit = _GENOME_CACHE.get(path)
@@ -301,6 +448,8 @@ def _wanted_types(feature_types):
     wanted = {str(t).strip().lower() for t in raw if str(t).strip()}
     if not wanted:
         wanted = {"cds"}
+    if wanted & {"amr", "amrfinder", "amrfinderplus"}:
+        wanted.add("amr")
     if wanted & {"ncrna", "ncrna-region"}:
         wanted.update({"ncrna", "ncrna-region"})
     if "crispr-repeat" in wanted:
@@ -397,10 +546,22 @@ def _track_from_genome(chosen, contig, wanted, keep_aa=False):
         length = max(int(piece.get("length") or 0), 1)
         boundaries.append({"id": piece["id"], "start": offset, "end": offset + length, "length": length})
         for feat in piece.get("features") or []:
-            if feat["type"].lower() not in wanted:
+            is_amr = bool(feat.get("amr"))
+            ftype = str(feat.get("type") or "").lower()
+            if is_amr and "amr" in wanted:
+                ftype = "amr"
+            elif ftype not in wanted:
                 continue
+            packed = dict(feat)
+            packed["type"] = ftype
+            if is_amr and ftype == "amr":
+                amr = feat.get("amr") or {}
+                packed["name"] = amr.get("gene") or feat.get("name") or "AMR"
+                product = amr.get("product") or feat.get("product") or ""
+                label = amr.get("label") or "AMRFinder"
+                packed["product"] = f"{label}: {product}".strip(": ")
             rows.append({
-                **feat,
+                **packed,
                 "contig": piece["id"],
                 "abs_start": offset + feat["start"],
                 "abs_end": offset + feat["end"],
@@ -422,6 +583,7 @@ def _track_from_genome(chosen, contig, wanted, keep_aa=False):
         hypo = _is_hypothetical(feat)
         if hypo:
             hypo_count += 1
+        product = feat.get("product") or ""
         row = {
             "s": int(feat["abs_start"]),
             "e": int(feat["abs_end"]),
@@ -429,10 +591,12 @@ def _track_from_genome(chosen, contig, wanted, keep_aa=False):
             "strand": feat["strand"],
             "t": ftype,
             "n": (feat["name"] or ftype)[:80],
-            "p": (feat["product"] or "")[:120],
+            "p": product[:180] if ftype == "amr" else product[:120],
             "c": feat["contig"],
             "h": 1 if hypo else 0,
         }
+        if ftype == "amr":
+            row["amr"] = 1
         if keep_aa:
             row["aa"] = feat.get("aa") or ""
         features.append(row)

@@ -35,6 +35,8 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
     genomad:
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v3M12 17v3"/></svg>',
+    mlst:
+      '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="12" r="2"/><circle cx="15" cy="18" r="2"/></svg>',
     quast:
       '<svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15v4M12 11v8M16 8v11"/></svg>',
     done: '<svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>',
@@ -47,7 +49,7 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   };
 
-  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|Nextflow exited with code/i;
+  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|ERROR: mlst|ERROR: No FASTA|exited with code\s+[1-9]/i;
 
   const STEP_TARGETS = {
     envsetup: [".rd-logs"],
@@ -59,10 +61,11 @@
     covfilt: [".rd-logs"],
     asm: [".rd-logs"],
     circ: ["circFastaDiv", "circDiv", ".rd-logs"],
-    bakta: ["baktaDiv", "circDiv", "linearDiv", "#rd-results"],
+    bakta: ["baktaDiv", "heatmapDiv", "circDiv", "linearDiv", "#rd-results"],
     gtdb: ["taxa_class", "gtdbTreeDiv", "#rd-results"],
     checkm: ["checkmDiv", "checkmTreeDiv", "#rd-results"],
     genomad: ["plasmidDiv", "#rd-results"],
+    mlst: ["mlstDiv", "#rd-results"],
     quast: ["quastDiv", "#rd-results"],
   };
 
@@ -237,42 +240,63 @@
       });
     },
 
-    /* Plotly sizes charts when they are drawn; charts drawn while hidden overflow until resized. */
+    /* Plotly sizes charts when they are drawn; charts drawn while hidden overflow until resized.
+       Do NOT watch style mutations — Plotly writes style on resize and that loops forever
+       (charts growing nonstop). Only react to pane show/hide and window width changes. */
     bindPlotResize() {
       const pane = document.getElementById("assem-results-pane");
       if (!pane) {
         return;
       }
       let timer = null;
+      let resizing = false;
+      let lastPaneW = 0;
       const resizeAll = () => {
         timer = null;
-        if (!window.Plotly) {
+        if (!window.Plotly || resizing) {
           return;
         }
-        pane.querySelectorAll(".js-plotly-plot").forEach((el) => {
-          const w = el.clientWidth;
-          const drawn = el._fullLayout && el._fullLayout.width;
-          if (w && drawn && Math.abs(drawn - w) > 4) {
-            try {
-              Plotly.Plots.resize(el);
-            } catch (e) { /* ignore */ }
-          }
-        });
+        const paneW = pane.clientWidth || 0;
+        if (paneW && lastPaneW && Math.abs(paneW - lastPaneW) < 2) {
+          return;
+        }
+        lastPaneW = paneW;
+        resizing = true;
+        try {
+          pane.querySelectorAll(".js-plotly-plot").forEach((el) => {
+            // Skip charts that opted out of responsive growth (fixed height).
+            if (el.dataset && el.dataset.bfNoAutoResize === "1") {
+              return;
+            }
+            const w = el.clientWidth;
+            const drawn = el._fullLayout && el._fullLayout.width;
+            if (w && drawn && Math.abs(drawn - w) > 8) {
+              try {
+                Plotly.Plots.resize(el);
+              } catch (e) { /* ignore */ }
+            }
+          });
+        } finally {
+          setTimeout(() => {
+            resizing = false;
+          }, 200);
+        }
       };
       this.schedulePlotResize = () => {
         if (!timer) {
-          timer = setTimeout(resizeAll, 150);
+          timer = setTimeout(resizeAll, 180);
         }
       };
+      window.addEventListener("resize", this.schedulePlotResize);
       if (window.ResizeObserver) {
-        new ResizeObserver(this.schedulePlotResize).observe(pane);
+        new ResizeObserver((entries) => {
+          const w = entries[0] && entries[0].contentRect && entries[0].contentRect.width;
+          if (w && lastPaneW && Math.abs(w - lastPaneW) < 2) {
+            return;
+          }
+          this.schedulePlotResize();
+        }).observe(pane);
       }
-      new MutationObserver(this.schedulePlotResize).observe(pane, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeFilter: ["style", "class"],
-      });
     },
 
     /* —— Log tools —— */
@@ -282,6 +306,12 @@
         auto.checked = true;
         auto.addEventListener("change", () => {
           this.autoScroll = !!auto.checked;
+          if (window.BactflowTerminal) {
+            window.BactflowTerminal.followScroll = this.autoScroll;
+            if (this.autoScroll && typeof window.BactflowTerminal.scrollToBottom === "function") {
+              window.BactflowTerminal.scrollToBottom();
+            }
+          }
         });
       }
       const dl = $("#rd-download-log");
@@ -462,10 +492,15 @@
       if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
         this.nfFinished = true;
       }
-      if (/Process completed|Nextflow finished successfully/i.test(line)) {
-        if (!this.endedAt && this.startedAt) {
+      if (/^Process completed$|Nextflow finished successfully/i.test(line)) {
+        if (!this.failed && !this.endedAt && this.startedAt) {
           this.endedAt = Date.now();
         }
+      }
+      if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
+        this.failMessage = String(line || "").replace(/\s+/g, " ").slice(0, 180);
+        this.markFailed("");
+        return;
       }
       if (this.stopping || !FAIL_RE.test(line)) {
         return;
@@ -563,6 +598,9 @@
       if (this.isTrue("run_plasmids")) {
         stages.push(S("genomad", "geNomad", "genomad", /^plasmiddetect/, "genomad", true));
       }
+      if (this.isTrue("run_mlst")) {
+        stages.push(S("mlst", "MLST", "mlst", /^mlsttyping/, "mlst", true));
+      }
       if (this.isTrue("run_quast")) {
         stages.push(S("quast", "QUAST", "quast", /^quastcheck/, "quast", true));
       }
@@ -578,6 +616,9 @@
     },
 
     isDone(p) {
+      if (!p || p.aborted || p.failed) {
+        return false;
+      }
       if (!p.done) {
         return false;
       }
@@ -730,6 +771,21 @@
               r.skipped = true;
             }
           });
+        } else if (this.failed) {
+          // Keep unfinished stages as wait/fail — never promote them to done.
+          rows.forEach((r) => {
+            if (r.state === "run") {
+              r.state = "fail";
+              r.remaining = 0;
+            }
+          });
+          if (!rows.some((r) => r.state === "fail")) {
+            const culprit = [...rows].reverse().find((r) => r.procs.length) || rows[rows.length - 1];
+            if (culprit) {
+              culprit.state = "fail";
+              culprit.remaining = 0;
+            }
+          }
         } else if (state === "running" && !rows.some((r) => r.state === "run" || r.state === "fail")) {
           const next = rows.find((r) => r.state === "wait") || rows[0];
           if (next && next.state === "wait") {
@@ -759,7 +815,7 @@
       const center = document.querySelector(".rd-center");
       const right = document.querySelector(".rd-right");
       const nf = right && right.querySelector(":scope > .rd-card:last-child");
-      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden")) {
+      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden") || document.documentElement.classList.contains("rd-live-results")) {
         if (logs) {
           logs.style.height = "";
         }
@@ -776,7 +832,15 @@
       const next = Math.max(220, Math.round(nfBottom - logsTop));
       const px = `${next}px`;
       if (logs.style.height !== px) {
+        const body = document.getElementById("output-bactflow");
+        const keep = body ? body.scrollTop : 0;
+        const follow = !!(window.BactflowTerminal && window.BactflowTerminal.followScroll);
         logs.style.height = px;
+        if (follow && window.BactflowTerminal && typeof window.BactflowTerminal.scrollToBottom === "function") {
+          window.BactflowTerminal.scrollToBottom();
+        } else if (body) {
+          body.scrollTop = keep;
+        }
       }
     },
 
@@ -1005,6 +1069,11 @@
       return Number.isFinite(n) && n > 0 ? n : 0;
     },
 
+    requestedMemoryGb() {
+      const n = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim());
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+
     cpuBudgetLabel(hostCount) {
       const asked = this.requestedCores();
       const host = Number(hostCount) || 0;
@@ -1037,7 +1106,12 @@
         cpu = (jobCores / asked) * 100;
       }
       cpu = Math.max(0, Math.min(100, cpu));
-      const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
+      const cap = this.requestedMemoryGb() || Number(s.ram_total_gb) || 0;
+      const jobRam = Number(s.job_rss_gb);
+      const usedRam = s.running && Number.isFinite(jobRam) ? jobRam : Number(s.ram_used_gb) || 0;
+      const ram = cap > 0
+        ? Math.max(0, Math.min(100, (usedRam / cap) * 100))
+        : Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
       if (cpuRing) {
@@ -1049,17 +1123,25 @@
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
       this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
-      this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
+      this.setText("rd-ram-sub", cap ? `${Number(usedRam).toFixed(1)} / ${cap} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
 
     maybeAutoscroll() {
+      if (window.BactflowTerminal && typeof window.BactflowTerminal.pinScroll === "function") {
+        window.BactflowTerminal.pinScroll();
+        return;
+      }
       if (!this.autoScroll) {
         return;
       }
       const body = document.getElementById("output-bactflow");
       if (body) {
-        body.scrollTop = body.scrollHeight;
+        const slack = 48;
+        const near = (body.scrollHeight - body.scrollTop - body.clientHeight) <= slack;
+        if (near) {
+          body.scrollTop = body.scrollHeight;
+        }
       }
     },
 

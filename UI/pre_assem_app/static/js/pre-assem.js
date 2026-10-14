@@ -434,29 +434,41 @@ function updatePlatformUI() {
   const pacbio = platform === "pacbio";
   const concatGroup = document.getElementById("concatReadsGroup");
   const concatSel = document.getElementById("concat_reads");
+  const concatParams = document.getElementById("concatReadsParams");
   const catBtn = document.getElementById("read-cat");
   const filterBtn = document.getElementById("illumina-filter-bt");
   const filterGroup = document.getElementById("readFilterGroup");
   const filterParams = document.getElementById("readFilterParams");
   const filterSel = document.getElementById("read_filter");
   const pacbioKindGroup = document.getElementById("pacbioKindGroup");
-  const concatOn = (concatSel || {}).value === "true";
   const filterOn = (filterSel || {}).value === "true";
   const title = document.getElementById("readFilterTitle");
   const label = document.getElementById("readFilterLabel");
   const hint = document.getElementById("readFilterHint");
+  const platformChanged = lastReadPlatform !== null && lastReadPlatform !== platform;
 
   if (concatGroup) {
     concatGroup.style.display = illumina ? "none" : "";
   }
-  if (concatSel && illumina) {
-    concatSel.value = "false";
+  if (concatSel && lastReadPlatform !== null) {
+    if (illumina) {
+      concatSel.value = "false";
+    } else if (lastReadPlatform === "illumina" && !illumina) {
+      concatSel.value = "false";
+    } else if ((platform === "ont" || platform === "pacbio") && platformChanged) {
+      concatSel.value = "false";
+    }
   }
-  if (concatSel && lastReadPlatform === "illumina" && !illumina) {
-    concatSel.value = "false";
+  const concatOn = !illumina && ((concatSel || {}).value || "").toLowerCase() === "true";
+  if (concatParams) {
+    concatParams.style.display = concatOn ? "" : "none";
   }
-  if (concatSel && (platform === "ont" || platform === "pacbio") && lastReadPlatform !== platform) {
-    concatSel.value = "false";
+  if (concatOn && concatParams && lastReadPlatform !== null && !platformChanged) {
+    const scroller = document.querySelector(".rd-setup-scroll");
+    if (scroller) {
+      const top = concatParams.offsetTop - 12;
+      scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
   }
   if (catBtn) {
     catBtn.style.display = "";
@@ -790,7 +802,6 @@ function read_vis(){
       const isSub = /subread|CLR|not HiFi/i.test(note);
       showNotice(note, isSub);
     }
-    spinVis.style.display = "none";
     qualDiv.style.display = "block";
     qualHeatDiv.style.display = "block";
     qualHeatDivPool.style.display = "block";
@@ -859,11 +870,15 @@ function read_vis(){
       setPlotlyTitle(plotData3, "PacBio read length vs quality | pooled");
     }
 
-    Plotly.newPlot(qualDiv, plotData1.data, plotData1.layout);
-    Plotly.newPlot(qualHeatDiv, plotData2.data, plotData2.layout);
-    Plotly.newPlot(qualHeatDivPool, plotData3.data, plotData3.layout);
-    const noteVisible = visError && visError.style.display !== "none" && visError.innerHTML;
-    jumpToSection(noteVisible ? "vis-error" : "bar-qual-plot");
+    return Promise.all([
+      Plotly.newPlot(qualDiv, plotData1.data, plotData1.layout),
+      Plotly.newPlot(qualHeatDiv, plotData2.data, plotData2.layout),
+      Plotly.newPlot(qualHeatDivPool, plotData3.data, plotData3.layout),
+    ]).then(() => {
+      spinVis.style.display = "none";
+      const noteVisible = visError && visError.style.display !== "none" && visError.innerHTML;
+      jumpToSection(noteVisible ? "vis-error" : "bar-qual-plot");
+    });
   })
   .catch(error => {
     console.error("Error fetching plot", error);
@@ -902,11 +917,14 @@ function restoreFormData(){
   if(savedData){
     let formData = JSON.parse(savedData);
     let form = document.getElementById("preForm");
-    
-    Array.from(form.elemnts).forEach(function (element){
+    if (!form) {
+      return;
+    }
+
+    Array.from(form.elements).forEach(function (element){
       if (element.name && formData[element.name] !== undefined ) {
-        if (elemnt.type === "checkbox" || elemnt.type === "radio"){
-          elemnt.checked = formData[element.name];
+        if (element.type === "checkbox" || element.type === "radio"){
+          element.checked = formData[element.name];
         } else {
           element.value = formData[element.name];
         }
@@ -919,11 +937,14 @@ function restoreFormData(){
 
 function saveFormData(){
   let form = document.getElementById("preForm");
+  if (!form) {
+    return;
+  }
   let formData = {};
 
-  Array.from(form.elemnts).forEach(function (element){
+  Array.from(form.elements).forEach(function (element){
     if (element.name) {
-      if(element.name === "checkbox" || element.type === "radio"){
+      if(element.type === "checkbox" || element.type === "radio"){
         formData[element.name] = element.checked;
       } else {
         formData[element.name] = element.value;

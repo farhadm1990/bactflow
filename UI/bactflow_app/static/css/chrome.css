@@ -1,0 +1,150 @@
+/* Shared top chrome for the unified BactFlow hub. */
+html.bf-hubbed body.helix-shell {
+  padding-top: 56px;
+  overflow: hidden;
+}
+
+html.bf-hubbed .rd-app,
+html.bf-hubbed .rd-main {
+  height: calc(100vh - 56px);
+}
+
+.bf-hub-shell {
+  overflow: hidden;
+}
+
+.bf-stage {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.bf-stage > [data-bf-view] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.bf-stage > iframe[data-bf-view] {
+  background: #070b12;
+}
+
+.bf-stage > [data-bf-view][hidden] {
+  display: none !important;
+}
+
+.bf-chrome {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5000;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(10, 14, 24, 0.92));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  backdrop-filter: blur(12px);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.bf-chrome a {
+  text-decoration: none;
+}
+
+.bf-chrome-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e8eef7;
+  min-width: 0;
+}
+
+.bf-chrome-brand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.bf-chrome-brand strong {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.bf-chrome-brand span {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.bf-chrome-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.bf-chrome-nav a {
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.bf-chrome-nav a:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.bf-chrome-nav a.is-active {
+  color: #062822;
+  background: #2dd4bf;
+}
+
+.bf-chrome-nav a[data-external="1"] {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.bf-chrome-status {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  white-space: nowrap;
+}
+
+.bf-chrome-status.is-busy {
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+button.is-run-locked,
+.btn.is-run-locked {
+  opacity: 0.45 !important;
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+  filter: grayscale(0.35);
+}
+
+@media (max-width: 900px) {
+  .bf-chrome-brand span {
+    display: none;
+  }
+  .bf-chrome-nav a {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+}

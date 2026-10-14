@@ -3,9 +3,9 @@
 {% block title %} Post-assembly {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix7">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/post-assem.css') }}?v=helix16">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix2">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd49">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd58">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.2.2/css/dataTables.dataTables.css">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/datatables.min.css') }}">
@@ -37,13 +37,6 @@
 <div class="rd-app">
 
   <aside class="rd-nav rd-nav-setup" aria-label="Analysis setup">
-    <a class="rd-brand" href="https://github.com/farhadm1990/bactflow" target="_blank" rel="noopener noreferrer">
-      <img class="rd-brand-mark" src="{{ url_for('static', filename='images/logo.png') }}" alt="">
-      <div class="rd-brand-text">
-        <strong>BactFlow</strong>
-        <span>From reads to insights.</span>
-      </div>
-    </a>
     <div class="rd-nav-btn is-active rd-setup-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg> Analysis Setup</div>
     <div class="rd-setup-scroll">
 <!-- Genome Parameters -->
@@ -192,6 +185,15 @@
                 </div>
               </div>
 
+              <div class="mb-3">
+                <label for="run_mlst" class="form-label">Sequence typing? <strong>(MLST / PubMLST)</strong></label>
+                <select class="form-select" id="run_mlst" name="run_mlst">
+                  <option value="true">True</option>
+                  <option value="false" selected>False</option>
+                </select>
+                <p class="text-muted small mt-1 mb-0">Uses Torsten Seemann <code>mlst</code> with bundled PubMLST schemes. No extra database path required.</p>
+              </div>
+
               <hr>
               <div class="mb-3">
                 <label for="resume_run" class="form-label"><strong>Resume the run from interupted point?</strong> </label>
@@ -205,6 +207,11 @@
               <div class="mb-3">
                 <label for="cpus" class="form-label">CPUs</label>
                 <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+              </div>
+              <div class="mb-3">
+                <label for="memory_gb" class="form-label">Memory (GB)</label>
+                <input type="number" class="form-control" id="memory_gb" name="memory_gb" min="2" step="1" value="8"/>
+                <div class="form-text" id="memory-hint">Hard cap for this run. BactFlow will not use more than this, and will lower the value if it exceeds this machine.</div>
               </div>
               <div class="mb-3">
                 <label for="gpus" class="form-label">GPUs: only if applicatble</label>
@@ -239,9 +246,10 @@
               <div class="mb-3" id="genetype">
                 <label class="form-label" for="geneTypeToggle">Annotation types</label>
                 <div class="bf-ms-dd" id="geneTypeDrop">
-                  <button type="button" class="form-select bf-ms-toggle" id="geneTypeToggle" aria-haspopup="listbox" aria-expanded="false">cds</button>
+                  <button type="button" class="form-select bf-ms-toggle" id="geneTypeToggle" aria-haspopup="listbox" aria-expanded="false">CDS, AMR</button>
                   <div class="bf-ms-menu" id="geneTypeMenu" hidden>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="cds" checked> cds</label>
+                    <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="amr" checked> AMR (antibiotic)</label>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tRNA"> tRNA</label>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="rRNA"> rRNA</label>
                     <label class="bf-ms-item"><input type="checkbox" name="gene_type" value="tmRNA"> tmRNA</label>
@@ -295,7 +303,19 @@
                     </label>
                     <span>px</span>
                   </div>
-                  <p class="text-muted small mb-0">Leave a side empty to keep the plot’s aspect ratio. Both empty exports the current view.</p>
+                  <p class="text-muted small mb-2">Leave a side empty to keep the plot’s aspect ratio. Both empty uses the resolution slider below.</p>
+                  <label class="form-label" for="linear-png-res">PNG download resolution</label>
+                  <div class="bf-linear-res">
+                    <input type="range" class="form-range" id="linear-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
+                    <div class="bf-linear-res-ticks">
+                      <span data-level="0">Basic</span>
+                      <span data-level="1">Medium</span>
+                      <span data-level="2">·</span>
+                      <span data-level="3">·</span>
+                      <span data-level="4">Max</span>
+                    </div>
+                    <p class="text-muted small mb-0">Current: <strong id="linear-png-res-label">Medium</strong>. Basic is the lightest file; Max is sharpest and heaviest.</p>
+                  </div>
                   <label class="form-label mt-3">Custom feature colors (forward / reverse)</label>
                   <div id="linear-color-editor" class="bf-linear-colors"></div>
                   <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="linear-color-reset">Reset colors</button>
@@ -561,6 +581,72 @@
         <br>
       </div>
 
+      <div id="heatmapDiv" class="col-md-7" style="overflow-y: auto; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Heatmap of annotated genomes: <strong>(Bakta)</strong></h4>
+        <div id="heatmap-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
+        <div class="bf-plot-bar" id="heatmap-plot-bar">
+          <div class="bf-heatmap-pickers">
+            <span class="bf-heatmap-mode" title="Abundance is copy count from the Bakta pooled table. Prevalence is present (1) or absent (0).">
+              <label><input type="radio" name="heatmap-mode" value="abundance" checked> Abundance</label>
+              <label><input type="radio" name="heatmap-mode" value="prevalence"> Prevalence</label>
+            </span>
+            <label>Palette
+              <select id="heatmap-palette" class="form-select form-select-sm">
+                <option value="Viridis" selected>Viridis</option>
+                <option value="Plasma">Plasma</option>
+                <option value="Inferno">Inferno</option>
+                <option value="Magma">Magma</option>
+                <option value="Cividis">Cividis</option>
+                <option value="Hot">Hot</option>
+                <option value="YlOrRd">YlOrRd</option>
+                <option value="YlGnBu">YlGnBu</option>
+                <option value="Blues">Blues</option>
+                <option value="Teal">Teal</option>
+                <option value="Helix">Helix</option>
+              </select>
+            </label>
+            <label>Top genes
+              <select id="heatmap-topn" class="form-select form-select-sm" title="Most variable products across genomes">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+          </div>
+          <div class="bf-heatmap-right">
+            <label class="bf-heatmap-res-wrap" title="PNG download resolution">Resolution
+              <div class="bf-linear-res bf-heatmap-res">
+                <input type="range" class="form-range" id="heatmap-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
+                <div class="bf-linear-res-ticks">
+                  <span data-level="0">Basic</span>
+                  <span data-level="1">Medium</span>
+                  <span data-level="2">·</span>
+                  <span data-level="3">·</span>
+                  <span data-level="4">Max</span>
+                </div>
+                <span id="heatmap-png-res-label" class="bf-heatmap-res-label">Medium</span>
+              </div>
+            </label>
+            <div class="bf-plot-bar-actions">
+              <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadHeatmapPng()">Download PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadHeatmapHtml()">Download HTML</button>
+              <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadHeatmapTsv()">Download TSV</button>
+            </div>
+          </div>
+        </div>
+        <div id="output-heatmap">
+          <div id="spin-heatmap" style="display: none; flex-direction: column; text-align: center; padding: 40px; align-items: center;">
+            <div class="spinner-grow" role="status" style="width: 80px; height: 80px; color: #547c67;">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <h3 style="color: var(--hx-accent);">Heatmap is being created...</h3>
+          </div>
+          <div id="heatmapPlot"></div>
+        </div>
+        <br>
+      </div>
+
       <div id="circDiv" class="col-md-7" style="overflow-y: auto;   display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Circulated plot of all genomes: <strong id="circ-type-label">(selected gene types)</strong></h4>
         <div id="circ-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
@@ -598,6 +684,10 @@
         <h4 class="text-left mb-3">Linear genome map: <strong id="linear-type-label">(selected gene types)</strong></h4>
         <div id="linear-error" class="alert alert-danger" role="alert" style="display: none; margin: 10px;"></div>
         <div class="bf-plot-bar" id="linear-plot-bar" style="display: none;">
+          <div class="bf-plot-bar-actions">
+            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadLinearPlot()">Download PNG</button>
+            <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadLinearHtml()">Download HTML</button>
+          </div>
           <div class="bf-linear-pickers">
             <label>Genomes
               <select id="linear-genome-sel" class="form-select form-select-sm" multiple size="3" title="Ctrl/Cmd-click to stack genomes"></select>
@@ -608,6 +698,11 @@
             <label class="bf-linear-toggle">
               <input type="checkbox" id="linear-hide-hypo">
               Hide unannotated proteins
+            </label>
+            <label class="bf-linear-toggle bf-linear-amr-toggle" id="linear-find-amr-wrap" title="Glow antibiotic-resistance AMRFinderPlus hits. Metal/stress genes such as arsD are excluded. Uncheck AMR (antibiotic) in Annotation types to hide them.">
+              <input type="checkbox" id="linear-find-amr" checked>
+              Highlight AMR
+              <span id="linear-amr-count" class="bf-linear-orphan-count" hidden></span>
             </label>
             <label class="bf-linear-toggle" title="Link homologous genes across stacked genomes">
               <input type="checkbox" id="linear-cordify">
@@ -623,6 +718,11 @@
                 <input type="range" id="linear-cord-min" min="20" max="100" value="30" step="1">
                 <span id="linear-cord-min-label">30%</span>
               </label>
+              <label class="bf-linear-toggle bf-linear-orphan-toggle" id="linear-find-orphans-wrap" title="Glow CDS with no homolog to the reference. Pairwise uses each neighbour as that pair’s reference.">
+                <input type="checkbox" id="linear-find-orphans">
+                Find orphans
+                <span id="linear-orphan-count" class="bf-linear-orphan-count" hidden></span>
+              </label>
               <span class="bf-linear-cord-report">
                 <span id="linear-cord-score" class="bf-linear-cord-score" hidden></span>
                 <button type="button" class="bf-linear-info" id="linear-cord-info" aria-expanded="false" aria-controls="linear-cord-info-pop" title="How cords and identity scores are calculated">i</button>
@@ -631,20 +731,10 @@
                   <p><strong>Pairwise</strong> compares neighbouring tracks (1–2, 2–3, …). <strong>Reference</strong> compares every other genome only to the genome you pick. Tracks are shifted so those homologs line up.</p>
                   <p><strong>Identity (each cord)</strong> is percent amino-acid identity from global Needleman–Wunsch alignment (Needleman &amp; Wunsch, 1970) with BLOSUM62 (Henikoff &amp; Henikoff, 1992), as in clinker (Gilchrist &amp; Chooi, Bioinformatics 2021). Hover a cord for that pair’s identity and coverage.</p>
                   <p><strong>AAI (genome score)</strong> is two-way average amino-acid identity: the mean identity of those reciprocal best hits (Konstantinidis &amp; Tiedje, PNAS 2005). Typical same-species values are around 95–96%. The min-identity slider hides cords below the cutoff (default 30%, clinker’s threshold).</p>
+                  <p><strong>Find orphans</strong> blinks CDS with no homolog (RBH or paralog cord) to the comparison partner. In <em>Reference</em> mode that partner is the genome you pick — query genes with no match to the reference glow; the reference track itself does not. In <em>Pairwise</em> mode the partner is the neighbouring track.</p>
                 </div>
               </span>
             </span>
-          </div>
-          <div class="bf-plot-bar-actions">
-            <label class="bf-linear-png-dims" title="PNG pixel size. Empty = current view.">
-              PNG
-              <input type="number" id="linear-png-w-bar" min="320" max="16384" step="1" inputmode="numeric" placeholder="W" aria-label="PNG width in pixels">
-              <span aria-hidden="true">×</span>
-              <input type="number" id="linear-png-h-bar" min="320" max="16384" step="1" inputmode="numeric" placeholder="H" aria-label="PNG height in pixels">
-              px
-            </label>
-            <button type="button" class="btn btn-sm bf-dl-png" onclick="downloadLinearPlot()">Download PNG</button>
-            <button type="button" class="btn btn-sm bf-dl-html" onclick="downloadLinearHtml()">Download HTML</button>
           </div>
         </div>
         <div id="output-linear" style="border: 1px solid rgb(105, 105, 105); padding: 10px; margin: 10px; border-radius: 5px; width: 95%; overflow: hidden; color: var(--hx-text);">
@@ -745,6 +835,69 @@
         </div>
         <div id="output-checkm-tree" class="checkm-tree-wrap">
           <svg id="checkm-tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CheckM taxon tree"></svg>
+        </div>
+        <br>
+      </div>
+
+      <div id="mlstDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Sequence typing <strong>(MLST / PubMLST)</strong></h4>
+        <p class="text-muted small" id="mlst-table-hint" style="margin: 10px 20px;"></p>
+        <div class="bf-plot-bar" id="mlst-chart-bar" style="display: none;">
+          <span class="bf-plot-bar-title">ST distribution and allele profiles</span>
+          <div class="bf-heatmap-right bf-mlst-dl">
+            <label class="bf-heatmap-res-wrap" title="PNG pixel size">Size
+              <div class="bf-linear-png-dims">
+                <label>W
+                  <input type="number" id="mlst-png-w" min="320" max="8192" step="1" inputmode="numeric" placeholder="auto" value="960">
+                </label>
+                <span aria-hidden="true">×</span>
+                <label>H
+                  <input type="number" id="mlst-png-h" min="240" max="8192" step="1" inputmode="numeric" placeholder="auto" value="480">
+                </label>
+                <span>px</span>
+              </div>
+            </label>
+            <label class="bf-heatmap-res-wrap" title="PNG download resolution">Resolution
+              <div class="bf-linear-res bf-heatmap-res">
+                <input type="range" class="form-range" id="mlst-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
+                <div class="bf-linear-res-ticks" id="mlst-png-res-ticks">
+                  <span data-level="0">Basic</span>
+                  <span data-level="1">Medium</span>
+                  <span data-level="2">·</span>
+                  <span data-level="3">·</span>
+                  <span data-level="4">Max</span>
+                </div>
+                <span id="mlst-png-res-label" class="bf-heatmap-res-label">Medium</span>
+              </div>
+            </label>
+            <div class="bf-plot-bar-actions">
+              <button type="button" class="btn btn-sm bf-dl-png" id="mlst-dl-st" title="Download ST distribution PNG">ST PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-png" id="mlst-dl-alleles" title="Download allele heatmap PNG">Alleles PNG</button>
+              <button type="button" class="btn btn-sm bf-dl-png" id="mlst-dl-both" title="Download both charts as PNGs">Both</button>
+            </div>
+          </div>
+        </div>
+        <p class="text-muted small" id="mlst-charts-hint" style="margin: 4px 20px 8px; display: none;">
+          Two charts on purpose: sequence-type counts (left/top) and per-genome allele heatmap (right/bottom).
+        </p>
+        <div class="plasmid-charts mlst-charts" id="mlst-charts" style="display: none;">
+          <div class="mlst-chart-panel">
+            <h6 class="mlst-chart-label">Sequence types</h6>
+            <div id="mlst-chart-st" class="plasmid-chart"></div>
+          </div>
+          <div class="mlst-chart-panel">
+            <h6 class="mlst-chart-label">Allele profiles</h6>
+            <div id="mlst-chart-alleles" class="plasmid-chart"></div>
+          </div>
+        </div>
+        <div id="output-mlst" style="border: 1px solid rgb(105, 105, 105);
+              padding: 10px;
+              margin: 10px;
+              border-radius: 5px;
+              height: 500px;
+              width: 95%;
+              overflow-y: auto;
+              color: var(--hx-text);">
         </div>
         <br>
       </div>
@@ -964,6 +1117,20 @@
         </div>
         <br>
           </div>
+
+      <div id="reportDiv" class="col-md-7" style="overflow-y: auto; display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Genome report</h4>
+        <p class="text-muted small" id="report-hint" style="margin: 10px 20px;">
+          Builds HTML and PDF reports (tables + embedded plots) from QUAST, CheckM, GTDB-Tk, MLST, Bakta/AMR, and geNomad outputs. PDF summary is portrait; figures and tables are landscape.
+        </p>
+        <div id="report-status" class="alert alert-info" role="status" style="display: none; margin: 10px 20px;"></div>
+        <div class="bf-plot-bar-actions" style="margin: 10px 20px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-sm bf-dl-png" id="report-dl-pdf" style="display: none;">Download PDF</button>
+          <button type="button" class="btn btn-sm bf-dl-svg" id="report-dl-html" style="display: none;">Download HTML</button>
+        </div>
+        <div id="report-narrative" style="margin: 10px 20px; color: var(--hx-text);"></div>
+        <br>
+      </div>
         </section>
 
       </div>
@@ -1019,7 +1186,7 @@
       <button type="button" class="btn" id="run-bt" name="action-assem" value="run">Start BactFlow</button>
       <button type="button" class="btn" name="action-assem" value="stop" id="stop-bt">Stop BactFlow</button>
       <button type="button" onclick="toggleResults()" class="btn" value="quast-rep" id="rep-bt">Display results</button>
-      <button type="button" class="btn" name="action-assem" value="help" id="help-bt">Help!</button>
+      <button type="button" class="btn" id="report-bt" onclick="generateGenomeReport()">Generate report</button>
       <button type="button" class="btn" id="rd-theme-bt" title="Switch theme">Theme</button>
     </div>
   </div>
@@ -1030,11 +1197,12 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars19"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd35"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars22"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd41"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix74"></script>
+<script src="{{ url_for('static', filename='js/mlst-viz.js') }}?v=mlst2"></script>
+<script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix90"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

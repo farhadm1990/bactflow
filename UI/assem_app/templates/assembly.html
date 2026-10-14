@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/post-assem.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd25">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd26">
 <link rel="stylesheet" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 <script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
@@ -34,13 +34,6 @@
 <div class="rd-app">
 
   <aside class="rd-nav rd-nav-setup" aria-label="Analysis setup">
-    <a class="rd-brand" href="https://github.com/farhadm1990/bactflow" target="_blank" rel="noopener noreferrer">
-      <img class="rd-brand-mark" src="{{ url_for('static', filename='images/logo.png') }}" alt="">
-      <div class="rd-brand-text">
-        <strong>BactFlow</strong>
-        <span>From reads to insights.</span>
-      </div>
-    </a>
     <div class="rd-nav-btn is-active rd-setup-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg> Analysis Setup</div>
     <div class="rd-setup-scroll">
 <!-- Basic Parameters -->
@@ -60,6 +53,11 @@
             <div class="mb-3">
               <label for="cpus" class="form-label">CPUs</label>
               <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+            </div>
+            <div class="mb-3">
+              <label for="memory_gb" class="form-label">Memory (GB)</label>
+              <input type="number" class="form-control" id="memory_gb" name="memory_gb" min="2" step="1" value="8"/>
+              <div class="form-text" id="memory-hint">Hard cap for this run. BactFlow will not use more than this, and will lower the value if it exceeds this machine.</div>
             </div>
             <div class="mb-3">
               <label for="gpus" class="form-label">GPUs: only if applicatble</label>
@@ -721,10 +719,10 @@
 
     <!-- scripts -->
       <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars9"></script>
-      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd22"></script>
+      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars11"></script>
+      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd25"></script>
       <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
       <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports21"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports22"> </script>
 
 {% endblock %}

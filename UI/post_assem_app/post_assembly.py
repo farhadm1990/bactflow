@@ -32,6 +32,11 @@ app = Flask(__name__,
             static_folder = os.path.join(base_dir, "static"))
 
 sys.path.insert(0, base_dir)
+_HUB = os.path.abspath(os.path.join(base_dir, "..", "bactflow_app"))
+if _HUB not in sys.path:
+    sys.path.insert(0, _HUB)
+
+BF_MODULE = "post"
 
 
 def _load_collect_variant_tables():
@@ -70,8 +75,32 @@ export NXF_ANSI_LOG=true
 """
 
 
-def with_nextflow_java(command):
-    return NF_JAVA_SETUP + "\n" + command
+def with_nextflow_java(command, mem_gb=None):
+    extra = ""
+    if mem_gb:
+        from memory_cap import nxf_opts_export
+        extra = nxf_opts_export(mem_gb)
+    return extra + NF_JAVA_SETUP + "\n" + command
+
+
+def _lock_acquire(label, kind="sync"):
+    from run_lock import try_acquire
+    return try_acquire(BF_MODULE, os.getpid(), label, kind=kind)
+
+
+def _lock_worker(pid):
+    from run_lock import update_lock
+    update_lock(pid=pid, kind="worker")
+
+
+def _lock_release(pid=None):
+    from run_lock import release
+    release(module=BF_MODULE, pid=pid)
+
+
+def _memory_from_form():
+    from memory_cap import parse_and_cap
+    return parse_and_cap(request.form.get("memory_gb"))
 
 
 def _truthy(value, default=False):
@@ -160,7 +189,7 @@ def open_browser():
 # define function for bactflow run in multiprocess for constant realtime steraming.
 
 manager = Manager()
-process_status = manager.dict({"pid": None, "running": False})
+process_status = manager.dict({"pid": None, "running": False, "exit_code": None})
 output_queue = Queue()
 output_history = manager.list() # to store output history
 STOP_USER_MSG = "Bactflow has been stopped by the user!"
@@ -311,6 +340,7 @@ def _pipeline_alive(pid):
 def _clear_run_state():
     process_status["running"] = False
     process_status["pid"] = None
+    process_status["exit_code"] = None
 
 
 def _is_post_pipeline_cmdline(cmd):
@@ -506,6 +536,7 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
     if log_thread:
         log_thread.join(timeout=2)
 
+    process_status["exit_code"] = int(exit_code) if exit_code is not None else 1
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
     else:
@@ -513,6 +544,10 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 
     process_status["running"] = False
     process_status["pid"] = None
+    try:
+        _lock_release(pid=os.getpid())
+    except Exception:
+        pass
     return exit_code
 
 
@@ -566,6 +601,7 @@ def run_bactflow():
             bakta_db = request.form.get("bakta_data_path", "")
             run_plasmids = request.form.get("run_plasmids", "false")
             genomad_db = (request.form.get("genomad_db") or "").strip()
+            run_mlst = request.form.get("run_mlst", "false")
             command = None
             nf_work = _nf_work_dir(out_dir)
 
@@ -590,16 +626,25 @@ def run_bactflow():
                     --run_quast {run_quast} \\
                     --run_plasmids {run_plasmids} \\
                     --genomad_db '{genomad_db}' \\
+                    --run_mlst {run_mlst} \\
                     --genome_dir '{genome_dir}' \\
                     -ansi-log true"""
             if _truthy(resume_run, False):
                 command = command + " -resume"
-            command = with_nextflow_java(command)
+            mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
+            from memory_cap import inject_nextflow_memory, preamble
+            command = inject_nextflow_memory(command, out_dir, cpus, mem_gb)
+            command = preamble(mem_gb, mem_host, mem_capped) + command
+            command = with_nextflow_java(command, mem_gb)
+            ok, err = _lock_acquire("Post-assembly")
+            if not ok:
+                return err + "\n", 409
                 
             output_history[:] = []
             process_status["running"] = True
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             _start_worker_process(back_process)
+            _lock_worker(back_process.pid)
         
             command = None
             return "Bactflow started successfully!\n", 200
@@ -608,10 +653,14 @@ def run_bactflow():
             command = with_nextflow_java(
                 f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
+            ok, err = _lock_acquire("Post-assembly")
+            if not ok:
+                return err + "\n", 409
             output_history[:] = []
             process_status["running"] = True
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             _start_worker_process(back_process)
+            _lock_worker(back_process.pid)
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -620,6 +669,7 @@ def run_bactflow():
             pid = process_status.get("pid")
             was_running = bool(process_status.get("running")) or _pipeline_alive(pid)
             _clear_run_state()
+            _lock_release()
             try:
                 if pid:
                     _kill_process_tree(pid)
@@ -926,7 +976,19 @@ def stream_bactflow():
                     break
                 continue
 
-        yield "data: Process completed\n\n"
+        # Do not claim success when Nextflow (or the worker) failed — the UI keeps
+        # the terminal open for debugging and must not mark stages as done.
+        exit_code = process_status.get("exit_code")
+        if exit_code is None:
+            exit_code = 0 if not process_status.get("running") else 1
+        try:
+            exit_code = int(exit_code)
+        except (TypeError, ValueError):
+            exit_code = 1
+        if exit_code == 0:
+            yield "data: Process completed\n\n"
+        else:
+            yield f"data: Process failed (exit {exit_code})\n\n"
  
 
     return Response(generate(), content_type='text/event-stream')
@@ -949,6 +1011,7 @@ def progress():
             "bakta_annot": True if request.form.get("bakta_annot") == "true" else False,
             "run_checkm": True if request.form.get("run_checkm") == "true" else False,
             "run_plasmids": True if request.form.get("run_plasmids") == "true" else False,
+            "run_mlst": True if request.form.get("run_mlst") == "true" else False,
             }
 
        
@@ -1035,25 +1098,9 @@ def check_bakta():
 
     if not out_dir:
         return jsonify({"exists": False})
-    bakta_path = os.path.join(out_dir, "bakta_out")
-    gene_count = os.path.join(out_dir, "gene_count.tsv")
-    if not os.path.isdir(bakta_path):
-        return jsonify({"exists": False})
     try:
-        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
-            tsvs = _find_suffix_files(bakta_path, (".tsv",))
-            if not tsvs:
-                return jsonify({"exists": False})
-            command = f"""
-            cp {bakta_path}/*/*.tsv {bakta_path}
-            rm {bakta_path}/*inference.tsv {bakta_path}/*hypotheticals.tsv
-            mkdir -p {bakta_path}/genes && mv {bakta_path}/*.tsv {bakta_path}/genes
-
-            python {base_dir}/gene_counter_bakta.py -d {bakta_path}/genes -t {gene_type} -o {out_dir}/gene_count
-            """
-            subprocess.run(command, shell=True, text=True, check=True, capture_output=True)
-
-        if not os.path.isfile(gene_count) or os.path.getsize(gene_count) == 0:
+        gene_count = _ensure_gene_count(out_dir, gene_type)
+        if not gene_count:
             return jsonify({"exists": False})
 
         df = pd.read_csv(gene_count, sep="\t")
@@ -1102,6 +1149,107 @@ def _find_suffix_files(root, suffixes):
             if any(low.endswith(sfx) for sfx in suffixes):
                 found.append(os.path.join(dirpath, name))
     return found
+
+
+def _ensure_gene_count(out_dir, gene_type):
+    """Build gene_count.tsv from Bakta TSVs when missing. Returns path or None."""
+    if not out_dir:
+        return None
+    bakta_path = os.path.join(out_dir, "bakta_out")
+    gene_count = os.path.join(out_dir, "gene_count.tsv")
+    if not os.path.isdir(bakta_path):
+        return None
+    if os.path.isfile(gene_count) and os.path.getsize(gene_count) > 0:
+        return gene_count
+    tsvs = _find_suffix_files(bakta_path, (".tsv",))
+    if not tsvs:
+        return None
+    types = gene_type or "cds"
+    command = f"""
+            cp {bakta_path}/*/*.tsv {bakta_path}
+            rm {bakta_path}/*inference.tsv {bakta_path}/*hypotheticals.tsv
+            mkdir -p {bakta_path}/genes && mv {bakta_path}/*.tsv {bakta_path}/genes
+
+            python {base_dir}/gene_counter_bakta.py -d {bakta_path}/genes -t {types} -o {out_dir}/gene_count
+            """
+    subprocess.run(command, shell=True, text=True, check=True, capture_output=True)
+    if os.path.isfile(gene_count) and os.path.getsize(gene_count) > 0:
+        return gene_count
+    return None
+
+
+_HEATMAP_HYPO_RE = re.compile(
+    r"hypothetical|uncharacterized|unknown function|putative protein|unannotated",
+    re.I,
+)
+
+
+def _gene_heatmap_payload(gene_count_path, n=50):
+    df = pd.read_csv(gene_count_path, sep="\t")
+    if df.empty or df.shape[1] < 2:
+        return None
+    product_col = df.columns[0]
+    genomes = [col for col in df.columns[1:]]
+    numeric = df[genomes].apply(pd.to_numeric, errors="coerce").fillna(0)
+    products = df[product_col].fillna("").astype(str).str.strip()
+    named = ~products.str.contains(_HEATMAP_HYPO_RE, na=False)
+    keep = named & (products != "") & (numeric.sum(axis=1) > 0)
+    numeric = numeric.loc[keep]
+    products = products.loc[keep]
+    if numeric.empty:
+        return None
+    rank = numeric.sum(axis=1) if len(genomes) < 2 else numeric.var(axis=1)
+    raw_n = str(n).strip().lower() if n is not None else "50"
+    total = int(len(numeric))
+    if raw_n in {"all", "0", "-1"}:
+        take = total
+    else:
+        try:
+            take = int(float(raw_n))
+        except (TypeError, ValueError):
+            take = 50
+        take = max(1, min(take, total))
+    n = take
+    top_idx = rank.sort_values(ascending=False).head(n).index
+    sub = numeric.loc[top_idx]
+    return {
+        "exists": True,
+        "n": n,
+        "n_total": int(len(numeric)),
+        "n_genomes": len(genomes),
+        "rank": "abundance" if len(genomes) < 2 else "variance",
+        "genomes": genomes,
+        "genes": products.loc[top_idx].tolist(),
+        "abundance": sub.round(0).astype(int).values.tolist(),
+        "prevalence": (sub > 0).astype(int).values.tolist(),
+        "variance": [round(float(v), 4) for v in rank.loc[top_idx].tolist()],
+    }
+
+
+@app.route("/heatmap-genes", methods=["POST"])
+def heatmap_genes():
+    out_dir = request.form.get("out_dir", "").strip()
+    gt = request.form.getlist("gene_type")
+    gene_type = ",".join(gt)
+    n = request.form.get("n") or request.form.get("heatmap_n") or 50
+    if not out_dir:
+        return jsonify({"exists": False, "error": "Set an output directory first."})
+    try:
+        gene_count = _ensure_gene_count(out_dir, gene_type)
+        if not gene_count:
+            return jsonify({"exists": False})
+        payload = _gene_heatmap_payload(gene_count, n)
+        if not payload:
+            return jsonify({"exists": False, "error": "Gene count table is empty."})
+        return jsonify(payload)
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "exists": False,
+            "error": f"Gene counter failed with error code {e.returncode}",
+            "stderr": (e.stderr or "").strip(),
+        })
+    except Exception as exc:
+        return jsonify({"exists": False, "error": str(exc) or "Could not build heatmap."})
 
 
 @app.route("/check-bakta-ready", methods=["POST"])
@@ -1413,6 +1561,89 @@ def check_checkm():
     except Exception as exc:
         print(f"check-checkm failed: {exc}")
         return jsonify({"exists": False, "has_tree": False})
+
+
+@app.route("/check-mlst", methods=["POST"])
+def check_mlst():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"exists": False})
+    try:
+        from mlst_report import load_mlst_rows, mlst_chart_payload, mlst_display_rows, mlst_run_complete
+        abs_out = os.path.abspath(out_dir)
+        if not mlst_run_complete(abs_out):
+            return jsonify({"exists": False})
+        rows = mlst_display_rows(abs_out)
+        typed = load_mlst_rows(abs_out)
+        table_html = """
+            <table id="{{ id }}" class="display table table-striped table-bordered nowrap table-hover">
+                <thead>
+                    <tr>{% for column in table[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in table %}
+                    <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        """
+        payload = {
+            "exists": True,
+            "n_genomes": len(rows),
+            "n_typed": sum(1 for r in typed if str(r.get("ST") or "-") not in ("-", "", "0")),
+            "mlst_table": "",
+            "charts": mlst_chart_payload(typed),
+        }
+        if rows:
+            payload["mlst_table"] = render_template_string(table_html, id="mlst-tab", table=rows)
+        return jsonify(payload)
+    except Exception as exc:
+        print(f"check-mlst failed: {exc}")
+        return jsonify({"exists": False})
+
+
+@app.route("/generate-report", methods=["POST"])
+def generate_report():
+    out_dir = (request.form.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"ok": False, "error": "out_dir is required"}), 400
+    abs_out = os.path.abspath(out_dir)
+    if not os.path.isdir(abs_out):
+        return jsonify({"ok": False, "error": f"Output directory does not exist: {abs_out}"}), 400
+    try:
+        from genome_report import build_reports
+        result = build_reports(abs_out)
+        return jsonify(result)
+    except Exception as exc:
+        print(f"generate-report failed: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/download-report/<kind>", methods=["GET"])
+def download_report(kind):
+    out_dir = (request.args.get("out_dir") or "").strip()
+    if not out_dir:
+        return jsonify({"error": "out_dir is required"}), 400
+    abs_out = os.path.abspath(out_dir)
+    report_dir = os.path.join(abs_out, "bactflow_report")
+    if kind == "pdf":
+        name = "bactflow_genome_report.pdf"
+        mimetype = "application/pdf"
+    elif kind == "html":
+        name = "bactflow_genome_report.html"
+        mimetype = "text/html; charset=utf-8"
+    else:
+        return jsonify({"error": "kind must be pdf or html"}), 400
+    path = os.path.join(report_dir, name)
+    if not os.path.isfile(path):
+        return jsonify({"error": "Report not found. Click Generate report first."}), 404
+    return send_from_directory(
+        report_dir,
+        name,
+        as_attachment=True,
+        download_name=name,
+        mimetype=mimetype,
+    )
 
 
 @app.route("/check-plasmids", methods=["POST"])

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="bactflow-root" content="">
+    <title>BactFlow wiki</title>
+    <link rel="shortcut icon" href="/hub/static/images/logo.png">
+    <link rel="stylesheet" href="/hub/static/css/hub.css?v=hub5">
+    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub5">
+    <script src="/hub/static/js/chrome.js?v=hub5"></script>
+  </head>
+  <body class="bf-hub helix-shell">
+    <article class="bf-wiki">
+      <h1>How BactFlow runs</h1>
+      <p class="lead">
+        Work left to right: QC the reads, assemble, then interpret the genomes.
+        Only one pipeline can run at a time. Memory is a hard cap — keep it below
+        what the machine actually has.
+      </p>
+
+      <div class="bf-flow">
+        <section class="bf-step" data-n="1">
+          <div class="tag">Start</div>
+          <h2>Home</h2>
+          <p>
+            The home screen launches QC, Assembly, or Post-assembly. The top bar stays
+            available on every page so you can switch views without stopping a run.
+            Wiki is this page. While a process is live, Start / Filter / Install on
+            the other modules stay inactive.
+          </p>
+        </section>
+
+        <section class="bf-step" data-n="2">
+          <div class="tag">Resources — every module</div>
+          <h2>CPUs and Memory</h2>
+          <ul>
+            <li><code>CPUs</code> — threads for Nextflow, seqkit, Flye, SPAdes, Bakta, and similar tools.</li>
+            <li><code>Memory (GB)</code> — hard cap for the run. Nextflow cannot schedule more than this; SPAdes is passed <code>-m</code>; the Nextflow JVM heap is limited. If you type more RAM than the host has, BactFlow lowers it automatically and leaves 1 GB for the system.</li>
+            <li>Small laptops: 4–8 GB and a modest CPU count. Assembly and CheckM are the hungry steps.</li>
+          </ul>
+        </section>
+
+        <section class="bf-step" data-n="3">
+          <div class="tag">QC</div>
+          <h2>Launch QC</h2>
+          <p>Point at a FASTQ folder, choose the output directory, then:</p>
+          <ul>
+            <li><code>Read type</code> — Illumina, ONT, or PacBio. PacBio can hint HiFi vs CLR.</li>
+            <li><code>Concat reads</code> — pool barcode folders into one FASTQ per sample when the sequencer split them.</li>
+            <li><code>Install BactFlow</code> — first-time conda/Nextflow setup only. Uses the same run lock as pipelines.</li>
+            <li><code>Initiate read cat</code> — list (and pool) files.</li>
+            <li><code>Filter reads</code> — length/quality gates. Illumina uses paired R1/R2 filters.</li>
+            <li><code>Display read statistics</code> / <code>Visualize reads</code> — seqkit stats and quality plots. They also take the lock while they run.</li>
+          </ul>
+        </section>
+
+        <section class="bf-step" data-n="4">
+          <div class="tag">Assembly</div>
+          <h2>Launch Assembly</h2>
+          <ul>
+            <li><code>Only install and exit</code> — prepare the environment, do not assemble.</li>
+            <li><code>FASTQ directory</code> — long reads for Flye / Unicycler / PacBio, or Illumina pairs for SPAdes (<code>sample_R1</code> / <code>sample_R2</code>).</li>
+            <li><code>Assembler</code> — Flye (ONT), SPAdes (Illumina isolate), Unicycler (hybrid; also needs a short-read directory), PacBio Flye.</li>
+            <li><code>ONT / PacBio read type</code> — raw, corrected, or HiFi. Wrong mode wastes RAM and time.</li>
+            <li><code>Filter / coverage / genome size</code> — optional downsampling before Flye.</li>
+            <li><code>Medaka polish</code> — extra RAM; keep Memory high enough or leave it off on small machines.</li>
+            <li><code>Resume</code> — continue a previous Nextflow run in the same output directory.</li>
+            <li>Start BactFlow. Stop cancels the tree. Display results appears when reports exist.</li>
+          </ul>
+        </section>
+
+        <section class="bf-step" data-n="5">
+          <div class="tag">Post-assembly</div>
+          <h2>Launch Post-assembly</h2>
+          <ul>
+            <li><code>Genome directory</code> — folder of FASTA files (for example circulated assemblies). Required unless you only install.</li>
+            <li><code>Genome extension</code> — usually <code>fasta</code>.</li>
+            <li><code>QUAST</code> — assembly metrics. On by default.</li>
+            <li><code>Circulate</code> — try to close circular chromosomes.</li>
+            <li><code>CheckM</code> — completeness/contamination. Needs a CheckM database path. Heavy RAM.</li>
+            <li><code>GTDB-Tk</code> — taxonomy. Needs the GTDB data path. Very heavy; raise Memory or skip on small hosts.</li>
+            <li><code>Bakta</code> — annotation. Needs a Bakta database. Linear plots, AMR (antibiotic only), orphans, and the gene heatmap read these results.</li>
+            <li><code>geNomad plasmids</code> — optional plasmid/virus screen with a geNomad database.</li>
+            <li><code>MLST</code> — PubMLST sequence typing (Torsten Seemann <code>mlst</code>). No extra database path. Shows ST table, ST bar chart, and allele heatmap.</li>
+            <li><code>Generate report</code> — after results exist, builds a narrative HTML + PDF from QUAST, CheckM, GTDB-Tk, MLST, Bakta/AMR, and geNomad into <code>out_dir/bactflow_report/</code>.</li>
+          </ul>
+        </section>
+
+        <section class="bf-step" data-n="6">
+          <div class="tag">Results</div>
+          <h2>After a run</h2>
+          <p>
+            When the pipeline finishes, the terminal hides and results open if something
+            was produced. During a run you can still Display results without hiding the
+            log. Theme switches light/dark. Genome visualization (linear plot, orphans,
+            AMR highlight, heatmap) lives only in Post-assembly. Use Generate report for a
+            single downloadable summary of every table that ran.
+          </p>
+        </section>
+
+        <section class="bf-step" data-n="7">
+          <div class="tag">Lock</div>
+          <h2>One process at a time</h2>
+          <p>
+            Navigation is always allowed. Launch buttons on other modules stay inactive
+            until the current QC, Assembly, or Post-assembly job exits or you press Stop.
+            That keeps two Nextflow runs from fighting over the same RAM.
+          </p>
+        </section>
+      </div>
+    </article>
+    <p class="bf-hub-foot">© 2026 BactFlow · Farhad M. Panah</p>
+  </body>
+</html>

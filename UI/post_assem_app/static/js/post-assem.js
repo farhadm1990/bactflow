@@ -1,7 +1,6 @@
 const outputDiv = document.getElementById("output-bactflow");
 const runButton = document.getElementById("run-bt");
 const stopButton = document.getElementById("stop-bt");
-const helpButton = document.getElementById("help-bt");
 let eventSource = null;
 const STOP_USER_MSG = "Bactflow has been stopped by the user!";
 // const form = document.getElementById("postForm");
@@ -107,6 +106,7 @@ function clearResultPanels() {
   const panelIds = [
     "quastDiv",
     "baktaDiv",
+    "heatmapDiv",
     "circDiv",
     "linearDiv",
     "circFastaDiv",
@@ -115,6 +115,8 @@ function clearResultPanels() {
     "checkmDiv",
     "checkmTreeDiv",
     "plasmidDiv",
+    "mlstDiv",
+    "reportDiv",
     "resultsStatusDiv",
     "rd-results-empty",
     "snpsDiv",
@@ -181,11 +183,13 @@ function prepareFreshRunUI() {
   BactflowTerminal.setStatus("Starting...", "run");
   quastShown = false;
   baktaShown = false;
+  heatmapShown = false;
   taxShown = false;
   checkmShown = false;
   checkmTreeShown = false;
   gtdbTreeShown = false;
   plasmidShown = false;
+  mlstShown = false;
   resultsAutoShown = false;
   runFinishedSuccess = false;
   if (window.BactflowRunDashboard) {
@@ -200,12 +204,10 @@ function updateButtonStates(status) {
   if (status === "running") {
     runButton.disabled = true;
     stopButton.disabled = false;
-    helpButton.disabled = true; // Optional: disable help while running
   } else if (status === "stopped") {
     runButton.disabled = false;
     stopButton.disabled = true;
-    helpButton.disabled = false;
-  } 
+  }
 }
 
 
@@ -260,7 +262,6 @@ function run_wf(action){
             }
             document.getElementById('run-bt').disabled = false;
             document.getElementById('stop-bt').disabled = true;
-            document.getElementById('help-bt').disabled = false;
             return;
           }
 
@@ -274,7 +275,6 @@ function run_wf(action){
       BactflowTerminal.setStatus("Failed to start", "error");
       document.getElementById('run-bt').disabled = false;
       document.getElementById('stop-bt').disabled = true;
-      document.getElementById('help-bt').disabled = false;
     });
         break;
       }
@@ -303,53 +303,6 @@ function run_wf(action){
           });
         break;
       }
-        
-      case "help":
-      {
-        revealTerminalForHelp();
-        BactflowTerminal.clear();
-        document.getElementById('help-bt').disabled = true;
-    
-   
-
-        // hide quast
-        const quastDiv = document.getElementById("quastDiv");
-        quastDiv.style.display = "none";
-
-      fetch(`/run_bactflow?action-assem=help`, { method: "POST" })
-      .then(async (response) => {
-        const message = await response.text();
-        if(!response.ok) {
-          const looksHtml = /^\s*<!doctype html/i.test(message) || /Werkzeug Debugger/i.test(message);
-          BactflowTerminal.append(
-            looksHtml
-              ? "Error showing help (server error). Restart the post-assembly app and try again."
-              : (message || "Error showing help for BactFlow."),
-            true
-          );
-          document.getElementById('run-bt').disabled = false;
-          document.getElementById('help-bt').disabled = false;
-          return;
-        };
-        BactflowTerminal.clear();
-        BactflowTerminal.append("Bactflow's help menu", true);
-
-        // const action = "help";
-        updateButtonStates("running");
-        connectToStream("help");
-        
-        
-      })
-      .catch((error) => {
-        BactflowTerminal.append("Failed to give you BactFlow help!" + error.message, true);
-        document.getElementById('run-bt').disabled = false;
-        document.getElementById('help-bt').disabled = false;
-        
-      });
-        break;
-      }
-      
-    
   }
 }
 
@@ -374,13 +327,11 @@ document.addEventListener("DOMContentLoaded", function () {
       prepareFreshRunUI();
       document.getElementById("run-bt").disabled = true;
       document.getElementById("stop-bt").disabled = false;
-      document.getElementById("help-bt").disabled = true;
     } else if (action !== "stop") {
       window.__bactflowUserStopped = false;
       BactflowTerminal.clear();
       document.getElementById("run-bt").disabled = true;
       document.getElementById("stop-bt").disabled = false;
-      document.getElementById("help-bt").disabled = true;
     }
 
     run_wf(action);
@@ -395,7 +346,6 @@ document.addEventListener("DOMContentLoaded", function () {
       prepareFreshRunUI();
       document.getElementById("run-bt").disabled = true;
       document.getElementById("stop-bt").disabled = false;
-      document.getElementById("help-bt").disabled = true;
       run_wf("run");
     });
   }
@@ -407,21 +357,6 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault();
       e.stopPropagation();
       run_wf("stop");
-    });
-  }
-
-  const helpBt = document.getElementById("help-bt");
-  if (helpBt) {
-    helpBt.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      window.__bactflowUserStopped = false;
-      revealTerminalForHelp();
-      BactflowTerminal.clear();
-      document.getElementById("run-bt").disabled = true;
-      document.getElementById("stop-bt").disabled = false;
-      document.getElementById("help-bt").disabled = true;
-      run_wf("help");
     });
   }
 
@@ -465,6 +400,13 @@ function restoreFormData(){
     }
 
     Array.from(form.elements).forEach(function (element){
+      if (element.name === "heatmap-mode") {
+        element.checked = element.value === "abundance";
+        return;
+      }
+      if (element.name === "gene_type") {
+        return;
+      }
       if (element.name && formData[element.name] !== undefined ) {
         if (element.type === "checkbox" || element.type === "radio"){
           element.checked = formData[element.name];
@@ -481,12 +423,13 @@ function saveFormData(){
   let formData = {};
 
   Array.from(form.elements).forEach(function (element){
-    if (element.name) {
-      if (element.type === "checkbox" || element.type === "radio"){
-        formData[element.name] = element.checked;
-      } else {
-        formData[element.name] = element.value;
-      }
+    if (!element.name || element.name === "heatmap-mode" || element.name === "gene_type") {
+      return;
+    }
+    if (element.type === "checkbox" || element.type === "radio"){
+      formData[element.name] = element.checked;
+    } else {
+      formData[element.name] = element.value;
     }
   });
   localStorage.setItem("bactflowFormData", JSON.stringify(formData));
@@ -747,19 +690,6 @@ function setTerminalVisible(visible) {
   }
 }
 
-function revealTerminalForHelp() {
-  setTerminalVisible(true);
-  const dash = window.BactflowRunDashboard;
-  if (dash && typeof dash.scrollTo === "function") {
-    requestAnimationFrame(() => dash.scrollTo(".rd-logs"));
-    return;
-  }
-  const logs = document.querySelector(".rd-center .rd-logs") || document.querySelector(".rd-logs");
-  if (logs) {
-    logs.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-}
-
 function showEmptyTerminal() {
   const log = document.getElementById("output-bactflow");
   if (log) {
@@ -771,21 +701,25 @@ function showEmptyTerminal() {
 }
 
 function isPipelineRunning() {
-  if (lastPipelineProcessDone()) {
+  const dash = window.BactflowRunDashboard;
+  if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
     return false;
   }
-  const runBt = document.getElementById("run-bt");
-  if (runBt && runBt.disabled) {
+  if (dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running") {
     return true;
   }
-  const dash = window.BactflowRunDashboard;
-  return !!(dash && typeof dash.runState === "function" && dash.runState(dash.procs()) === "running");
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled && !(dash && (dash.endedAt || dash.nfFinished))) {
+    return true;
+  }
+  return false;
 }
 
 const RESULT_PANEL_IDS = [
   "circFastaDiv",
   "quastDiv",
   "baktaDiv",
+  "heatmapDiv",
   "circDiv",
   "linearDiv",
   "taxa_class",
@@ -793,6 +727,7 @@ const RESULT_PANEL_IDS = [
   "checkmDiv",
   "checkmTreeDiv",
   "plasmidDiv",
+  "mlstDiv",
   "snpsDiv",
   "abundDiv",
   "abundImgDiv",
@@ -827,6 +762,12 @@ function setResultsOpen(open, opts) {
   resultsOpen = !!open;
   const card = document.getElementById("rd-results");
   const btn = document.getElementById("rep-bt");
+  const running = isPipelineRunning();
+  const dash = window.BactflowRunDashboard;
+  const failed = !!(dash && (dash.failed || dash.stopping || dash.frozenRows));
+  const ok = !failed && (runFinishedSuccess || runHasFinishedOk());
+  const hasResults = anyResultVisible() || !!(opts && opts.empty === false);
+  document.documentElement.classList.toggle("rd-live-results", !!(resultsOpen && (running || failed)));
   if (card) {
     card.classList.toggle("is-shown", resultsOpen);
   }
@@ -834,12 +775,18 @@ function setResultsOpen(open, opts) {
     btn.textContent = resultsOpen ? "Hide results" : "Display results";
   }
   setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
-  if (isPipelineRunning()) {
+  // Keep the terminal for debugging on failure. Hide it only when the run
+  // succeeded and there are results to look at.
+  if (running || failed) {
     setTerminalVisible(true);
     return;
   }
-  setTerminalVisible(!resultsOpen);
-  if (!resultsOpen && (runFinishedSuccess || runHasFinishedOk())) {
+  if (resultsOpen && ok && (hasResults || anyResultVisible())) {
+    setTerminalVisible(false);
+    return;
+  }
+  setTerminalVisible(true);
+  if (!resultsOpen && ok) {
     showEmptyTerminal();
   }
 }
@@ -849,12 +796,13 @@ function toggleResults() {
     setResultsOpen(false);
     return;
   }
-  Promise.resolve(showReport()).then(() => {
+  Promise.resolve(showReport({ allowExisting: true })).then(() => {
     const has = anyResultVisible();
     if (isPipelineRunning()) {
       if (has) {
         setResultsOpen(true);
       }
+      setTerminalVisible(true);
       return;
     }
     if (runHasFinishedOk()) {
@@ -871,16 +819,28 @@ function revealResultsOnSuccess(force) {
     return;
   }
   if (dash && (dash.failed || dash.stopping || dash.frozenRows)) {
+    setTerminalVisible(true);
     return;
   }
   if (isPipelineRunning()) {
     return;
   }
-  if (!force && !runHasFinishedOk()) {
+  if (!runHasFinishedOk() && !force) {
+    return;
+  }
+  // Even with force, never treat a failed pipeline as success.
+  if (dash && dash.failed) {
+    setTerminalVisible(true);
     return;
   }
   const openIfReady = () => {
+    if (dash && dash.failed) {
+      setTerminalVisible(true);
+      return false;
+    }
     if (resultsAutoShown || !anyResultVisible()) {
+      // Success but nothing to show — keep the terminal for inspection.
+      setTerminalVisible(true);
       return false;
     }
     resultsAutoShown = true;
@@ -898,6 +858,7 @@ function revealResultsOnSuccess(force) {
       revealInFlight = false;
     });
 }
+window.setTerminalVisible = setTerminalVisible;
 
 window.toggleResults = toggleResults;
 window.revealResultsOnSuccess = revealResultsOnSuccess;
@@ -913,8 +874,11 @@ window.onPipelineProcessesDone = function () {
 };
 window.showReport = showReport;
 window.createGenomePlot = createGenomePlot;
+window.downloadHeatmapPng = downloadHeatmapPng;
+window.downloadHeatmapHtml = downloadHeatmapHtml;
+window.downloadHeatmapTsv = downloadHeatmapTsv;
 
-function showReport(){
+function showReport(opts){
   const form = document.getElementById("postForm");
   if (!form) {
     return Promise.resolve(false);
@@ -924,6 +888,7 @@ function showReport(){
   if (!outDir) {
     return Promise.resolve(false);
   }
+  const allowExisting = !!(opts && opts.allowExisting);
 
     return Promise.all([
     fetchJsonSafe("/check-quast", formData),
@@ -933,10 +898,12 @@ function showReport(){
     fetchJsonSafe("/check-circ", formData),
     fetchJsonSafe("/check-checkm", formData),
     fetchJsonSafe("/check-plasmids", formData),
+    fetchJsonSafe("/check-mlst", formData),
   ])
-    .then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData, plasmidData]) => {
+    .then(([quastData, baktaReady, circPlt, taxData, circFasta, checkmData, plasmidData, mlstData]) => {
       const quastDiv = document.getElementById("quastDiv");
       const baktaDiv = document.getElementById("baktaDiv");
+      const heatmapDiv = document.getElementById("heatmapDiv");
       const circDiv  = document.getElementById("circDiv");
       const circSpin = document.getElementById("spin-circ");
       const taxDiv = document.getElementById("taxa_class");
@@ -944,23 +911,26 @@ function showReport(){
       const checkmDiv = document.getElementById("checkmDiv");
       const checkmTreeDiv = document.getElementById("checkmTreeDiv");
       const plasmidDiv = document.getElementById("plasmidDiv");
+      const mlstDiv = document.getElementById("mlstDiv");
 
       const circleOn = String(formData.get("circle_genome") || "") === "true";
       const quastOn = String(formData.get("run_quast") || "") === "true";
       const baktaOn = String(formData.get("bakta_annot") || "") === "true";
       const checkmOn = String(formData.get("run_checkm") || "") === "true";
+      const mlstOn = String(formData.get("run_mlst") || "") === "true";
       const runDone = runHasFinishedOk();
-      const allowQuast = resultStageAllowed("quast");
-      const allowBakta = resultStageAllowed("bakta");
-      const allowCirc = resultStageAllowed("circ");
-      const allowGtdb = resultStageAllowed("gtdb");
-      const allowCheckm = resultStageAllowed("checkm");
-      const allowPlasmid = resultStageAllowed("genomad");
+      const allowQuast = allowExisting || resultStageAllowed("quast");
+      const allowBakta = allowExisting || resultStageAllowed("bakta");
+      const allowCirc = allowExisting || resultStageAllowed("circ");
+      const allowGtdb = allowExisting || resultStageAllowed("gtdb");
+      const allowCheckm = allowExisting || resultStageAllowed("checkm");
+      const allowPlasmid = allowExisting || resultStageAllowed("genomad");
+      const allowMlst = allowExisting || resultStageAllowed("mlst");
       renderCircFastaList(allowCirc ? (circFasta || {}) : {}, { circleOn, runDone });
 
       const statusEl = document.getElementById("results-status-text");
       const statusWrap = document.getElementById("resultsStatusDiv");
-      if (statusEl && statusWrap && (runDone || (allowQuast && quastData.exists) || (allowCirc && circFasta && circFasta.exists) || (allowBakta && baktaReady.plot_ready) || (allowGtdb && taxData.exists) || (allowCheckm && checkmData && checkmData.exists) || (allowPlasmid && plasmidData && plasmidData.exists))) {
+      if (statusEl && statusWrap && (runDone || (allowQuast && quastData.exists) || (allowCirc && circFasta && circFasta.exists) || (allowBakta && baktaReady.plot_ready) || (allowGtdb && taxData.exists) || (allowCheckm && checkmData && checkmData.exists) || (allowPlasmid && plasmidData && plasmidData.exists) || (allowMlst && mlstData && mlstData.exists))) {
         const bits = [];
         if (circleOn) {
           bits.push(circFasta && circFasta.exists
@@ -978,6 +948,9 @@ function showReport(){
         }
         if (plasmidData && plasmidData.exists) {
           bits.push("geNomad: ready");
+        }
+        if (mlstOn || (mlstData && mlstData.exists)) {
+          bits.push(mlstData && mlstData.exists ? "MLST: ready" : "MLST: missing");
         }
         if (bits.length) {
           statusEl.textContent = bits.join(" · ");
@@ -1002,12 +975,24 @@ function showReport(){
         if (baktaDiv) {
           baktaDiv.style.display = "block";
         }
+        if (heatmapDiv) {
+          heatmapDiv.style.display = "block";
+        }
         if (!baktaShown) {
           baktaShown = true;
           baktaReport();
         }
-      } else if (baktaDiv && !baktaShown) {
-        baktaDiv.style.display = "none";
+        if (!heatmapShown) {
+          heatmapShown = true;
+          loadGeneHeatmap();
+        }
+      } else {
+        if (baktaDiv && !baktaShown) {
+          baktaDiv.style.display = "none";
+        }
+        if (heatmapDiv && !heatmapShown) {
+          heatmapDiv.style.display = "none";
+        }
       }
 
       if (allowBakta && circPlt.plot && circDiv) {
@@ -1085,6 +1070,18 @@ function showReport(){
       } else if (plasmidDiv) {
         plasmidDiv.style.display = "none";
       }
+
+      if (allowMlst && mlstData && mlstData.exists) {
+        if (mlstDiv) {
+          mlstDiv.style.display = "block";
+        }
+        if (!mlstShown) {
+          mlstShown = true;
+          renderMlstResults(mlstData);
+        }
+      } else if (mlstDiv && !mlstShown) {
+        mlstDiv.style.display = "none";
+      }
       revealResultsOnSuccess();
       return anyResultVisible();
     })
@@ -1093,6 +1090,170 @@ function showReport(){
       return false;
     });
 }
+
+function renderMlstResults(data) {
+  if (window.MlstViz && typeof window.MlstViz.render === "function") {
+    window.MlstViz.render(data);
+    return;
+  }
+  const wrap = document.getElementById("mlstDiv");
+  const out = document.getElementById("output-mlst");
+  if (!out || !data || !data.exists || !data.mlst_table) {
+    if (wrap) {
+      wrap.style.display = "none";
+    }
+    return;
+  }
+  if (wrap) {
+    wrap.style.display = "block";
+  }
+  out.innerHTML = data.mlst_table;
+}
+
+function downloadReportFile(kind, outDir) {
+  const status = document.getElementById("report-status");
+  const q = "out_dir=" + encodeURIComponent(outDir);
+  const url = "/download-report/" + encodeURIComponent(kind) + "?" + q;
+  const filename =
+    kind === "html" ? "bactflow_genome_report.html" : "bactflow_genome_report.pdf";
+  return fetch(url)
+    .then(async (res) => {
+      if (!res.ok) {
+        let msg = "Download failed";
+        try {
+          const data = await res.json();
+          msg = (data && data.error) || msg;
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      return res.blob();
+    })
+    .then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+    })
+    .catch((err) => {
+      if (status) {
+        status.style.display = "block";
+        status.className = "alert alert-danger";
+        status.textContent = err.message || String(err);
+      }
+    });
+}
+
+function bindReportDownloadButtons(outDir) {
+  const dlPdf = document.getElementById("report-dl-pdf");
+  const dlHtml = document.getElementById("report-dl-html");
+  if (dlPdf) {
+    dlPdf.onclick = (e) => {
+      e.preventDefault();
+      downloadReportFile("pdf", outDir);
+    };
+    dlPdf.style.display = "inline-block";
+  }
+  if (dlHtml) {
+    dlHtml.onclick = (e) => {
+      e.preventDefault();
+      downloadReportFile("html", outDir);
+    };
+    dlHtml.style.display = "inline-block";
+  }
+}
+
+function generateGenomeReport() {
+  const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
+  const formData = new FormData(form);
+  const outDir = String(formData.get("out_dir") || "").trim();
+  const reportDiv = document.getElementById("reportDiv");
+  const status = document.getElementById("report-status");
+  const narrative = document.getElementById("report-narrative");
+  const dlPdf = document.getElementById("report-dl-pdf");
+  const dlHtml = document.getElementById("report-dl-html");
+  const btn = document.getElementById("report-bt");
+  if (!outDir) {
+    if (status) {
+      status.style.display = "block";
+      status.className = "alert alert-warning";
+      status.textContent = "Set Output Directory first.";
+    }
+    if (reportDiv) {
+      reportDiv.style.display = "block";
+    }
+    return;
+  }
+  if (reportDiv) {
+    reportDiv.style.display = "block";
+  }
+  if (status) {
+    status.style.display = "block";
+    status.className = "alert alert-info";
+    status.textContent = "Building HTML and PDF report from existing results…";
+  }
+  if (narrative) {
+    narrative.innerHTML = "";
+  }
+  if (dlPdf) {
+    dlPdf.style.display = "none";
+  }
+  if (dlHtml) {
+    dlHtml.style.display = "none";
+  }
+  if (btn) {
+    btn.disabled = true;
+  }
+  if (typeof setResultsOpen === "function") {
+    setResultsOpen(true);
+  }
+  fetch("/generate-report", { method: "POST", body: formData })
+    .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.ok) {
+        throw new Error((data && data.error) || "Report generation failed");
+      }
+      if (status) {
+        const sec = data.sections || {};
+        status.className = "alert alert-success";
+        status.textContent =
+          `HTML + PDF ready for ${data.n_genomes || 0} genome(s). ` +
+          `Figures ${sec.figures || data.n_figures || 0}. ` +
+          `Sections: QUAST ${sec.quast || 0}, CheckM ${sec.checkm || 0}, GTDB ${sec.gtdb || 0}, ` +
+          `MLST ${sec.mlst || 0}, AMR ${sec.amr || 0}, plasmids ${sec.plasmids || 0}.`;
+      }
+      if (narrative && Array.isArray(data.narrative)) {
+        narrative.innerHTML = data.narrative.map((p) => `<p>${p}</p>`).join("");
+      }
+      bindReportDownloadButtons(outDir);
+      if (typeof jumpToSection === "function") {
+        jumpToSection("reportDiv");
+      } else {
+        reportDiv.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    })
+    .catch((err) => {
+      if (status) {
+        status.className = "alert alert-danger";
+        status.textContent = err.message || String(err);
+      }
+    })
+    .finally(() => {
+      if (btn) {
+        btn.disabled = false;
+      }
+    });
+}
+window.generateGenomeReport = generateGenomeReport;
 
 function renderPlasmidTable(data) {
   if (window.PlasmidViz && typeof window.PlasmidViz.render === "function") {
@@ -1447,6 +1608,562 @@ async function baktaReport() {
   }
 }
 
+const HEATMAP_PNG_RES_KEY = "bactflow_heatmap_png_res";
+const HEATMAP_PALETTE_KEY = "bactflow_heatmap_palette";
+const HEATMAP_HELIX_SCALE = [
+  [0, "#0f172a"],
+  [0.25, "#164e63"],
+  [0.5, "#0d9488"],
+  [0.75, "#2dd4bf"],
+  [1, "#fde68a"],
+];
+let heatmapCache = { key: "", payload: null };
+
+function heatmapMode() {
+  const el = document.querySelector("input[name='heatmap-mode']:checked");
+  if (el) {
+    return el.value;
+  }
+  const abundance = document.querySelector("input[name='heatmap-mode'][value='abundance']");
+  if (abundance) {
+    abundance.checked = true;
+  }
+  return "abundance";
+}
+
+function heatmapPalette() {
+  const el = document.getElementById("heatmap-palette");
+  return (el && el.value) || "Viridis";
+}
+
+function heatmapTopN() {
+  const el = document.getElementById("heatmap-topn");
+  if (!el) {
+    return 50;
+  }
+  if (String(el.value).toLowerCase() === "all") {
+    return "all";
+  }
+  return Number(el.value) || 50;
+}
+
+function heatmapColorscale() {
+  const name = heatmapPalette();
+  if (name === "Helix") {
+    return HEATMAP_HELIX_SCALE;
+  }
+  if (name === "Teal") {
+    return [
+      [0, "#042f2e"],
+      [0.35, "#0f766e"],
+      [0.7, "#2dd4bf"],
+      [1, "#ecfdf5"],
+    ];
+  }
+  return name;
+}
+
+function heatmapPngLevel() {
+  const el = document.getElementById("heatmap-png-res");
+  const idx = el
+    ? Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Number(el.value) || 0))
+    : 1;
+  return LINEAR_PNG_LEVELS[idx] || LINEAR_PNG_LEVELS[1];
+}
+
+function heatmapThemeInk() {
+  const light = document.documentElement.getAttribute("data-theme") === "light";
+  return {
+    light,
+    paper: light ? "#f8fafc" : "#1e1e1e",
+    plot: light ? "#f1f5f9" : "#151b24",
+    ink: light ? "#334155" : "#d4d4d4",
+    muted: light ? "#64748B" : "#9ca3af",
+  };
+}
+
+function bindHeatmapControls() {
+  const palette = document.getElementById("heatmap-palette");
+  if (palette && !palette.dataset.bound) {
+    palette.dataset.bound = "1";
+    try {
+      const saved = localStorage.getItem(HEATMAP_PALETTE_KEY);
+      if (saved) {
+        palette.value = saved;
+      }
+    } catch (_err) {}
+    palette.addEventListener("change", () => {
+      try {
+        localStorage.setItem(HEATMAP_PALETTE_KEY, palette.value);
+      } catch (_err) {}
+      if (heatmapCache.payload) {
+        drawGeneHeatmap(heatmapCache.payload);
+      }
+    });
+  }
+  const modeRadios = document.querySelectorAll("input[name='heatmap-mode']");
+  modeRadios.forEach((el) => {
+    if (el.dataset.bound) {
+      return;
+    }
+    el.dataset.bound = "1";
+    el.addEventListener("change", () => {
+      if (heatmapCache.payload) {
+        drawGeneHeatmap(heatmapCache.payload);
+      }
+    });
+  });
+  if (![...modeRadios].some((el) => el.checked)) {
+    const abundance = document.querySelector("input[name='heatmap-mode'][value='abundance']");
+    if (abundance) {
+      abundance.checked = true;
+    }
+  }
+  const topn = document.getElementById("heatmap-topn");
+  if (topn && !topn.dataset.bound) {
+    topn.dataset.bound = "1";
+    topn.addEventListener("change", () => loadGeneHeatmap({ force: true }));
+  }
+  const slider = document.getElementById("heatmap-png-res");
+  const label = document.getElementById("heatmap-png-res-label");
+  if (slider && !slider.dataset.bound) {
+    slider.dataset.bound = "1";
+    const apply = (store) => {
+      const idx = Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Number(slider.value) || 0));
+      slider.value = String(idx);
+      const level = LINEAR_PNG_LEVELS[idx];
+      if (label) {
+        label.textContent = level.label;
+      }
+      slider.setAttribute("aria-valuetext", level.label);
+      document.querySelectorAll("#heatmap-plot-bar .bf-linear-res-ticks span").forEach((tick) => {
+        tick.classList.toggle("is-active", tick.getAttribute("data-level") === String(idx));
+      });
+      if (store) {
+        try {
+          localStorage.setItem(HEATMAP_PNG_RES_KEY, String(idx));
+        } catch (_err) {}
+      }
+    };
+    slider.addEventListener("input", () => apply(true));
+    slider.addEventListener("change", () => apply(true));
+    let saved = "1";
+    try {
+      saved = localStorage.getItem(HEATMAP_PNG_RES_KEY) || "1";
+    } catch (_err) {}
+    slider.value = saved;
+    apply(false);
+  }
+  if (!document.documentElement.dataset.heatmapThemeBound) {
+    document.documentElement.dataset.heatmapThemeBound = "1";
+    new MutationObserver(() => {
+      if (heatmapCache.payload) {
+        drawGeneHeatmap(heatmapCache.payload);
+      }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+}
+
+function heatmapClusterGenomes(matrix) {
+  const nCol = ((matrix && matrix[0]) || []).length;
+  const nRow = (matrix || []).length;
+  const identity = {
+    order: Array.from({ length: nCol }, (_, i) => i),
+    xs: [],
+    ys: [],
+    maxH: 1,
+  };
+  if (nCol < 2 || nRow < 1) {
+    return identity;
+  }
+  const dist = (a, b) => {
+    let s = 0;
+    for (let r = 0; r < nRow; r += 1) {
+      const d = (Number(matrix[r][a]) || 0) - (Number(matrix[r][b]) || 0);
+      s += d * d;
+    }
+    return Math.sqrt(s);
+  };
+  const pair = [];
+  for (let i = 0; i < nCol; i += 1) {
+    pair[i] = [];
+    for (let j = 0; j < nCol; j += 1) {
+      pair[i][j] = i === j ? 0 : dist(i, j);
+    }
+  }
+  const nodes = [];
+  for (let i = 0; i < nCol; i += 1) {
+    nodes.push({ members: [i], height: 0, left: null, right: null });
+  }
+  const active = nodes.map((_, i) => i);
+  const avgDist = (ia, ib) => {
+    const A = nodes[ia].members;
+    const B = nodes[ib].members;
+    let s = 0;
+    let c = 0;
+    A.forEach((i) => {
+      B.forEach((j) => {
+        s += pair[i][j];
+        c += 1;
+      });
+    });
+    return c ? s / c : 0;
+  };
+  while (active.length > 1) {
+    let best = Infinity;
+    let ix = 0;
+    let iy = 1;
+    for (let x = 0; x < active.length; x += 1) {
+      for (let y = x + 1; y < active.length; y += 1) {
+        const d = avgDist(active[x], active[y]);
+        if (d < best) {
+          best = d;
+          ix = x;
+          iy = y;
+        }
+      }
+    }
+    const a = active[ix];
+    const b = active[iy];
+    nodes.push({
+      members: nodes[a].members.concat(nodes[b].members),
+      height: best,
+      left: a,
+      right: b,
+    });
+    if (iy > ix) {
+      active.splice(iy, 1);
+      active.splice(ix, 1);
+    } else {
+      active.splice(ix, 1);
+      active.splice(iy, 1);
+    }
+    active.push(nodes.length - 1);
+  }
+  const root = nodes[active[0]];
+  const order = root.members.slice();
+  const pos = {};
+  order.forEach((col, i) => {
+    pos[col] = i;
+  });
+  const mid = (id) => {
+    const node = nodes[id];
+    if (node.left == null) {
+      return pos[node.members[0]];
+    }
+    return (mid(node.left) + mid(node.right)) / 2;
+  };
+  const xs = [];
+  const ys = [];
+  let maxH = 0;
+  nodes.forEach((node) => {
+    if (node.left == null) {
+      return;
+    }
+    const xL = mid(node.left);
+    const xR = mid(node.right);
+    const hL = nodes[node.left].height;
+    const hR = nodes[node.right].height;
+    const h = node.height;
+    maxH = Math.max(maxH, h);
+    xs.push(xL, xL, xR, xR, null);
+    ys.push(hL, h, h, hR, null);
+  });
+  return { order, xs, ys, maxH: maxH || 1 };
+}
+
+function drawGeneHeatmap(payload) {
+  const el = document.getElementById("heatmapPlot");
+  if (!el || !payload || !window.Plotly) {
+    return;
+  }
+  const mode = heatmapMode();
+  const genes = (payload.genes || []).slice().reverse();
+  const vars = ((payload.variance || []).slice().reverse());
+  const raw = (mode === "prevalence" ? payload.prevalence : payload.abundance) || [];
+  const zIn = raw.slice().reverse();
+  const genomesIn = payload.genomes || [];
+  const clustered = heatmapClusterGenomes(zIn);
+  const order = clustered.order;
+  const genomes = order.map((i) => genomesIn[i]);
+  const z = zIn.map((row) => order.map((i) => (row || [])[i]));
+  const yLabels = genes.map((name) => (String(name).length > 42 ? `${String(name).slice(0, 40)}…` : name));
+  const custom = genes.map((name, i) => [name, vars[i] != null ? vars[i] : ""]);
+  const theme = heatmapThemeInk();
+  const n = genes.length;
+  const nCol = genomes.length;
+  const rowH = n > 200 ? 12 : 16;
+  const dendro = nCol > 1;
+  const dendroPx = dendro ? 52 : 0;
+  const dendroGap = dendro ? 8 : 0;
+  const margin = { l: 210, r: 72, t: 36, b: nCol > 6 ? 80 : 48 };
+  const innerH = dendroPx + dendroGap + Math.max(220, n * rowH);
+  const height = margin.t + margin.b + innerH;
+  const y2Domain = dendro ? [1 - dendroPx / innerH, 1] : [0, 1];
+  const yDomain = dendro ? [0, 1 - (dendroPx + dendroGap) / innerH] : [0, 1];
+  const titleMode = mode === "prevalence" ? "prevalence (0/1)" : "abundance";
+  const rankNote = payload.rank === "abundance"
+    ? "ranked by total count"
+    : "most variable across genomes";
+  const all = n >= (payload.n_total || n);
+  const head = all ? `All ${n} products` : `Top ${n} of ${payload.n_total || n} products`;
+  const hover = mode === "prevalence"
+    ? "<b>%{customdata[0]}</b><br>%{x}<br>Present: %{z}<extra></extra>"
+    : "<b>%{customdata[0]}</b><br>%{x}<br>Count: %{z}<br>Variance: %{customdata[1]}<extra></extra>";
+  const colorscale = heatmapColorscale();
+  const xIdx = genomes.map((_, i) => i);
+  const colorbar = {
+    title: { text: mode === "prevalence" ? "" : "Count", font: { color: theme.ink, size: 10 } },
+    tickfont: { color: theme.ink, size: 10 },
+    outlinewidth: 0,
+    thickness: 10,
+    thicknessmode: "pixels",
+    len: 0.22,
+    lenmode: "fraction",
+    y: dendro ? yDomain[1] : 1,
+    yanchor: "top",
+    x: 1.02,
+    xanchor: "left",
+    bgcolor: "rgba(0,0,0,0)",
+  };
+  if (mode === "prevalence") {
+    colorbar.tickmode = "array";
+    colorbar.tickvals = [0, 1];
+    colorbar.ticktext = ["0", "1"];
+    colorbar.dtick = 1;
+  }
+  const traces = [{
+    type: "heatmap",
+    x: xIdx,
+    y: yLabels,
+    z,
+    customdata: custom,
+    colorscale,
+    zmin: 0,
+    zmax: mode === "prevalence" ? 1 : null,
+    zauto: mode !== "prevalence",
+    hoverongaps: false,
+    hovertemplate: hover,
+    colorbar,
+    xgap: nCol < 12 ? 1 : 0,
+    ygap: 1,
+    xaxis: "x",
+    yaxis: "y",
+  }];
+  if (dendro) {
+    traces.push({
+      type: "scatter",
+      x: clustered.xs,
+      y: clustered.ys,
+      mode: "lines",
+      line: { color: theme.muted, width: 1.25 },
+      hoverinfo: "skip",
+      showlegend: false,
+      fill: "none",
+      xaxis: "x",
+      yaxis: "y2",
+    });
+  }
+  Plotly.react(el, traces, {
+    paper_bgcolor: theme.paper,
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: theme.ink, size: 11, family: "Segoe UI, sans-serif" },
+    margin,
+    height,
+    showlegend: false,
+    annotations: [{
+      text: `${head} · ${titleMode} · ${rankNote}${dendro ? " · genomes clustered" : ""}`,
+      xref: "paper",
+      yref: "paper",
+      x: 0,
+      y: 1.02,
+      xanchor: "left",
+      yanchor: "bottom",
+      showarrow: false,
+      font: { size: 12, color: theme.ink },
+    }],
+    xaxis: {
+      type: "linear",
+      tickmode: "array",
+      tickvals: xIdx,
+      ticktext: genomes,
+      tickangle: nCol > 4 ? -40 : 0,
+      tickfont: { size: 11, color: theme.ink },
+      range: [-0.5, Math.max(0.5, nCol - 0.5)],
+      autorange: false,
+      zeroline: false,
+      showgrid: false,
+      automargin: false,
+      anchor: "y",
+    },
+    yaxis: {
+      domain: yDomain,
+      automargin: false,
+      tickfont: { size: n > 80 ? 9 : 10, color: theme.ink },
+      ticksuffix: "  ",
+    },
+    yaxis2: {
+      domain: y2Domain,
+      range: [0, clustered.maxH * 1.08 || 1],
+      autorange: false,
+      overlaying: false,
+      anchor: "x",
+      showticklabels: false,
+      showgrid: false,
+      zeroline: false,
+      showline: false,
+      ticks: "",
+      fixedrange: true,
+    },
+  }, {
+    responsive: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ["lasso2d", "select2d"],
+  });
+  el._heatmapPayload = payload;
+  el._heatmapMode = mode;
+  el._heatmapOrder = order;
+}
+
+async function loadGeneHeatmap(opts) {
+  const form = document.getElementById("postForm");
+  const heatDiv = document.getElementById("heatmapDiv");
+  const spin = document.getElementById("spin-heatmap");
+  const plotEl = document.getElementById("heatmapPlot");
+  if (!form || !heatDiv) {
+    return;
+  }
+  bindHeatmapControls();
+  const n = heatmapTopN();
+  const outDir = String(new FormData(form).get("out_dir") || "").trim();
+  const key = `${outDir}|${n}|${selectedGeneTypes().join(",")}`;
+  if (!opts || !opts.force) {
+    if (heatmapCache.key === key && heatmapCache.payload) {
+      heatDiv.style.display = "block";
+      drawGeneHeatmap(heatmapCache.payload);
+      return;
+    }
+  }
+  const formData = new FormData(form);
+  formData.set("n", String(n));
+  if (spin) {
+    spin.style.display = "flex";
+  }
+  hideSectionError("heatmap-error");
+  try {
+    const res = await fetch("/heatmap-genes", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (spin) {
+      spin.style.display = "none";
+    }
+    if (!res.ok || !data.exists || !(data.genes || []).length) {
+      showSectionError("heatmap-error", data.error || "Could not build the gene heatmap.");
+      if (plotEl) {
+        plotEl.innerHTML = "";
+      }
+      return;
+    }
+    heatmapCache = { key, payload: data };
+    heatDiv.style.display = "block";
+    drawGeneHeatmap(data);
+  } catch (error) {
+    if (spin) {
+      spin.style.display = "none";
+    }
+    showSectionError("heatmap-error", error.message || "Could not build the gene heatmap.");
+  }
+}
+
+function heatmapDownloadName(ext) {
+  const mode = heatmapMode();
+  const n = heatmapTopN();
+  const tag = n === "all" ? "all" : `top${n}`;
+  return `bakta_gene_heatmap_${mode}_${tag}.${ext}`;
+}
+
+function downloadHeatmapPng() {
+  const el = document.getElementById("heatmapPlot");
+  if (!el || !window.Plotly || !el.data) {
+    return;
+  }
+  const level = heatmapPngLevel();
+  const w = Math.max(640, el.clientWidth || 900);
+  const h = Math.max(420, (el._fullLayout && el._fullLayout.height) || 640);
+  const scale = Math.max(1, Math.min(level.scale, level.cap / Math.max(1, w), level.cap / Math.max(1, h)));
+  Plotly.downloadImage(el, {
+    format: "png",
+    filename: heatmapDownloadName("png").replace(/\.png$/, ""),
+    width: Math.round(w),
+    height: Math.round(h),
+    scale,
+  });
+}
+
+function downloadHeatmapHtml() {
+  const el = document.getElementById("heatmapPlot");
+  if (!el || !el.data) {
+    return;
+  }
+  const theme = document.documentElement.getAttribute("data-theme") || "";
+  const fig = {
+    data: el.data,
+    layout: el.layout,
+  };
+  const html = `<!DOCTYPE html>
+<html data-theme="${theme}">
+<head>
+<meta charset="utf-8">
+<title>Bakta gene heatmap</title>
+<script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
+<style>
+body{margin:16px;font-family:Segoe UI,sans-serif;background:${theme === "light" ? "#f8fafc" : "#111"};color:${theme === "light" ? "#1e293b" : "#ddd"}}
+#heatmapPlot{width:100%}
+</style>
+</head>
+<body>
+<div id="heatmapPlot"></div>
+<script>
+const FIG = ${JSON.stringify(fig)};
+Plotly.newPlot("heatmapPlot", FIG.data, FIG.layout, {responsive:true, displaylogo:false});
+</script>
+</body>
+</html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = heatmapDownloadName("html");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadHeatmapTsv() {
+  const payload = heatmapCache.payload;
+  if (!payload) {
+    return;
+  }
+  const mode = heatmapMode();
+  const genes = payload.genes || [];
+  const host = document.getElementById("heatmapPlot");
+  const order = (host && host._heatmapOrder) || (payload.genomes || []).map((_, i) => i);
+  const genomes = order.map((i) => (payload.genomes || [])[i]);
+  const src = mode === "prevalence" ? payload.prevalence : payload.abundance;
+  const matrix = (src || []).map((row) => order.map((i) => (row || [])[i]));
+  const header = ["Product"].concat(genomes).join("\t");
+  const rows = genes.map((gene, i) => [gene].concat((matrix[i] || []).map((v) => String(v))).join("\t"));
+  const blob = new Blob([header + "\n" + rows.join("\n") + "\n"], { type: "text/tab-separated-values" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = heatmapDownloadName("tsv");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function showSectionError(id, message) {
   const errorBox = document.getElementById(id);
   if (!errorBox) {
@@ -1522,6 +2239,14 @@ function linearDownloadName(host, ext) {
 
 const LINEAR_PNG_MAX = 16384;
 const LINEAR_PNG_MIN = 320;
+const LINEAR_PNG_RES_KEY = "bactflow_linear_png_res5";
+const LINEAR_PNG_LEVELS = [
+  { id: "basic", label: "Basic", scale: 1, cap: 2048 },
+  { id: "medium", label: "Medium", scale: 2, cap: 4096 },
+  { id: "high", label: "High", scale: 8 / 3, cap: 5461 },
+  { id: "higher", label: "Higher", scale: 10 / 3, cap: 6827 },
+  { id: "max", label: "Max", scale: 4, cap: 8192 },
+];
 
 function linearPngParseDim(value) {
   const n = Number(value);
@@ -1532,65 +2257,90 @@ function linearPngParseDim(value) {
 }
 
 function linearPngDims() {
-  const wEl = document.getElementById("linear-png-w") || document.getElementById("linear-png-w-bar");
-  const hEl = document.getElementById("linear-png-h") || document.getElementById("linear-png-h-bar");
+  const wEl = document.getElementById("linear-png-w");
+  const hEl = document.getElementById("linear-png-h");
   return {
     width: linearPngParseDim(wEl && wEl.value),
     height: linearPngParseDim(hEl && hEl.value),
   };
 }
 
+function linearPngLevel() {
+  const el = document.getElementById("linear-png-res");
+  const idx = el
+    ? Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Number(el.value) || 0))
+    : 1;
+  return LINEAR_PNG_LEVELS[idx] || LINEAR_PNG_LEVELS[1];
+}
+
+function exportScaleFor(w, h) {
+  const level = linearPngLevel();
+  return Math.max(1, Math.min(level.scale, level.cap / Math.max(1, w), level.cap / Math.max(1, h)));
+}
+
 function bindLinearPngRes() {
-  const fields = [
-    ["linear-png-w", "linear-png-w-bar"],
-    ["linear-png-h", "linear-png-h-bar"],
-  ];
-  const applyStored = () => {
-    let stored = {};
+  const wEl = document.getElementById("linear-png-w");
+  const hEl = document.getElementById("linear-png-h");
+  const persistDims = () => {
     try {
-      stored = JSON.parse(localStorage.getItem("bactflow_linear_png_dims") || "{}") || {};
-    } catch (_err) {
-      stored = {};
-    }
-    const setVal = (id, val) => {
-      const el = document.getElementById(id);
-      if (el && val) {
-        el.value = String(val);
-      }
-    };
-    if (stored.width) {
-      setVal("linear-png-w", stored.width);
-      setVal("linear-png-w-bar", stored.width);
-    }
-    if (stored.height) {
-      setVal("linear-png-h", stored.height);
-      setVal("linear-png-h-bar", stored.height);
-    }
-  };
-  const persist = () => {
-    const dims = linearPngDims();
-    try {
-      localStorage.setItem("bactflow_linear_png_dims", JSON.stringify(dims));
+      localStorage.setItem("bactflow_linear_png_dims", JSON.stringify(linearPngDims()));
     } catch (_err) {}
   };
-  fields.forEach((pair) => {
-    pair.forEach((id, idx) => {
-      const el = document.getElementById(id);
-      if (!el || el.dataset.bound) {
-        return;
-      }
-      el.dataset.bound = "1";
-      el.addEventListener("input", () => {
-        const other = document.getElementById(pair[idx ? 0 : 1]);
-        if (other && other !== el) {
-          other.value = el.value;
-        }
-        persist();
-      });
-      el.addEventListener("change", persist);
+  [wEl, hEl].forEach((el) => {
+    if (!el || el.dataset.bound) {
+      return;
+    }
+    el.dataset.bound = "1";
+    el.addEventListener("input", persistDims);
+    el.addEventListener("change", persistDims);
+  });
+  try {
+    const stored = JSON.parse(localStorage.getItem("bactflow_linear_png_dims") || "{}") || {};
+    if (wEl && stored.width) {
+      wEl.value = String(stored.width);
+    }
+    if (hEl && stored.height) {
+      hEl.value = String(stored.height);
+    }
+  } catch (_err) {}
+
+  const slider = document.getElementById("linear-png-res");
+  const label = document.getElementById("linear-png-res-label");
+  if (!slider || slider.dataset.bound) {
+    return;
+  }
+  slider.dataset.bound = "1";
+  const apply = (store) => {
+    const idx = Math.max(0, Math.min(LINEAR_PNG_LEVELS.length - 1, Number(slider.value) || 0));
+    slider.value = String(idx);
+    const level = LINEAR_PNG_LEVELS[idx];
+    if (label) {
+      label.textContent = level.label;
+    }
+    slider.setAttribute("aria-valuetext", level.label);
+    slider.setAttribute("title", level.label);
+    document.querySelectorAll(".bf-linear-res-ticks span").forEach((tick) => {
+      tick.classList.toggle("is-active", tick.getAttribute("data-level") === String(idx));
+    });
+    if (store) {
+      try {
+        localStorage.setItem(LINEAR_PNG_RES_KEY, String(idx));
+      } catch (_err) {}
+    }
+  };
+  let saved = "1";
+  try {
+    saved = localStorage.getItem(LINEAR_PNG_RES_KEY) || "1";
+  } catch (_err) {}
+  slider.value = saved;
+  slider.addEventListener("input", () => apply(true));
+  document.querySelectorAll(".bf-linear-res-ticks span").forEach((tick) => {
+    tick.addEventListener("click", () => {
+      slider.value = tick.getAttribute("data-level") || "1";
+      apply(true);
     });
   });
-  applyStored();
+  apply(false);
 }
 
 function downloadLinearPlot() {
@@ -1642,6 +2392,7 @@ function downloadLinearHtml() {
     linearLabelInk.toString(),
     linearColorPair.toString(),
     drawGeneArrow.toString(),
+    linearOrphansOn.toString(),
     packLinearLanes.toString(),
     linearTracks.toString(),
     fillLinearLegend.toString(),
@@ -1649,8 +2400,11 @@ function downloadLinearHtml() {
     linearDownloadName.toString(),
     "const LINEAR_PNG_MAX = " + LINEAR_PNG_MAX + ";",
     "const LINEAR_PNG_MIN = " + LINEAR_PNG_MIN + ";",
+    "const LINEAR_PNG_LEVELS = " + JSON.stringify(LINEAR_PNG_LEVELS) + ";",
     linearPngParseDim.toString(),
     linearPngDims.toString(),
+    linearPngLevel.toString(),
+    exportScaleFor.toString(),
     downloadLinearPlot.toString(),
     "const SNAP = " + JSON.stringify(snap) + ";",
     "drawLinearCanvas(document.getElementById('linearPlot'), SNAP.data, SNAP);",
@@ -1708,7 +2462,8 @@ function selectedGeneTypes() {
 function syncGeneTypeToggle() {
   const btn = document.getElementById("geneTypeToggle");
   if (btn) {
-    btn.textContent = selectedGeneTypes().join(", ");
+    const labels = { cds: "CDS", amr: "AMR", trna: "tRNA", rrna: "rRNA", tmrna: "tmRNA", ncrna: "ncRNA", crispr: "CRISPR", "crispr-repeat": "CRISPR repeat", repeat_region: "Repeat" };
+    btn.textContent = selectedGeneTypes().map((value) => labels[String(value).toLowerCase()] || value).join(", ");
   }
 }
 
@@ -1830,6 +2585,24 @@ function linearCordifyOn() {
   return !!(el && el.checked);
 }
 
+function linearOrphansOn() {
+  const el = document.getElementById("linear-find-orphans");
+  return !!(el && el.checked && linearCordifyOn());
+}
+
+function linearAmrOn() {
+  const el = document.getElementById("linear-find-amr");
+  return !!(el && el.checked);
+}
+
+function syncLinearAmrUi() {
+  const wrap = document.getElementById("linear-find-amr-wrap");
+  const box = document.getElementById("linear-find-amr");
+  if (wrap) {
+    wrap.classList.toggle("is-on", !!(box && box.checked));
+  }
+}
+
 function linearCordMode() {
   const el = document.querySelector("input[name='linear-cord-mode']:checked");
   return (el && el.value) || "pairwise";
@@ -1854,8 +2627,19 @@ function syncLinearCordUi() {
   const on = linearCordifyOn();
   const opts = document.getElementById("linear-cord-opts");
   const ref = document.getElementById("linear-cord-ref");
+  const orphan = document.getElementById("linear-find-orphans");
+  const wrap = document.getElementById("linear-find-orphans-wrap");
   if (opts) {
     opts.hidden = !on;
+  }
+  if (orphan) {
+    if (!on) {
+      orphan.checked = false;
+    }
+    orphan.disabled = !on || selectedLinearGenomes().length < 2;
+  }
+  if (wrap) {
+    wrap.classList.toggle("is-on", !!(orphan && orphan.checked));
   }
   if (ref) {
     ref.disabled = !on || linearCordMode() !== "reference";
@@ -1867,6 +2651,11 @@ function syncLinearCordUi() {
   }
   if (!on) {
     setLinearCordInfoOpen(false);
+    const count = document.getElementById("linear-orphan-count");
+    if (count) {
+      count.hidden = true;
+      count.textContent = "";
+    }
   }
 }
 
@@ -2111,6 +2900,28 @@ function bindLinearPickers() {
     cordRef.dataset.bound = "1";
     cordRef.addEventListener("change", () => scheduleLinearLinks());
   }
+  const orphans = document.getElementById("linear-find-orphans");
+  if (orphans && !orphans.dataset.bound) {
+    orphans.dataset.bound = "1";
+    orphans.addEventListener("change", () => {
+      syncLinearCordUi();
+      const host = document.getElementById("linearPlot");
+      if (host && typeof host._setOrphans === "function") {
+        host._setOrphans(orphans.checked);
+      }
+    });
+  }
+  const amrBox = document.getElementById("linear-find-amr");
+  if (amrBox && !amrBox.dataset.bound) {
+    amrBox.dataset.bound = "1";
+    amrBox.addEventListener("change", () => {
+      syncLinearAmrUi();
+      const host = document.getElementById("linearPlot");
+      if (host && typeof host._setAmr === "function") {
+        host._setAmr(amrBox.checked);
+      }
+    });
+  }
   const cordMin = document.getElementById("linear-cord-min");
   if (cordMin && !cordMin.dataset.bound) {
     cordMin.dataset.bound = "1";
@@ -2143,6 +2954,7 @@ function bindLinearPickers() {
     });
   }
   syncLinearCordUi();
+  syncLinearAmrUi();
   ["linear-search-prev", "linear-search-next"].forEach((id) => {
     const btn = document.getElementById(id);
     if (!btn || btn.dataset.bound) {
@@ -2168,6 +2980,7 @@ function createGenomePlot() {
 
 const LINEAR_COLOR_DEFAULTS = {
   cds: ["#E07A5F", "#F2CC8F"],
+  amr: ["#C026D3", "#E879F9"],
   trna: ["#E9C46A", "#F6E2A1"],
   rrna: ["#E76F51", "#F4A698"],
   tmrna: ["#2A9D8F", "#8ED3C7"],
@@ -2184,6 +2997,7 @@ const LINEAR_COLORS = JSON.parse(JSON.stringify(LINEAR_COLOR_DEFAULTS));
 
 const LINEAR_TYPE_LABELS = {
   cds: "CDS",
+  amr: "AMR (antibiotic)",
   trna: "tRNA",
   rrna: "rRNA",
   tmrna: "tmRNA",
@@ -2246,7 +3060,7 @@ function fillLinearColorEditor() {
     return;
   }
   host.dataset.ready = "1";
-  const keys = ["cds", "trna", "rrna", "tmrna", "ncrna", "crispr", "crispr-repeat", "repeat_region"];
+  const keys = ["cds", "amr", "trna", "rrna", "tmrna", "ncrna", "crispr", "crispr-repeat", "repeat_region"];
   host.innerHTML = keys.map((key) => {
     const pair = linearColorPair(key);
     return `<label class="bf-linear-color-row"><span>${linearTypeLabel(key)}</span>
@@ -2444,6 +3258,10 @@ function drawLinearCanvas(host, data, restore) {
     window.removeEventListener("mousemove", host._linearMove);
     window.removeEventListener("mouseup", host._linearUp);
   }
+  if (host._orphanPulse) {
+    clearInterval(host._orphanPulse);
+    host._orphanPulse = 0;
+  }
   host.innerHTML = "";
   host.style.position = "relative";
   const canvas = document.createElement("canvas");
@@ -2576,7 +3394,22 @@ function drawLinearCanvas(host, data, restore) {
   let syntenyRef = (restore && restore.syntenyRef) || "";
   let ribbonHits = [];
   let cordifyEnabled = syntenyLinks.length > 0 || (typeof linearCordifyOn === "function" && linearCordifyOn());
+  let orphansOn = !!(restore && restore.orphansOn);
+  let orphanKeys = new Set();
+  let amrOn = restore && restore.amrOn != null ? !!restore.amrOn : (typeof linearAmrOn === "function" ? linearAmrOn() : true);
   const cordifyOn = () => !!(cordifyEnabled && tracks.length > 1 && syntenyLinks.length > 0);
+  const isProteinFeat = (feat) => {
+    const t = typeof linearTypeKey === "function" ? linearTypeKey(feat && feat.t) : String((feat && feat.t) || "").toLowerCase();
+    if (!t || t === "cds" || t === "gene" || t === "amr") {
+      return true;
+    }
+    if (t === "trna" || t === "rrna" || t === "tmrna" || t === "ncrna" || t === "crispr" || t === "crispr-repeat" || t === "repeat_region" || t === "orig" || t === "oric") {
+      return false;
+    }
+    return /hypothetical|unannotated|putative/.test(t);
+  };
+  const featOrphanKey = (genome, feat) => `${genome}\t${feat.s}\t${feat.e}\t${feat.n}`;
+  const reducedMotion = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   const originOf = (track) => {
     if (!aligned) {
@@ -2630,7 +3463,56 @@ function drawLinearCanvas(host, data, restore) {
     return box.padL + ((bp - org - view0) / box.span) * (box.w - box.padL - box.padR);
   };
 
+  const collectOrphans = () => {
+    const keys = new Set();
+    if (!orphansOn || tracks.length < 2 || !syntenyLinks.length) {
+      return keys;
+    }
+    const matched = new Set();
+    syntenyLinks.forEach((link) => {
+      matched.add(`${link.a}\t${link.as}\t${link.ae}\t${link.an}\t${link.b}`);
+      matched.add(`${link.b}\t${link.bs}\t${link.be}\t${link.bn}\t${link.a}`);
+    });
+    tracks.forEach((track, idx) => {
+      let partners;
+      if (syntenyMode === "reference") {
+        if (track.name === syntenyRef) {
+          return;
+        }
+        partners = syntenyRef ? [syntenyRef] : [];
+      } else {
+        partners = [];
+        if (idx > 0) {
+          partners.push(tracks[idx - 1].name);
+        }
+        if (idx < tracks.length - 1) {
+          partners.push(tracks[idx + 1].name);
+        }
+      }
+      if (!partners.length) {
+        return;
+      }
+      visibleOf(track).forEach((feat) => {
+        if (!isProteinFeat(feat)) {
+          return;
+        }
+        const unmatched = partners.every((partner) => !matched.has(`${track.name}\t${feat.s}\t${feat.e}\t${feat.n}\t${partner}`));
+        if (unmatched) {
+          keys.add(featOrphanKey(track.name, feat));
+        }
+      });
+    });
+    return keys;
+  };
+
   const paintOn = (target, scale, asScreen, widthOpt) => {
+    if (document.getElementById("linear-find-orphans") && typeof linearOrphansOn === "function") {
+      orphansOn = linearOrphansOn();
+    }
+    if (document.getElementById("linear-find-amr") && typeof linearAmrOn === "function") {
+      amrOn = linearAmrOn();
+    }
+    orphanKeys = collectOrphans();
     const box = layout(widthOpt);
     const dpr = Math.max(1, Number(scale) || 1);
     target.width = Math.max(1, Math.floor(box.w * dpr));
@@ -2887,6 +3769,31 @@ function drawLinearCanvas(host, data, restore) {
         const fill = colorOf(feat);
         ctx.fillStyle = fill;
         const tipW = drawGeneArrow(ctx, x, y, width, box.laneH, reverse);
+        const isOrphan = orphanKeys.has(featOrphanKey(row.track.name, feat));
+        const isAmr = feat.t === "amr" || feat.amr;
+        if (isOrphan) {
+          const phase = (!asScreen || reducedMotion()) ? 1 : 0.5 + 0.5 * Math.sin(Date.now() / 140);
+          const r = Math.round(46 + (255 - 46) * phase);
+          const g = Math.round(232 + (46 - 232) * phase);
+          const b = Math.round(255 + (180 - 255) * phase);
+          ctx.save();
+          ctx.shadowColor = `rgba(255, 46, 180, ${0.35 + 0.55 * phase})`;
+          ctx.shadowBlur = 8 + 16 * phase;
+          ctx.strokeStyle = `rgba(${r},${g},${b},${0.72 + 0.28 * phase})`;
+          ctx.lineWidth = 2.1 + 1.7 * phase;
+          ctx.stroke();
+          ctx.restore();
+        } else if (isAmr) {
+          const pulse = !!(amrOn && asScreen && !reducedMotion());
+          const phase = pulse ? 0.5 + 0.5 * Math.sin(Date.now() / 160) : 1;
+          ctx.save();
+          ctx.shadowColor = `rgba(192, 38, 211, ${0.28 + 0.5 * phase})`;
+          ctx.shadowBlur = 6 + 12 * phase;
+          ctx.strokeStyle = `rgba(253, 224, 71, ${0.78 + 0.22 * phase})`;
+          ctx.lineWidth = 1.8 + 1.4 * phase;
+          ctx.stroke();
+          ctx.restore();
+        }
         const isHit = searchQuery && searchHits.some((hit) => hit.feat.s === feat.s && hit.feat.e === feat.e && hit.feat.n === feat.n && hit.track === row.track.name);
         if (isHit) {
           ctx.strokeStyle = "#F9C74F";
@@ -3028,7 +3935,24 @@ function drawLinearCanvas(host, data, restore) {
         syntenyScores,
         syntenyMode,
         syntenyRef,
+        orphansOn,
+        amrOn,
       };
+      const orphanCount = document.getElementById("linear-orphan-count");
+      if (orphanCount) {
+        const n = orphanKeys.size;
+        orphanCount.hidden = !(orphansOn && n);
+        orphanCount.textContent = n ? String(n) : "";
+      }
+      const amrCount = document.getElementById("linear-amr-count");
+      if (amrCount) {
+        const n = tracks.reduce((sum, track) => sum + visibleOf(track).filter((feat) => feat.t === "amr" || feat.amr).length, 0);
+        amrCount.hidden = !n;
+        amrCount.textContent = n ? String(n) : "";
+      }
+      if (typeof syncLinearAmrUi === "function") {
+        syncLinearAmrUi();
+      }
       const hint = (ids, value) => {
         ids.forEach((id) => {
           const el = document.getElementById(id);
@@ -3037,14 +3961,37 @@ function drawLinearCanvas(host, data, restore) {
           }
         });
       };
-      hint(["linear-png-w", "linear-png-w-bar"], Math.round(box.w));
-      hint(["linear-png-h", "linear-png-h-bar"], Math.round(box.h));
+      hint(["linear-png-w"], Math.round(box.w));
+      hint(["linear-png-h"], Math.round(box.h));
     }
     return box;
   };
 
+  const wantOrphanPulse = () => !!(orphansOn && tracks.length > 1 && syntenyLinks.length && !reducedMotion());
+  const wantAmrPulse = () => {
+    if (!amrOn || reducedMotion()) {
+      return false;
+    }
+    return tracks.some((track) => visibleOf(track).some((feat) => feat.t === "amr" || feat.amr));
+  };
+  const syncOrphanPulse = () => {
+    if (wantOrphanPulse() || wantAmrPulse()) {
+      if (!host._orphanPulse) {
+        host._orphanPulse = setInterval(() => {
+          paintOn(canvas, window.devicePixelRatio || 1, true);
+        }, 90);
+      }
+      return;
+    }
+    if (host._orphanPulse) {
+      clearInterval(host._orphanPulse);
+      host._orphanPulse = 0;
+    }
+  };
+
   const paint = () => {
     paintOn(canvas, window.devicePixelRatio || 1, true);
+    syncOrphanPulse();
   };
 
   host._linearExportPng = (done) => {
@@ -3100,7 +4047,7 @@ function drawLinearCanvas(host, data, restore) {
       scale = dims.height / Math.max(1, screen.h);
       widthOpt = 0;
     } else {
-      scale = 2;
+      scale = typeof exportScaleFor === "function" ? exportScaleFor(screen.w, screen.h) : 2;
       widthOpt = 0;
     }
     const src = widthOpt ? box : screen;
@@ -3294,7 +4241,11 @@ function drawLinearCanvas(host, data, restore) {
     }
     tip.hidden = false;
     const genome = feat.genome ? feat.genome + "  ·  " : "";
-    tip.textContent = `${genome}${feat.n}  ·  ${linearTypeLabel(feat.t)}  ·  ${feat.strand === "-" ? "reverse" : "forward"}  ·  ${feat.s}-${feat.e}${feat.p ? "  ·  " + feat.p : ""}`;
+    const orphanNote = orphanKeys.has(featOrphanKey(feat.genome || "", feat))
+      ? (syntenyMode === "reference" ? "  ·  orphan vs reference" : "  ·  orphan vs neighbour")
+      : "";
+    const amrNote = (feat.t === "amr" || feat.amr) ? "  ·  antibiotic resistance" : "";
+    tip.textContent = `${genome}${feat.n}  ·  ${linearTypeLabel(feat.t)}  ·  ${feat.strand === "-" ? "reverse" : "forward"}  ·  ${feat.s}-${feat.e}${feat.p ? "  ·  " + feat.p : ""}${amrNote}${orphanNote}`;
     tip.style.left = Math.min(event.offsetX + 14, (host.clientWidth || 400) - 220) + "px";
     tip.style.top = event.offsetY + 16 + "px";
   });
@@ -3329,6 +4280,14 @@ function drawLinearCanvas(host, data, restore) {
     }
     paint();
     scheduleSeq();
+  };
+  host._setOrphans = (value) => {
+    orphansOn = !!value && tracks.length > 1 && (typeof linearCordifyOn !== "function" || linearCordifyOn());
+    paint();
+  };
+  host._setAmr = (value) => {
+    amrOn = !!value;
+    paint();
   };
   const updateSearchCount = () => {
     const el = document.getElementById("linear-search-count");
@@ -3495,6 +4454,7 @@ async function createLinearPlot(opts) {
     fillSelect(contigSel, data.contigs || [], (data.selected || {}).contig, "All contigs");
     fillLinearCordRef((data.selected || {}).genomes || selectedLinearGenomes());
     syncLinearCordUi();
+    syncLinearAmrUi();
     const bar = document.getElementById("linear-plot-bar");
     if (bar) {
       bar.style.display = "flex";
@@ -3514,6 +4474,7 @@ async function createLinearPlot(opts) {
         syntenyScores: restore.syntenyScores,
         syntenyMode: restore.syntenyMode,
         syntenyRef: restore.syntenyRef,
+        orphansOn: restore.orphansOn,
       } : undefined);
       if (linearCordifyOn() && !(restore && restore.syntenyLinks && restore.syntenyLinks.length)) {
         fetchLinearLinks();
@@ -3667,16 +4628,19 @@ let reportCheckInterval = setInterval(() => {
 }, 8000);
 let quastShown = false;
 let baktaShown = false;
+let heatmapShown = false;
 let taxShown = false;
 let checkmShown = false;
 let checkmTreeShown = false;
 let gtdbTreeShown = false;
 let plasmidShown = false;
+let mlstShown = false;
 
 
 bindGeneTypeDropdown();
 bindVizLayout();
 bindLinearPickers();
+bindHeatmapControls();
 
 // snp finder 
 function showSnpError(message) {

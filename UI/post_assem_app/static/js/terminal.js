@@ -24,7 +24,8 @@ const BactflowProcessEta = {
       baktaannot: "Bakta",
       taxonomygtdbtk: "GTDB-Tk",
       checkmlineage: "CheckM",
-      plasmiddetect: "geNomad"
+      plasmiddetect: "geNomad",
+      mlsttyping: "MLST"
     };
     const key = this.normalizeName(name);
     if (labels[key]) {
@@ -69,7 +70,9 @@ const BactflowProcessEta = {
     gtdbtk: 600,
     checkm: 600,
     genomad: 900,
-    plasmiddetect: 900
+    plasmiddetect: 900,
+    mlst: 300,
+    mlsttyping: 300
   },
 
   reset() {
@@ -294,7 +297,25 @@ const BactflowProcessEta = {
   },
 
   finalizeAll(terminal, reason) {
+    const dashFailed = !!(window.BactflowRunDashboard && window.BactflowRunDashboard.failed);
+    const failed = reason === "failed" || dashFailed;
     const now = Date.now();
+    if (failed) {
+      // Stop timers but do not paint unfinished steps as successful checkmarks.
+      this.processes.forEach((proc) => {
+        if (!proc.done) {
+          proc.aborted = true;
+          proc.finishedAt = now;
+          proc.frozenElapsed = (now - (proc.startedAt || now)) / 1000;
+          if (proc.row) {
+            this.renderRow(proc, "log-error");
+          }
+        }
+      });
+      this.stopTick();
+      terminal.setStatus("Pipeline failed — check the log", "error");
+      return;
+    }
     this.processes.forEach((proc) => {
       if (!proc.done) {
         proc.done = true;
@@ -314,10 +335,14 @@ const BactflowProcessEta = {
 
   allDone() {
     const live = [...this.processes.values()].filter((p) => p.id !== "_executor");
-    return live.length > 0 && live.every((p) => p.done);
+    return live.length > 0 && live.every((p) => p.done && !p.aborted && !p.failed);
   },
 
   notifyProcessesDone() {
+    if (window.BactflowRunDashboard && window.BactflowRunDashboard.failed) {
+      this._notifiedDone = true;
+      return;
+    }
     if (!this.allDone() || this._notifiedDone) {
       return;
     }
@@ -872,6 +897,7 @@ const BactflowProcessEta = {
       [/Running circlator|circlator fixstart/i, /circul/i],
       [/quast\.py|Running QUAST/i, /quast/i],
       [/geNomad|plasmidDetect|plasmid_detect/i, /plasmid|genomad/i],
+      [/mlstTyping|mlst_run|\bmlst\b/i, /mlst/i],
       [/checkm /i, /checkm/i],
       [/gtdbtk|GTDB-Tk/i, /gtdb|taxonomy/i],
       [/bakta /i, /bakta/i]
@@ -1007,6 +1033,9 @@ const BactflowTerminal = {
   logEl: null,
   statusEl: null,
   maxLines: 1800,
+  followScroll: true,
+  _scrollBound: false,
+  _ignoreScroll: false,
 
   init() {
     this.logEl = document.getElementById("output-bactflow");
@@ -1022,6 +1051,89 @@ const BactflowTerminal = {
       toggle.addEventListener("change", () => {
         this.quiet = !toggle.checked;
       });
+    }
+    this.bindScrollLock();
+  },
+
+  isNearBottom(slack) {
+    const el = this.logEl;
+    if (!el) {
+      return true;
+    }
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) <= (slack == null ? 48 : slack);
+  },
+
+  bindScrollLock() {
+    if (!this.logEl || this._scrollBound) {
+      return;
+    }
+    this._scrollBound = true;
+    const onUserScroll = () => {
+      if (this._ignoreScroll) {
+        return;
+      }
+      const near = this.isNearBottom();
+      this.followScroll = near;
+      const auto = document.getElementById("rd-autoscroll");
+      if (auto && auto.checked !== near) {
+        auto.checked = near;
+      }
+      if (window.BactflowRunDashboard) {
+        window.BactflowRunDashboard.autoScroll = near;
+      }
+    };
+    this.logEl.addEventListener("scroll", onUserScroll, { passive: true });
+    this.logEl.addEventListener("wheel", () => {
+      requestAnimationFrame(onUserScroll);
+    }, { passive: true });
+    this.logEl.addEventListener("touchmove", () => {
+      requestAnimationFrame(onUserScroll);
+    }, { passive: true });
+    const auto = document.getElementById("rd-autoscroll");
+    if (auto && !auto.dataset.termBound) {
+      auto.dataset.termBound = "1";
+      auto.addEventListener("change", () => {
+        this.followScroll = !!auto.checked;
+        if (window.BactflowRunDashboard) {
+          window.BactflowRunDashboard.autoScroll = this.followScroll;
+        }
+        if (this.followScroll) {
+          this.scrollToBottom();
+        }
+      });
+    }
+  },
+
+  scrollToBottom() {
+    if (!this.logEl) {
+      return;
+    }
+    this._ignoreScroll = true;
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+    this._ignoreScroll = false;
+  },
+
+  pinScroll() {
+    if (this.followScroll) {
+      this.scrollToBottom();
+    }
+  },
+
+  trimOldLines() {
+    const el = this.logEl;
+    if (!el) {
+      return;
+    }
+    while (el.childNodes.length > this.maxLines) {
+      const first = el.firstChild;
+      const h = first && first.offsetHeight ? first.offsetHeight : 0;
+      const top = el.scrollTop;
+      el.removeChild(first);
+      if (!this.followScroll && h) {
+        this._ignoreScroll = true;
+        el.scrollTop = Math.max(0, top - h);
+        this._ignoreScroll = false;
+      }
     }
   },
 
@@ -1126,7 +1238,7 @@ const BactflowTerminal = {
         return;
       }
     }
-    if (window.__bactflowUserStopped && /Process completed|Nextflow finished successfully/i.test(trimmed)) {
+    if (window.__bactflowUserStopped && /Process completed|Process failed|Nextflow finished successfully/i.test(trimmed)) {
       return;
     }
 
@@ -1135,12 +1247,36 @@ const BactflowTerminal = {
       row.className = "log-line log-warn";
       row.textContent = trimmed;
       this.logEl.appendChild(row);
-      this.logEl.scrollTop = this.logEl.scrollHeight;
+      this.pinScroll();
       this.setStatus(trimmed, "warn");
       return;
     }
 
+    if (/^Process failed\b|BactFlow:\s*Nextflow exited with code\s+[1-9]/i.test(trimmed)) {
+      const row = document.createElement("div");
+      row.className = "log-line log-error";
+      row.textContent = line;
+      this.logEl.appendChild(row);
+      this.pinScroll();
+      if (window.BactflowRunDashboard && typeof window.BactflowRunDashboard.markFailed === "function") {
+        window.BactflowRunDashboard.markFailed("");
+      }
+      BactflowProcessEta.finalizeAll(this, "failed");
+      this.setStatus(trimmed.slice(0, 140), "error");
+      if (typeof window.setTerminalVisible === "function") {
+        window.setTerminalVisible(true);
+      }
+      return;
+    }
+
     if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
+      if (window.BactflowRunDashboard && window.BactflowRunDashboard.failed) {
+        BactflowProcessEta.finalizeAll(this, "failed");
+        if (typeof window.setTerminalVisible === "function") {
+          window.setTerminalVisible(true);
+        }
+        return;
+      }
       BactflowProcessEta.finalizeAll(this, "completed");
       if (typeof window.revealResultsOnSuccess === "function") {
         window.revealResultsOnSuccess(true);
@@ -1176,11 +1312,8 @@ const BactflowTerminal = {
     row.className = "log-line " + className;
     row.textContent = line || " ";
     this.logEl.appendChild(row);
-
-    while (this.logEl.childNodes.length > this.maxLines) {
-      this.logEl.removeChild(this.logEl.firstChild);
-    }
-    this.logEl.scrollTop = this.logEl.scrollHeight;
+    this.trimOldLines();
+    this.pinScroll();
 
     if (/BactFlow: cleaning temporary/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "ok");
@@ -1300,7 +1433,10 @@ const BactflowMeters = {
       ramFill,
       document.getElementById("bf-ram-job"),
       s.ram_percent,
-      s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
+      (() => {
+        const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+        return cap ? (Number(s.job_rss_gb) / cap) * 100 : 0;
+      })()
     );
 
     if (cpuVal) {
@@ -1315,7 +1451,10 @@ const BactflowMeters = {
       const jobBit = s.running && s.job_rss_gb != null
         ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
         : "";
-      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
+      const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+      const used = s.running && s.job_rss_gb != null ? s.job_rss_gb : s.ram_used_gb;
+      const pct = cap ? Math.min(100, (Number(used) / cap) * 100) : Number(s.ram_percent || 0);
+      ramVal.innerHTML = `${Number(used || 0).toFixed(1)} / ${cap} GB (${pct.toFixed(0)}%)${jobBit}`;
     }
     this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
     this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
@@ -1368,6 +1507,7 @@ const BactflowMeters = {
   }
 };
 
+window.BactflowTerminal = BactflowTerminal;
 window.BactflowMeters = BactflowMeters;
 
 document.addEventListener("DOMContentLoaded", () => {

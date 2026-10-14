@@ -37,6 +37,7 @@ Options:
     --checkm_db             An absolute path to the Checkm database.  
     --run_plasmids          If true, it runs geNomad plasmid / MGE detection on assembled FASTAs.
     --genomad_db            Absolute path to the geNomad database (genomad download-database DIR).
+    --run_mlst              If true, it runs PubMLST multi-locus sequence typing (mlst).
     --gtdbtk_data_path      Absolute path to the GDBtk database. 
     --run_quast             Post-assembly stats by Quaset, default true.
     --genome_dir            Path to already assembled genomes, only to run post-assembly tasks, e.g. taxonomy classification, gene annotations and quast or checkm 
@@ -232,6 +233,13 @@ workflow {
                 env_check,
                 circ_fasta,
                 params.genomad_db,
+                params.cpus
+            )
+        }
+        if (params.run_mlst) {
+            mlstTyping(
+                env_check,
+                circ_fasta,
                 params.cpus
             )
         }
@@ -1126,6 +1134,80 @@ process plasmidDetect {
     fi
     echo "plasmidDetect published summaries to ${publish}"
     ls -l '${publish}/plasmid_summary.tsv' '${publish}/virus_summary.tsv' || true
+    """
+}
+
+
+process mlstTyping {
+    cpus params.cpus
+    publishDir "${params.out_dir}/mlst_out", mode: 'copy', overwrite: true
+
+    input:
+    path env_check
+    path circ_fasta
+    val cpus
+
+    when:
+    params.run_mlst
+
+    output:
+    path('mlst.tsv'), emit: mlst_tsv
+    path('mlst_summary.tsv'), emit: mlst_summary, optional: true
+    path('genomes_scanned.txt'), emit: mlst_genomes, optional: true
+
+    script:
+    def publish = "${params.out_dir}/mlst_out"
+    """
+    source \$(conda info --base)/etc/profile.d/conda.sh
+    conda activate bactflow
+    set -euo pipefail
+    export PATH="\${CONDA_PREFIX:-}/bin:\${PATH}"
+
+    # Materialize FASTAs into a real directory. Nextflow stages path() dirs as
+    # symlinks; some tools (find -type f without -L) miss those contents.
+    mkdir -p genomes_in
+    src='${circ_fasta}'
+    shopt -s nullglob
+    if [ -d "\$src" ]
+    then
+        for fa in "\$src"/*.fasta "\$src"/*.fa "\$src"/*.fna "\$src"/*.FASTA "\$src"/*.FA "\$src"/*.FNA
+        do
+            [ -f "\$fa" ] && cp -L "\$fa" genomes_in/
+        done
+    elif [ -f "\$src" ]
+    then
+        cp -L "\$src" genomes_in/
+    else
+        for fa in *.fasta *.fa *.fna *.FASTA *.FA *.FNA
+        do
+            [ -f "\$fa" ] && cp -L "\$fa" genomes_in/
+        done
+    fi
+    n_fa=\$(ls genomes_in/*.{fasta,fa,fna,FASTA,FA,FNA} 2>/dev/null | wc -l)
+    if [ "\$n_fa" -eq 0 ]
+    then
+        echo "ERROR: mlstTyping found no FASTA under \$src" >&2
+        ls -la . "\$src" 2>&1 | head -40 >&2 || true
+        exit 1
+    fi
+    src=genomes_in
+
+    bash ${projectDir}/mlst_run.sh -g "\$src" -c ${cpus} -o mlst_work
+
+    mkdir -p '${publish}'
+    cp -f mlst_work/mlst.tsv ./mlst.tsv
+    cp -f mlst_work/mlst.tsv '${publish}/mlst.tsv'
+    if [ -f mlst_work/mlst_summary.tsv ]
+    then
+        cp -f mlst_work/mlst_summary.tsv ./mlst_summary.tsv
+        cp -f mlst_work/mlst_summary.tsv '${publish}/mlst_summary.tsv'
+    fi
+    if [ -f mlst_work/genomes_scanned.txt ]
+    then
+        cp -f mlst_work/genomes_scanned.txt ./genomes_scanned.txt
+        cp -f mlst_work/genomes_scanned.txt '${publish}/genomes_scanned.txt'
+    fi
+    echo "mlstTyping published to ${publish}"
     """
 }
 
