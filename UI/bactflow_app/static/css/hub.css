@@ -1,0 +1,381 @@
+@import url("https://fonts.googleapis.com/css2?family=Great+Vibes&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+  --bf-bg: #050814;
+  --bf-panel: rgba(10, 16, 36, 0.62);
+  --bf-text: #e8eef7;
+  --bf-muted: #94a3b8;
+  --bf-accent: #2dd4bf;
+  --bf-violet: #a78bfa;
+  --bf-line: rgba(148, 163, 184, 0.16);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body.bf-hub {
+  color: var(--bf-text);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: #050814;
+}
+
+.bf-space {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 700px at 12% -10%, rgba(45, 212, 191, 0.16), transparent 55%),
+    radial-gradient(900px 560px at 92% 8%, rgba(167, 139, 250, 0.2), transparent 50%),
+    radial-gradient(700px 500px at 50% 110%, rgba(34, 211, 238, 0.1), transparent 55%),
+    #050814;
+}
+
+.bf-space i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.55;
+  animation: bf-drift 18s ease-in-out infinite;
+}
+
+.bf-space i:nth-child(1) { width: 340px; height: 340px; left: -80px; top: 12%; background: #2dd4bf; }
+.bf-space i:nth-child(2) { width: 420px; height: 280px; right: -100px; top: 30%; background: #8b5cf6; animation-delay: -6s; }
+.bf-space i:nth-child(3) { width: 260px; height: 260px; left: 40%; bottom: -80px; background: #22d3ee; animation-delay: -11s; }
+
+.bf-space svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes bf-drift {
+  50% { transform: translate3d(30px, -24px, 0) scale(1.08); }
+}
+
+.bf-hero {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 56px 28px 28px;
+  text-align: center;
+}
+
+.bf-hero img.bf-logo {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 28px rgba(45, 212, 191, 0.45));
+}
+
+.bf-hero h1 {
+  margin: 18px 0 8px;
+  font-size: clamp(42px, 6vw, 64px);
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.bf-hero .bf-welcome {
+  max-width: 640px;
+  margin: 0 auto 12px;
+  color: var(--bf-muted);
+  font-size: 18px;
+  line-height: 1.55;
+}
+
+.bf-hero .bf-kicker {
+  color: var(--bf-accent);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.bf-signature {
+  margin: 1.75rem auto 0;
+  max-width: 18rem;
+  text-align: center;
+  animation: bf-sig-in 0.9s ease-out 0.25s both;
+}
+
+.bf-sig-rule {
+  display: block;
+  width: 3.25rem;
+  height: 2px;
+  margin: 0 auto 0.85rem;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--bf-accent), var(--bf-violet), transparent);
+}
+
+.bf-sig-name {
+  margin: 0;
+  font-family: "Great Vibes", "Segoe Script", "Apple Chancery", cursive;
+  font-size: clamp(1.85rem, 3.6vw, 2.45rem);
+  line-height: 1.2;
+  color: #e8eef7;
+  transform: rotate(-2.5deg);
+  text-shadow: 0 0 24px rgba(45, 212, 191, 0.28);
+  text-transform: none;
+  font-variant: normal;
+  font-feature-settings: "smcp" 0, "c2sc" 0;
+}
+
+/* Same Great Vibes face as the rest of the signature; force capital glyph */
+.bf-sig-initial {
+  font-family: inherit;
+  font-size: 1.28em;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: 1;
+  vertical-align: -0.06em;
+  text-transform: uppercase;
+  font-variant: normal;
+  font-feature-settings: "smcp" 0, "c2sc" 0;
+  letter-spacing: 0.02em;
+}
+
+.bf-sig-role {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bf-muted);
+  font-weight: 500;
+}
+
+@keyframes bf-sig-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bf-launches {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 28px 48px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.bf-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bf-panel);
+  border: 1px solid var(--bf-line);
+  border-radius: 18px;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  min-height: 340px;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.bf-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(45, 212, 191, 0.5);
+  box-shadow: 0 18px 50px rgba(45, 212, 191, 0.12);
+  color: inherit;
+}
+
+.bf-card-art {
+  position: relative;
+  height: 176px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(280px 140px at 50% 120%, color-mix(in srgb, currentColor 22%, transparent), transparent 70%),
+    linear-gradient(180deg, rgba(7, 12, 22, 0.2), rgba(5, 8, 20, 0.85));
+}
+
+.bf-card-art::before {
+  content: "";
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  background: currentColor;
+  filter: blur(42px);
+  opacity: 0.28;
+}
+
+.bf-card-art.is-qc {
+  color: #22d3ee;
+  --bf-icon: url("/hub/static/images/qc-microscope.svg");
+}
+
+.bf-card-art.is-assembly {
+  color: #a78bfa;
+  --bf-icon: url("/hub/static/images/assem-dna.svg");
+}
+
+.bf-card-art.is-post {
+  color: #2dd4bf;
+  --bf-icon: url("/hub/static/images/post-bacteria.svg");
+}
+
+.bf-card-icon {
+  position: relative;
+  z-index: 1;
+  width: 108px;
+  height: 108px;
+  background: currentColor;
+  -webkit-mask: var(--bf-icon) center / contain no-repeat;
+  mask: var(--bf-icon) center / contain no-repeat;
+  filter: drop-shadow(0 0 16px color-mix(in srgb, currentColor 65%, transparent));
+}
+
+.bf-card .bf-card-body {
+  padding: 20px 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.bf-card h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.bf-card p {
+  margin: 0;
+  color: var(--bf-muted);
+  font-size: 14px;
+  line-height: 1.45;
+  flex: 1;
+}
+
+.bf-card .bf-go {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--bf-accent);
+  color: #062822;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.bf-home-scroll {
+  height: 100%;
+  overflow: auto;
+}
+
+.bf-wiki {
+  position: relative;
+  z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 36px 24px 90px;
+}
+
+.bf-wiki h1 {
+  font-size: 36px;
+  margin: 0 0 8px;
+}
+
+.bf-wiki .lead {
+  color: var(--bf-muted);
+  font-size: 17px;
+  margin-bottom: 36px;
+}
+
+.bf-flow {
+  position: relative;
+  padding-left: 28px;
+}
+
+.bf-flow::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: linear-gradient(180deg, #2dd4bf, #8b5cf6, #22d3ee);
+}
+
+.bf-step {
+  position: relative;
+  margin-bottom: 22px;
+  background: var(--bf-panel);
+  border: 1px solid var(--bf-line);
+  border-radius: 16px;
+  padding: 18px 20px 16px;
+}
+
+.bf-step::before {
+  content: "";
+  position: absolute;
+  left: -28px;
+  top: 18px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2dd4bf;
+  box-shadow: 0 0 0 4px #050814;
+}
+
+.bf-step h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.bf-step p, .bf-step li {
+  color: var(--bf-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bf-step ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.bf-step code {
+  font-family: "IBM Plex Mono", monospace;
+  color: #fbbf24;
+  font-size: 12px;
+}
+
+.bf-step .tag {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2dd4bf;
+  margin-bottom: 6px;
+}
+
+.bf-hub-foot {
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+  padding: 0 16px 28px;
+}
+
+@media (max-width: 900px) {
+  .bf-launches {
+    grid-template-columns: 1fr;
+  }
+  .bf-hero {
+    padding-top: 28px;
+  }
+}

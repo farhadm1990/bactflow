@@ -837,7 +837,7 @@ process assembly_spades {
         echo "R2: \$r2"
         echo "SPAdes log: \$spades_dir/spades_run.log"
 
-        if ! spades.py -1 "\$r1" -2 "\$r2" --isolate -t ${cpus} -o "\$spades_dir" > "\$spades_dir"/spades_run.log 2>&1
+        if ! spades.py -1 "\$r1" -2 "\$r2" --isolate -t ${cpus} -m ${params.memory_gb} -o "\$spades_dir" > "\$spades_dir"/spades_run.log 2>&1
         then
             echo "SPAdes failed for \${out_name}. Last log lines:" >&2
             tail -n 40 "\$spades_dir"/spades_run.log >&2

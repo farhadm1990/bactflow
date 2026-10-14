@@ -11,33 +11,27 @@
 
 BactFlow is a workflow with a user-friendly UI for bacterial genome assembly of single-isolate sequencing reads from **Oxford Nanopore (ONT)**, **Illumina**, **PacBio**, and **ONT/PacBio+Illumina hybrid** data. It is built with Nextflow DSL 2 and reads the usual outputs of Guppy and Dorado basecallers.
 
-There are three modules:
+One UI on **port 5000** holds every page:
 
-| Module | What it does | UI port |
-| --- | --- | --- |
-| **Pre-assembly** | Concatenate barcode folders, drop tiny files, seqkit stats, read plots | 5000 |
-| **Assembly** | Flye (ONT / PacBio), SPAdes (Illumina), Unicycler (hybrid), optional Medaka / circulate / QUAST / Bakta / GTDB-Tk / CheckM | 5002 |
-| **Post-assembly** | QUAST, Bakta, GTDB-Tk, CheckM, SNP finder, Medaka variant calling, circular plots, strain finder | 5001 |
+| Page | What it does |
+| --- | --- |
+| **QC** | Concatenate barcode folders, drop tiny files, seqkit stats, read plots |
+| **Assembly** | Flye (ONT / PacBio), SPAdes (Illumina), Unicycler (hybrid), optional Medaka / circulate / QUAST |
+| **Post-assembly** | QUAST, Bakta, GTDB-Tk, CheckM, MLST, geNomad, SNP finder, Medaka variant calling, genome plots, Generate report (HTML/PDF) |
 
-Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
+Switch pages from the top bar. Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
 
 ## How you run BactFlow
 
-**Every UI start goes through `./bactflow.sh`.** That script picks the image or Conda env, mounts your work directory, waits until the UI is up, and opens the browser. Do **not** run `docker run`, `singularity` / `apptainer`, `conda activate` + `python …/assembly.py`, or `scripts/setup_bactflow_env.sh` by hand — those paths skip port checks, binds, and the fixes this repo already has.
+**Every start goes through `./bactflow.sh run`.** That script picks the image or Conda env, mounts your work directory, waits until the UI is up, and opens the browser. Do **not** run `docker run`, `singularity` / `apptainer`, `conda activate` + `python …/app.py`, or `scripts/setup_bactflow_env.sh` by hand.
 
 ```sh
-./bactflow.sh <module> <work_dir> --service docker|apptainer|conda
+./bactflow.sh run <work_dir> --service docker|apptainer|conda
 ```
 
-| `<module>` | What opens | Address |
-| --- | --- | --- |
-| `preassem` (or `pre`) | Pre-assembly | http://127.0.0.1:5000 |
-| `assem` (or `ass`) | Assembly | http://127.0.0.1:5002 |
-| `postassem` (or `post`) | Post-assembly | http://127.0.0.1:5001 |
+Leave that terminal running. Stop with **Ctrl+C**. Then open http://127.0.0.1:5000.
 
-One module = one terminal. Leave it running. Open another terminal for the next module. Stop with **Ctrl+C**.
-
-You only pick **one** `--service`. The UIs are the same.
+You only pick **one** `--service`.
 
 | If this is you | Use | Do you need sudo / a Docker group? |
 | --- | --- | --- |
@@ -83,7 +77,7 @@ docker run hello-world
 
 If `hello-world` prints a hello message, Docker is ready. Log out and back in if `newgrp` is not enough.
 
-### Start the UIs
+### Start BactFlow
 
 From the `bactflow` folder:
 
@@ -91,23 +85,12 @@ From the `bactflow` folder:
 cd /path/to/bactflow
 WORK_DIR="$(pwd)"
 
-# Terminal 1 — pre-assembly (port 5000)
-./bactflow.sh preassem "${WORK_DIR}" --service docker
-
-# Terminal 2 — assembly (port 5002)
-./bactflow.sh assem "${WORK_DIR}" --service docker --cpus 10 --memory 16g
-
-# Terminal 3 — post-assembly (port 5001)
-./bactflow.sh postassem "${WORK_DIR}" --service docker --cpus 10 --memory 16g
+./bactflow.sh run "${WORK_DIR}" --service docker --cpus 10 --memory 16g
 ```
 
 `--service docker` can be omitted; Docker is the default.
 
-Wait until the terminal prints **UI is ready**. A browser tab should open. If it does not, open the address yourself:
-
-- Pre-assembly: http://127.0.0.1:5000
-- Assembly: http://127.0.0.1:5002
-- Post-assembly: http://127.0.0.1:5001
+Wait until the terminal prints **UI is ready**. A browser tab should open. If it does not, open http://127.0.0.1:5000.
 
 **Path rule (Docker and Apptainer):** the container only sees files **under** `WORK_DIR`. Put FASTQs, genomes, databases (or symlinks to them), and the output folder inside that directory. In the form, use absolute paths such as `${WORK_DIR}/test_reads/ont` and `${WORK_DIR}/bactflow_out`.
 
@@ -117,13 +100,13 @@ First run downloads images from Docker Hub. That can take several minutes.
 
 # 2. Apptainer
 
-Use this on HPC or a locked-down Linux box where you **cannot** join the Docker group. You still start BactFlow with `./bactflow.sh --service apptainer`. Do not call `singularity` / `apptainer` yourself.
+Use this on HPC or a locked-down Linux box where you **cannot** join the Docker group. You still start BactFlow with `./bactflow.sh run … --service apptainer`. Do not call `singularity` / `apptainer` yourself.
 
 Apptainer (or Singularity) does **not** need sudo or the Docker group. It uses the **same** Hub images as Docker (`farhadm1990/bactflow_*`). `bactflow.sh` converts each image once under `~/.bactflow/sif/` (a `.sif` file, or a sandbox directory if your Singularity cannot mount squashfs) and reuses it. If you want no containers at all, use [Conda](#3-conda).
 
 You need `apptainer` **or** `singularity` on your PATH (`apptainer --version` or `singularity --version`). If both are missing, ask IT to install Apptainer, or use [Conda](#3-conda) instead.
 
-### Start the UIs
+### Start BactFlow
 
 From the `bactflow` folder:
 
@@ -131,14 +114,7 @@ From the `bactflow` folder:
 cd /path/to/bactflow
 WORK_DIR="$(pwd)"
 
-# Terminal 1 — pre-assembly (port 5000)
-./bactflow.sh preassem "${WORK_DIR}" --service apptainer
-
-# Terminal 2 — assembly (port 5002)
-./bactflow.sh assem "${WORK_DIR}" --service apptainer --cpus 10 --memory 16g
-
-# Terminal 3 — post-assembly (port 5001)
-./bactflow.sh postassem "${WORK_DIR}" --service apptainer --cpus 10 --memory 16g
+./bactflow.sh run "${WORK_DIR}" --service apptainer --cpus 10 --memory 16g
 ```
 
 `--service singularity` means the same thing as `--service apptainer`.
@@ -146,14 +122,10 @@ WORK_DIR="$(pwd)"
 The first run converts the Hub image. That is slow once. Later starts reuse `~/.bactflow/sif/`. To refresh:
 
 ```sh
-./bactflow.sh assem "${WORK_DIR}" --service apptainer --pull
+./bactflow.sh run "${WORK_DIR}" --service apptainer --pull
 ```
 
-Then open:
-
-- http://127.0.0.1:5000 (pre-assembly)
-- http://127.0.0.1:5002 (assembly)
-- http://127.0.0.1:5001 (post-assembly)
+Then open http://127.0.0.1:5000.
 
 Same **path rule** as Docker: keep reads, databases, and `--out_dir` under `WORK_DIR`.
 
@@ -161,14 +133,14 @@ To store converted images somewhere else (for example a scratch disk):
 
 ```sh
 export BACTFLOW_SIF_DIR=/scratch/$USER/bactflow-sif
-./bactflow.sh assem "${WORK_DIR}" --service apptainer
+./bactflow.sh run "${WORK_DIR}" --service apptainer
 ```
 
 ---
 
 # 3. Conda
 
-Use this when you do not want containers. Tools install into a Conda env named `bactflow` in your account. **No sudo.** The root `config.yml` has the tools for all three modules. Create the env and start the UIs with `./bactflow.sh` — do not `conda activate` and run the Flask apps yourself.
+Use this when you do not want containers. Tools install into a Conda env named `bactflow` in your account. **No sudo.** The root `config.yml` has the tools for the whole UI. Create the env and start with `./bactflow.sh run` — do not `conda activate` and run the Flask app yourself.
 
 ### One-time: Conda itself (skip if `conda` already works)
 
@@ -182,7 +154,7 @@ exec bash
 conda --version
 ```
 
-### Start the UIs
+### Start BactFlow
 
 From the `bactflow` folder. The **first** launch creates the env (this can take a long time). Later launches reuse it.
 
@@ -190,26 +162,15 @@ From the `bactflow` folder. The **first** launch creates the env (this can take 
 cd /path/to/bactflow
 WORK_DIR="$(pwd)"
 
-# Terminal 1 — pre-assembly (port 5000)
-./bactflow.sh preassem "${WORK_DIR}" --service conda
-
-# Terminal 2 — assembly (port 5002)
-./bactflow.sh assem "${WORK_DIR}" --service conda
-
-# Terminal 3 — post-assembly (port 5001)
-./bactflow.sh postassem "${WORK_DIR}" --service conda
+./bactflow.sh run "${WORK_DIR}" --service conda
 ```
 
-Then open:
-
-- http://127.0.0.1:5000
-- http://127.0.0.1:5002
-- http://127.0.0.1:5001
+Then open http://127.0.0.1:5000.
 
 To rebuild/update the env from `config.yml` (Java 17–24 and Nextflow 24.10.2 are included):
 
 ```sh
-./bactflow.sh assem "${WORK_DIR}" --service conda --rebuild
+./bactflow.sh run "${WORK_DIR}" --service conda --rebuild
 ```
 
 Env create **does not download** Bakta, GTDB-Tk, CheckM, or geNomad databases. Install those yourself when you need them and paste the paths in the UI.
@@ -221,24 +182,24 @@ Conda runs on the host, so it can see **any** path you can see. Absolute paths a
 # Common flags (all services)
 
 ```sh
-./bactflow.sh assem "${WORK_DIR}" --service docker --cpus 16 --memory 32g --port 5002
-./bactflow.sh preassem "${WORK_DIR}" --service docker --local --rebuild
-./bactflow.sh postassem "${WORK_DIR}" --service apptainer --tag v0.01
-./bactflow.sh assem "${WORK_DIR}" --service conda --no-browser
+./bactflow.sh run "${WORK_DIR}" --service docker --cpus 16 --memory 32g
+./bactflow.sh run "${WORK_DIR}" --service docker --local --rebuild
+./bactflow.sh run "${WORK_DIR}" --service apptainer --tag v1.0
+./bactflow.sh run "${WORK_DIR}" --service conda --no-browser
 ```
 
 | Flag | What it does |
 | --- | --- |
 | `--service NAME` | `docker` (default), `apptainer`, or `conda` |
 | `--cpus N` / `--memory SIZE` | Limits for Docker; Apptainer uses them when the runtime supports it |
-| `--port PORT` | Host port if 5000 / 5002 / 5001 is already taken |
+| `--port PORT` | Host port if 5000 is already taken |
 | `--no-browser` | Do not open a tab; copy the URL from the terminal |
 | `--local` | Build from this repo’s Dockerfile (docker / apptainer) |
 | `--rebuild` | Rebuild the local Docker image, rebuild the converted Apptainer image, or update the Conda env |
 | `--tag TAG` | Pin a Hub tag, for example `v1.0` |
 | `--pull` | Re-download the Hub image / rebuild the converted Apptainer image |
 
-If the browser does not open, the terminal still prints the URL. If a port is busy, pass `--port` (for example `--port 5010`).
+If the browser does not open, the terminal still prints the URL. If port 5000 is busy, pass `--port` (for example `--port 5010`).
 
 ---
 
@@ -246,7 +207,7 @@ If the browser does not open, the terminal still prints the URL. If a port is bu
 
 | You saw | Likely fix |
 | --- | --- |
-| I ran `docker run` / `singularity` / `python …assembly.py` | Stop that process. Start with `./bactflow.sh <module> "${WORK_DIR}" --service …` |
+| I ran `docker run` / `singularity` / `python …app.py` | Stop that process. Start with `./bactflow.sh run "${WORK_DIR}" --service …` |
 | `Docker is not installed` / `daemon is not reachable` | Use `--service apptainer` or `--service conda`, or fix the Docker group |
 | `Apptainer/Singularity is not installed` | Install Apptainer, or use `--service conda` |
 | `unable to retrieve auth token: invalid username/password` | Stale Docker Hub login in `~/.docker/config.json`. Retry; BactFlow now prefers `docker save` → `.sif` so Singularity never talks to Hub. |
@@ -254,7 +215,7 @@ If the browser does not open, the terminal still prints the URL. If a port is bu
 | `Usage: singularity … run` then the UI never starts | Singularity 3.0 has no `--env`. Retry; BactFlow now uses `SINGULARITYENV_*` and `exec`. |
 | `failed to mount squashfs filesystem: invalid argument` | Singularity 3.0 cannot mount a `.sif` on a new kernel. Retry; BactFlow extracts a sandbox directory under `~/.bactflow/sif/`. |
 | `conda/mamba was not found` | Install Miniforge in `$HOME` (Conda section above) |
-| `Port 5002 is already in use` | `./bactflow.sh assem "${WORK_DIR}" --service … --port 5010` |
+| `Port 5000 is already in use` | `./bactflow.sh run "${WORK_DIR}" --service … --port 5010` |
 | Form cannot see my FASTQs (docker / apptainer) | Paths must sit **inside** `WORK_DIR` |
 | First conda/apptainer start looks “stuck” | First image/env build is slow; wait for **UI is ready** |
 
@@ -373,7 +334,7 @@ Assembly detects **HiFi vs subread**-style PacBio inputs. Use `--pacbio_read_typ
 
 # Running from the terminal
 
-This is an optional **no-UI** Nextflow path for people who already have the Conda env from `./bactflow.sh … --service conda`. To open the three UIs, use `./bactflow.sh` only (see [How you run BactFlow](#how-you-run-bactflow)).
+This is an optional **no-UI** Nextflow path for people who already have the Conda env from `./bactflow.sh run … --service conda`. To open the UI, use `./bactflow.sh run` only (see [How you run BactFlow](#how-you-run-bactflow)).
 
 ```sh
 conda activate bactflow
@@ -567,7 +528,7 @@ nextflow run UI/post_assem_app/main.nf \
 
 ### Post-assembly UI extras
 
-From the post-assembly web UI (port **5001**) you can also:
+From **Post-assembly** in the UI you can also:
 
 - **SNP finder** — BWA + bcftools; interactive VCF tables per genome under `out_dir/snps/`
 - **Variant calling (Medaka)** — tables from each genome’s **`medaka.vcf`** under `out_dir/vcs/`
@@ -697,9 +658,9 @@ Set `--bakta_annot true` and `--bakta_db` to a Bakta database directory.
 
 ### Browser does not open (Docker)
 
-- Start with `./bactflow.sh …` (opens the host browser after the UI is ready).
+- Start with `./bactflow.sh run …` (opens the host browser after the UI is ready).
 - If the tab still does not appear, copy the URL printed in the terminal.
-- Rebuild local images after UI changes: `./bactflow.sh <module> <work_dir> --local --rebuild`.
+- Rebuild the local image after UI changes: `./bactflow.sh run <work_dir> --local --rebuild`.
 
 ### Paths outside the Docker work directory
 

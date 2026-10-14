@@ -1,39 +1,29 @@
 Copyright (c) 2026 University of Copenhagen
+All rights reserved.
 
- 
+BactFlow is proprietary software. The copyright holder grants you a limited,
+non-exclusive, non-transferable, royalty-free permission to obtain a copy of
+this software and associated documentation files (the "Software") and to run
+the Software for your own personal or academic research use.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
+You may not:
 
-of this software and associated documentation files (the "Software"), to deal
+  - modify, adapt, translate, reverse engineer, or create derivative works
+    from the Software or its source code;
+  - sell, rent, lease, sublicense, or otherwise commercially exploit the
+    Software, or charge others a fee to use it;
+  - distribute modified copies of the Software.
 
-in the Software without restriction, including without limitation the rights
-
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-
-copies of the Software, and to permit persons to whom the Software is
-
-furnished to do so, subject to the following conditions:
-
- 
-
-The above copyright notice and this permission notice shall be included in all
-
-copies or substantial portions of the Software.
-
- 
+Any other use requires prior written permission from the copyright holder.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-
 SOFTWARE.
 
-BactFlow is a graphical workflow that integrates several third-party bioinformatics tools. These tools are distributed under their respective licenses, which remain applicable. BactFlow itself is released under the MIT License.
+BactFlow is a graphical workflow that integrates several third-party
+bioinformatics tools. Those tools remain under their own licenses. This file
+covers only BactFlow itself.

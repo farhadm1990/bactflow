@@ -10,6 +10,9 @@ dependencies:
   - numpy
   - pandas
   - biopython
+  - matplotlib
+  - matplotlib-base
+  - libraqm>=0.10.1
   - pip
   - pip:
       - flask==3.1.3

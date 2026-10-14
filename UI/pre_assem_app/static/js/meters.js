@@ -105,7 +105,10 @@ const BactflowMeters = {
       ramFill,
       document.getElementById("bf-ram-job"),
       s.ram_percent,
-      s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
+      (() => {
+        const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+        return cap ? (Number(s.job_rss_gb) / cap) * 100 : 0;
+      })()
     );
     if (cpuVal) {
       cpuVal.classList.remove("is-missing");
@@ -119,7 +122,10 @@ const BactflowMeters = {
       const jobBit = s.running && s.job_rss_gb != null
         ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
         : "";
-      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
+      const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+      const used = s.running && s.job_rss_gb != null ? s.job_rss_gb : s.ram_used_gb;
+      const pct = cap ? Math.min(100, (Number(used) / cap) * 100) : Number(s.ram_percent || 0);
+      ramVal.innerHTML = `${Number(used || 0).toFixed(1)} / ${cap} GB (${pct.toFixed(0)}%)${jobBit}`;
     }
     this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
     this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");

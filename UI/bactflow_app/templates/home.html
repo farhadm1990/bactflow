@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="bactflow-root" content="">
+    <title>BactFlow</title>
+    <link rel="shortcut icon" href="/hub/static/images/logo.png">
+    <link rel="stylesheet" href="/hub/static/css/hub.css?v=hub9">
+    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub9">
+    <script src="/hub/static/js/chrome.js?v=hub9"></script>
+  </head>
+  <body class="bf-hub bf-hub-shell helix-shell">
+    <div class="bf-stage">
+      <div class="bf-home-scroll" data-bf-view="home">
+        <div class="bf-space" aria-hidden="true">
+          <i></i><i></i><i></i>
+          <svg viewBox="0 0 1400 800" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="bf-plasma" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#2dd4bf"/>
+                <stop offset="0.5" stop-color="#8b5cf6"/>
+                <stop offset="1" stop-color="#22d3ee"/>
+              </linearGradient>
+            </defs>
+            <path fill="none" stroke="url(#bf-plasma)" stroke-width="1.4" opacity=".55" d="M-40 420 C180 140 260 680 520 360 S860 80 1100 420 S1380 720 1480 300"/>
+            <path fill="none" stroke="url(#bf-plasma)" stroke-width="1" opacity=".35" d="M-40 500 C220 220 300 760 580 440 S900 160 1140 500 S1400 780 1480 380"/>
+          </svg>
+        </div>
+        <section class="bf-hero">
+          <div class="bf-kicker">Bacterial genomics workstation</div>
+          <img class="bf-logo" src="/hub/static/images/logo.png" alt="BactFlow logo">
+          <h1>BactFlow</h1>
+          <p class="bf-welcome">
+            Welcome. One place for quality control, genome assembly, and post-assembly
+            analysis. Open a module, set CPUs and Memory, then run. You can move between
+            pages while a job is running; a second BactFlow process cannot start until
+            the current one finishes.
+          </p>
+          <div class="bf-signature" aria-label="Author signature">
+            <span class="bf-sig-rule" aria-hidden="true"></span>
+            <p class="bf-sig-name">Farhad <span class="bf-sig-initial">M.</span> Panah</p>
+            <p class="bf-sig-role">Author</p>
+          </div>
+        </section>
+
+        <section class="bf-launches" aria-label="Launch a module">
+          <a class="bf-card" href="/#qc" data-view="qc">
+            <div class="bf-card-art is-qc" aria-hidden="true">
+              <span class="bf-card-icon"></span>
+            </div>
+            <div class="bf-card-body">
+              <h2>Launch QC</h2>
+              <p>Inspect, pool, filter, and plot Illumina, ONT, or PacBio reads before assembly.</p>
+              <span class="bf-go">Launch QC</span>
+            </div>
+          </a>
+          <a class="bf-card" href="/#assembly" data-view="assembly">
+            <div class="bf-card-art is-assembly" aria-hidden="true">
+              <span class="bf-card-icon"></span>
+            </div>
+            <div class="bf-card-body">
+              <h2>Launch Assembly</h2>
+              <p>Assemble with Flye, SPAdes, Unicycler, or PacBio Flye, then check QUAST and related reports.</p>
+              <span class="bf-go">Launch Assembly</span>
+            </div>
+          </a>
+          <a class="bf-card" href="/#post" data-view="post">
+            <div class="bf-card-art is-post" aria-hidden="true">
+              <span class="bf-card-icon"></span>
+            </div>
+            <div class="bf-card-body">
+              <h2>Launch Post-assembly</h2>
+              <p>Annotate, classify, quality-check genomes, find plasmids, and explore linear plots and heatmaps.</p>
+              <span class="bf-go">Launch Post-assembly</span>
+            </div>
+          </a>
+        </section>
+        <p class="bf-hub-foot">Need the settings walkthrough? Open Wiki in the top bar.<br>© 2026 BactFlow · Farhad M. Panah</p>
+      </div>
+
+      <div class="bf-home-scroll" data-bf-view="wiki" hidden>
+        <article class="bf-wiki">
+          <h1>How BactFlow runs</h1>
+          <p class="lead">
+            Work left to right: QC the reads, assemble, then interpret the genomes.
+            Only one pipeline can run at a time. Memory is a hard cap — keep it below
+            what the machine actually has.
+          </p>
+          <div class="bf-flow">
+            <section class="bf-step" data-n="1">
+              <div class="tag">Start</div>
+              <h2>Home</h2>
+              <p>
+                Launch QC, Assembly, or Post-assembly from the cards or the top bar.
+                Switching modules does not reload a run that is already open. While a
+                process is live, Start / Filter / Install on the other modules stay inactive.
+              </p>
+            </section>
+            <section class="bf-step" data-n="2">
+              <div class="tag">Resources</div>
+              <h2>CPUs and Memory</h2>
+              <ul>
+                <li><code>CPUs</code> — threads for Nextflow, seqkit, Flye, SPAdes, Bakta, and similar tools. The CPU gauge is relative to this value.</li>
+                <li><code>Memory (GB)</code> — hard cap for the run. The memory gauge uses this as the denominator (used / cap), not the whole machine. Nextflow cannot schedule more than this; SPAdes is passed <code>-m</code>. Values above host RAM minus 1 GB are reduced automatically.</li>
+                <li>Small laptops: 4–8 GB. Assembly, CheckM, and GTDB-Tk are the hungry steps.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="3">
+              <div class="tag">QC</div>
+              <h2>Launch QC</h2>
+              <p>Point at a FASTQ folder, choose the output directory, then:</p>
+              <ul>
+                <li><code>Read type</code> — Illumina, ONT, or PacBio.</li>
+                <li><code>Concat reads</code> — pool barcode folders into one FASTQ per sample.</li>
+                <li><code>Filter reads</code> — length/quality gates.</li>
+                <li><code>Display read statistics</code> / <code>Visualize reads</code> — seqkit stats and quality plots.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="4">
+              <div class="tag">QC outputs</div>
+              <h2>How to read QC results</h2>
+              <ul>
+                <li><strong>FASTQ list</strong> — files that will go to assembly. Tiny leftover files after pooling are often failed barcodes; trim them if they are junk.</li>
+                <li><strong>SeqKit table</strong> — <code>num_seqs</code> is read count; <code>avg_len</code> / N50 should match the chemistry (Illumina ~150–300 bp, ONT often kb-scale, HiFi ~10–20 kb). Very low <code>avg_qual</code> means skip or re-basecall before assembling.</li>
+                <li><strong>Quality plots</strong> — a pile of short, low-Q reads is contamination or a failed library. PacBio CLR looks noisier than HiFi; that is expected.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="5">
+              <div class="tag">Assembly</div>
+              <h2>Launch Assembly</h2>
+              <ul>
+                <li><code>Assembler</code> — Flye (ONT), SPAdes (Illumina isolate), Unicycler (hybrid), PacBio Flye.</li>
+                <li><code>Resume</code> — continue a previous Nextflow run in the same output directory.</li>
+                <li>Start BactFlow. Stop cancels the tree. Display results appears when reports exist.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="6">
+              <div class="tag">Assembly outputs</div>
+              <h2>How to read assembly results</h2>
+              <ul>
+                <li><strong>FASTA genomes</strong> — under the output <code>asm_out_dir/fastas</code> (and circulated copies if you enabled that). One file per sample.</li>
+                <li><strong>QUAST</strong> — <code>N50</code> and contig count: isolate bacteria often land near 1–10 contigs with N50 in the Mb range. Hundreds of tiny contigs usually means leftover reads, the wrong assembler, or a mixed sample. <code>Largest contig</code> near the expected genome size is a good sign.</li>
+                <li><strong>GC / genome size</strong> — should match the species you think you sequenced. A 2 Mb assembly for a 5 Mb organism is incomplete.</li>
+                <li><strong>Terminal</strong> — Nextflow process names turning green means that step finished. Red / exit code ≠ 0 is the step to re-run after fixing paths or Memory.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="7">
+              <div class="tag">Post-assembly</div>
+              <h2>Launch Post-assembly</h2>
+              <ul>
+                <li><code>Genome directory</code> — folder of FASTA files. Required unless you only install.</li>
+                <li><code>QUAST</code> — assembly metrics. On by default.</li>
+                <li><code>CheckM</code> — completeness/contamination. Needs a database. Heavy RAM.</li>
+                <li><code>GTDB-Tk</code> — taxonomy. Needs the GTDB data path. Very heavy.</li>
+                <li><code>Bakta</code> — annotation. Linear plots, AMR, orphans, and the heatmap read these results.</li>
+                <li><code>geNomad</code> — plasmids / viruses with a local database.</li>
+                <li><code>MLST</code> — PubMLST sequence typing. No extra database path.</li>
+                <li><code>Generate report</code> — HTML + PDF summary of every result table with written interpretation.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="8">
+              <div class="tag">Post outputs</div>
+              <h2>How to read post-assembly results</h2>
+              <ul>
+                <li><strong>CheckM</strong> — completeness above ~90% and contamination below ~5% is a typical isolate. High contamination suggests mixed cultures or assembly artifacts.</li>
+                <li><strong>GTDB-Tk</strong> — reports the closest GTDB species/genus. Classification confidence drops when the genome is incomplete or novel.</li>
+                <li><strong>MLST</strong> — scheme + sequence type (ST) per genome. Allele heatmap shows which loci differ. Untyped means no PubMLST scheme matched.</li>
+                <li><strong>Bakta table</strong> — CDS, rRNA, tRNA counts. Missing rRNAs often mean a fragmented assembly, not a mysterious organism.</li>
+                <li><strong>Linear plot</strong> — arrows are genes. Highlight AMR shows antibiotic (not metal/stress) genes. Cordify draws homologs between stacked genomes; Find orphans blinks CDS with no match to the partner.</li>
+                <li><strong>Heatmap</strong> — gene abundance or prevalence across annotated genomes. Tight clusters are similar accessory content; singleton rows are sample-specific genes.</li>
+                <li><strong>geNomad</strong> — plasmid and virus tables. Short circular contigs with plasmid hits are the ones to inspect first.</li>
+                <li><strong>Genome report</strong> — Generate report writes narrative text plus tables to <code>bactflow_report/</code> (PDF and HTML). It only uses results already on disk.</li>
+                <li><strong>VCF / SV tables</strong> — SNPs and structural variants versus the wild-type FASTA you picked. Dense SNP piles in one region can be a mapping artifact or a real hotspot.</li>
+              </ul>
+            </section>
+            <section class="bf-step" data-n="9">
+              <div class="tag">Lock</div>
+              <h2>One process at a time</h2>
+              <p>
+                Navigation is always allowed and does not restart a module. Launch buttons
+                on other modules stay inactive until the current job exits or you press Stop.
+              </p>
+            </section>
+          </div>
+          <p class="bf-hub-foot">© 2026 BactFlow · Farhad M. Panah</p>
+        </article>
+      </div>
+
+      <iframe data-bf-view="qc" data-src="/qc/" title="QC" hidden></iframe>
+      <iframe data-bf-view="assembly" data-src="/assembly/" title="Assembly" hidden></iframe>
+      <iframe data-bf-view="post" data-src="/post/" title="Post-assembly" hidden></iframe>
+    </div>
+  </body>
+</html>

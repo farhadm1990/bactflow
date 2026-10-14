@@ -1,0 +1,50 @@
+# Unified BactFlow UI (QC + Assembly + Post-assembly).
+# environment.docker.yml is a Conda spec — do not pass it to docker compose -f
+# or docker build -f. The Dockerfile is UI/bactflow_app/Dockerfile.
+#
+# From the repository root:
+#   export BACTFLOW_WORK=/absolute/path/to/your/data
+#   docker compose up --build
+#
+# Then open http://127.0.0.1:5000
+
+name: bactflow
+
+services:
+  ui:
+    image: bactflow:v1.0
+    build:
+      context: .
+      dockerfile: UI/bactflow_app/Dockerfile
+    init: true
+    ports:
+      - "${BACTFLOW_PORT:-5000}:5000"
+    volumes:
+      - "${BACTFLOW_WORK:-.}:${BACTFLOW_WORK:-/work}"
+    working_dir: "${BACTFLOW_WORK:-/work}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      BACTFLOW_IN_DOCKER: "1"
+      BACTFLOW_NO_BROWSER: "1"
+      BACTFLOW_MODULE: ui
+      BACTFLOW_HOST_PORT: "5000"
+      BACTFLOW_PUBLIC_URL: "http://127.0.0.1:${BACTFLOW_PORT:-5000}/"
+      HOME: "${BACTFLOW_WORK:-/work}"
+      NXF_HOME: "${BACTFLOW_WORK:-/work}/.nextflow"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    cpus: ${BACTFLOW_CPUS:-10.0}
+    mem_limit: ${BACTFLOW_MEMORY:-16g}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=5)",
+        ]
+      interval: 20s
+      timeout: 8s
+      retries: 8
+      start_period: 45s

@@ -34,6 +34,8 @@
     plots: ["bar-qual-plot", "qual-plot", "rd-results"],
   };
 
+  const PLOT_DIV_IDS = ["qual-plot", "qual-heat-plot", "qual-heat-pool-plot"];
+
   const ENDPOINTS = {
     "/ls-fastq": "pool",
     "/trim-list": "trim",
@@ -375,6 +377,66 @@
       if (!st || st.state !== "run") {
         return;
       }
+      if (id === "plots") {
+        if (this.plotsReadyTimer) {
+          clearInterval(this.plotsReadyTimer);
+          this.plotsReadyTimer = null;
+        }
+        if (!error) {
+          this.finishPlotsWhenReady();
+          return;
+        }
+      }
+      this.commitFinish(id, error);
+    },
+
+    plotsReady() {
+      return PLOT_DIV_IDS.every((id) => {
+        const el = document.getElementById(id);
+        if (!el || el.style.display === "none") {
+          return false;
+        }
+        return el.classList.contains("js-plotly-plot") && Array.isArray(el.data) && el.data.length > 0;
+      });
+    },
+
+    finishPlotsWhenReady() {
+      const st = this.steps.plots;
+      if (!st || st.state !== "run") {
+        return;
+      }
+      if (this.plotsReady()) {
+        this.commitFinish("plots", "");
+        return;
+      }
+      if (this.plotsReadyTimer) {
+        return;
+      }
+      const started = Date.now();
+      this.plotsReadyTimer = setInterval(() => {
+        const cur = this.steps.plots;
+        if (!cur || cur.state !== "run") {
+          clearInterval(this.plotsReadyTimer);
+          this.plotsReadyTimer = null;
+          return;
+        }
+        if (this.plotsReady()) {
+          clearInterval(this.plotsReadyTimer);
+          this.plotsReadyTimer = null;
+          this.commitFinish("plots", "");
+        } else if (Date.now() - started > 180000) {
+          clearInterval(this.plotsReadyTimer);
+          this.plotsReadyTimer = null;
+          this.commitFinish("plots", "");
+        }
+      }, 80);
+    },
+
+    commitFinish(id, error) {
+      const st = this.steps[id];
+      if (!st || st.state !== "run") {
+        return;
+      }
       st.state = error ? "fail" : "done";
       st.error = error || "";
       st.endedAt = Date.now();
@@ -467,6 +529,8 @@
         let pct = 0;
         if (st.state === "done") {
           pct = 100;
+        } else if (st.state === "run" && total > 0) {
+          pct = Math.max(0, Math.min(99, Math.round((100 * done) / total)));
         } else if (total > 0) {
           pct = Math.max(0, Math.min(100, Math.round((100 * done) / total)));
         }
@@ -516,7 +580,7 @@
         if (!el) {
           return;
         }
-        const complete = r.state === "done" || (r.total > 0 && r.done >= r.total && r.state !== "fail");
+        const complete = r.state === "done";
         el.className = "rd-stage is-" + (r.state === "fail" ? "fail" : complete ? "done" : r.state);
         el.classList.toggle("is-jump", complete && r.state !== "fail");
         el.title = complete && r.state !== "fail" ? "Open " + r.def.name : r.def.desc;
@@ -528,8 +592,8 @@
         }
         let meta = r.def.optional ? "Optional" : "Pending";
         if (r.state === "run") {
-          meta = r.total && r.done >= r.total
-            ? "100%"
+          meta = r.id === "plots" && r.total && r.pct >= 99
+            ? "Drawing plots…"
             : r.total
               ? `${r.done}/${r.total}`
               : "Running · " + this.formatDuration(r.elapsed);
@@ -560,7 +624,7 @@
       }
       rows.forEach((r, i) => {
         const row = box.children[i];
-        const complete = r.state === "done" || (r.total > 0 && r.done >= r.total);
+        const complete = r.state === "done";
         row.className = "rd-progress-row is-" + (r.state === "fail" ? "fail" : complete ? "done" : r.state);
         row.classList.toggle("is-jump", complete && r.state !== "fail");
         const label =
@@ -568,9 +632,11 @@
             ? "failed"
             : complete
               ? "100%"
-              : r.total
-                ? `${r.done}/${r.total}`
-                : "0%";
+              : r.id === "plots" && r.total && r.pct >= 99
+                ? "drawing…"
+                : r.total
+                  ? `${r.done}/${r.total}`
+                  : "0%";
         this.setText(row.querySelector(".pct"), label);
         row.querySelector(".track > i").style.width = (complete ? 100 : r.pct) + "%";
       });
@@ -668,9 +734,19 @@
       };
     },
 
+    requestedMemoryGb() {
+      const n = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim());
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+
     renderGauges(s) {
       const cpu = Math.max(0, Math.min(100, Number(s.cpu_percent) || 0));
-      const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
+      const cap = this.requestedMemoryGb() || Number(s.ram_total_gb) || 0;
+      const jobRam = Number(s.job_rss_gb);
+      const usedRam = s.running && Number.isFinite(jobRam) ? jobRam : Number(s.ram_used_gb) || 0;
+      const ram = cap > 0
+        ? Math.max(0, Math.min(100, (usedRam / cap) * 100))
+        : Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
       if (cpuRing) {
@@ -682,7 +758,7 @@
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
       this.setText("rd-cpu-sub", s.cpu_count ? `${s.cpu_count} cores` : "");
-      this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
+      this.setText("rd-ram-sub", cap ? `${Number(usedRam).toFixed(1)} / ${cap} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
 
@@ -722,10 +798,13 @@
       Plotly.newPlot = (el, data, layout, config) => {
         const gd = typeof el === "string" ? document.getElementById(el) : el;
         return origNew(el, data, layout, config).then((plot) => {
-          if (this.preparePlot(gd)) {
-            Plotly.relayout(gd, this.themeLayout(gd._fullLayout, this.plotColors(this.isLight())));
+          if (!this.preparePlot(gd)) {
+            return plot;
           }
-          return plot;
+          return Plotly.relayout(gd, this.themeLayout(gd._fullLayout, this.plotColors(this.isLight()))).then(() => {
+            this.finishPlotsWhenReady();
+            return plot;
+          });
         });
       };
       if (typeof window.downloadPlot === "function") {

@@ -70,6 +70,11 @@ BAKTA_BIN="$(pick_bakta_bin)" || {
     exit 1
 }
 
+if [ -n "${CONDA_PREFIX:-}" ]; then
+    export PATH="${CONDA_PREFIX}/bin:${PATH}"
+    export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 if [[ "$BAKTA_BIN" == *"/.local/"* ]]; then
     echo "WARNING: Using user pip install ($BAKTA_BIN). Prefer conda: conda install -c bioconda -c conda-forge 'bakta>=1.11'" >&2
 fi
@@ -103,7 +108,7 @@ if [ -n "$db_version_file" ]; then
         db_major="$(cut -d. -f1 < "$db_version_file")"
     fi
 
-    if [ "$db_major" -ge 6 ] 2>/dev/null; then
+    if [ "$db_major" -ge 6 ] 2>/dev/null && [ -n "$bakta_major" ] && [ -n "$bakta_minor" ]; then
         if [ "$bakta_major" -lt 1 ] || { [ "$bakta_major" -eq 1 ] && [ "$bakta_minor" -lt 11 ]; }; then
             echo "ERROR: Bakta ${bakta_ver:-unknown} requires database v5.x, but v${db_major}.x was detected at:" >&2
             echo "       ${db_dir}" >&2
@@ -112,10 +117,6 @@ if [ -n "$db_version_file" ]; then
             exit 1
         fi
     fi
-fi
-
-if [ -n "${CONDA_PREFIX:-}" ]; then
-    export PATH="${CONDA_PREFIX}/bin:${PATH}"
 fi
 
 require_bakta_tool() {

@@ -252,13 +252,7 @@ html[data-theme="light"] .rd-plasma svg {
 }
 
 .rd-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  padding: 2px 4px;
-  text-decoration: none !important;
-  color: var(--rd-text) !important;
+  display: none !important;
 }
 
 .rd-brand-mark {

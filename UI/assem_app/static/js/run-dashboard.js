@@ -283,6 +283,12 @@
         auto.checked = true;
         auto.addEventListener("change", () => {
           this.autoScroll = !!auto.checked;
+          if (window.BactflowTerminal) {
+            window.BactflowTerminal.followScroll = this.autoScroll;
+            if (this.autoScroll && typeof window.BactflowTerminal.scrollToBottom === "function") {
+              window.BactflowTerminal.scrollToBottom();
+            }
+          }
         });
       }
       const dl = $("#rd-download-log");
@@ -786,7 +792,7 @@
       const center = document.querySelector(".rd-center");
       const right = document.querySelector(".rd-right");
       const nf = right && right.querySelector(":scope > .rd-card:last-child");
-      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden")) {
+      if (!logs || !center || !right || !nf || logs.classList.contains("is-hidden") || document.documentElement.classList.contains("rd-live-results")) {
         if (logs) {
           logs.style.height = "";
         }
@@ -803,7 +809,15 @@
       const next = Math.max(220, Math.round(nfBottom - logsTop));
       const px = `${next}px`;
       if (logs.style.height !== px) {
+        const body = document.getElementById("output-bactflow");
+        const keep = body ? body.scrollTop : 0;
+        const follow = !!(window.BactflowTerminal && window.BactflowTerminal.followScroll);
         logs.style.height = px;
+        if (follow && window.BactflowTerminal && typeof window.BactflowTerminal.scrollToBottom === "function") {
+          window.BactflowTerminal.scrollToBottom();
+        } else if (body) {
+          body.scrollTop = keep;
+        }
       }
     },
 
@@ -1013,6 +1027,11 @@
       return Number.isFinite(n) && n > 0 ? n : 0;
     },
 
+    requestedMemoryGb() {
+      const n = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim());
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+
     cpuBudgetLabel(hostCount) {
       const asked = this.requestedCores();
       const host = Number(hostCount) || 0;
@@ -1042,7 +1061,12 @@
         cpu = (jobCores / asked) * 100;
       }
       cpu = Math.max(0, Math.min(100, cpu));
-      const ram = Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
+      const cap = this.requestedMemoryGb() || Number(s.ram_total_gb) || 0;
+      const jobRam = Number(s.job_rss_gb);
+      const usedRam = s.running && Number.isFinite(jobRam) ? jobRam : Number(s.ram_used_gb) || 0;
+      const ram = cap > 0
+        ? Math.max(0, Math.min(100, (usedRam / cap) * 100))
+        : Math.max(0, Math.min(100, Number(s.ram_percent) || 0));
       const cpuRing = document.getElementById("rd-cpu-ring");
       const ramRing = document.getElementById("rd-ram-ring");
       if (cpuRing) {
@@ -1054,17 +1078,25 @@
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
       this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
-      this.setText("rd-ram-sub", s.ram_total_gb ? `${s.ram_used_gb} / ${s.ram_total_gb} GB` : "");
+      this.setText("rd-ram-sub", cap ? `${Number(usedRam).toFixed(1)} / ${cap} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
 
     maybeAutoscroll() {
+      if (window.BactflowTerminal && typeof window.BactflowTerminal.pinScroll === "function") {
+        window.BactflowTerminal.pinScroll();
+        return;
+      }
       if (!this.autoScroll) {
         return;
       }
       const body = document.getElementById("output-bactflow");
       if (body) {
-        body.scrollTop = body.scrollHeight;
+        const slack = 48;
+        const near = (body.scrollHeight - body.scrollTop - body.clientHeight) <= slack;
+        if (near) {
+          body.scrollTop = body.scrollHeight;
+        }
       }
     },
 

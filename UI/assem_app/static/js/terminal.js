@@ -917,6 +917,9 @@ const BactflowTerminal = {
   logEl: null,
   statusEl: null,
   maxLines: 1800,
+  followScroll: true,
+  _scrollBound: false,
+  _ignoreScroll: false,
 
   init() {
     this.logEl = document.getElementById("output-bactflow");
@@ -932,6 +935,89 @@ const BactflowTerminal = {
       toggle.addEventListener("change", () => {
         this.quiet = !toggle.checked;
       });
+    }
+    this.bindScrollLock();
+  },
+
+  isNearBottom(slack) {
+    const el = this.logEl;
+    if (!el) {
+      return true;
+    }
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) <= (slack == null ? 48 : slack);
+  },
+
+  bindScrollLock() {
+    if (!this.logEl || this._scrollBound) {
+      return;
+    }
+    this._scrollBound = true;
+    const onUserScroll = () => {
+      if (this._ignoreScroll) {
+        return;
+      }
+      const near = this.isNearBottom();
+      this.followScroll = near;
+      const auto = document.getElementById("rd-autoscroll");
+      if (auto && auto.checked !== near) {
+        auto.checked = near;
+      }
+      if (window.BactflowRunDashboard) {
+        window.BactflowRunDashboard.autoScroll = near;
+      }
+    };
+    this.logEl.addEventListener("scroll", onUserScroll, { passive: true });
+    this.logEl.addEventListener("wheel", () => {
+      requestAnimationFrame(onUserScroll);
+    }, { passive: true });
+    this.logEl.addEventListener("touchmove", () => {
+      requestAnimationFrame(onUserScroll);
+    }, { passive: true });
+    const auto = document.getElementById("rd-autoscroll");
+    if (auto && !auto.dataset.termBound) {
+      auto.dataset.termBound = "1";
+      auto.addEventListener("change", () => {
+        this.followScroll = !!auto.checked;
+        if (window.BactflowRunDashboard) {
+          window.BactflowRunDashboard.autoScroll = this.followScroll;
+        }
+        if (this.followScroll) {
+          this.scrollToBottom();
+        }
+      });
+    }
+  },
+
+  scrollToBottom() {
+    if (!this.logEl) {
+      return;
+    }
+    this._ignoreScroll = true;
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+    this._ignoreScroll = false;
+  },
+
+  pinScroll() {
+    if (this.followScroll) {
+      this.scrollToBottom();
+    }
+  },
+
+  trimOldLines() {
+    const el = this.logEl;
+    if (!el) {
+      return;
+    }
+    while (el.childNodes.length > this.maxLines) {
+      const first = el.firstChild;
+      const h = first && first.offsetHeight ? first.offsetHeight : 0;
+      const top = el.scrollTop;
+      el.removeChild(first);
+      if (!this.followScroll && h) {
+        this._ignoreScroll = true;
+        el.scrollTop = Math.max(0, top - h);
+        this._ignoreScroll = false;
+      }
     }
   },
 
@@ -1061,11 +1147,8 @@ const BactflowTerminal = {
     row.className = "log-line " + className;
     row.textContent = line || " ";
     this.logEl.appendChild(row);
-
-    while (this.logEl.childNodes.length > this.maxLines) {
-      this.logEl.removeChild(this.logEl.firstChild);
-    }
-    this.logEl.scrollTop = this.logEl.scrollHeight;
+    this.trimOldLines();
+    this.pinScroll();
 
     if (/BactFlow: cleaning temporary/i.test(line)) {
       this.setStatus(line.replace(/\s+/g, " ").slice(0, 140), "ok");
@@ -1185,7 +1268,10 @@ const BactflowMeters = {
       ramFill,
       document.getElementById("bf-ram-job"),
       s.ram_percent,
-      s.ram_total_gb ? (Number(s.job_rss_gb) / Number(s.ram_total_gb)) * 100 : 0
+      (() => {
+        const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+        return cap ? (Number(s.job_rss_gb) / cap) * 100 : 0;
+      })()
     );
 
     if (cpuVal) {
@@ -1200,7 +1286,10 @@ const BactflowMeters = {
       const jobBit = s.running && s.job_rss_gb != null
         ? ` · <span class="job">job ${s.job_rss_gb} GB</span>`
         : "";
-      ramVal.innerHTML = `${s.ram_used_gb} / ${s.ram_total_gb} GB (${Number(s.ram_percent || 0).toFixed(0)}%)${jobBit}`;
+      const cap = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim()) || Number(s.ram_total_gb) || 0;
+      const used = s.running && s.job_rss_gb != null ? s.job_rss_gb : s.ram_used_gb;
+      const pct = cap ? Math.min(100, (Number(used) / cap) * 100) : Number(s.ram_percent || 0);
+      ramVal.innerHTML = `${Number(used || 0).toFixed(1)} / ${cap} GB (${pct.toFixed(0)}%)${jobBit}`;
     }
     this.drawSpark(document.getElementById("bf-cpu-spark"), this.history.cpu, "#4fc1ff");
     this.drawSpark(document.getElementById("bf-ram-spark"), this.history.ram, "#c586c0");
@@ -1253,6 +1342,7 @@ const BactflowMeters = {
   }
 };
 
+window.BactflowTerminal = BactflowTerminal;
 window.BactflowMeters = BactflowMeters;
 
 document.addEventListener("DOMContentLoaded", () => {

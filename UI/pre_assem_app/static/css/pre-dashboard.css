@@ -87,6 +87,23 @@
   background: rgba(34, 197, 94, 0.08);
 }
 
+.pre-reveal {
+  margin: 0 0 12px;
+  padding: 10px 10px 2px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+html[data-theme="light"] .pre-reveal {
+  border-color: rgba(8, 145, 178, 0.28);
+  background: rgba(8, 145, 178, 0.08);
+}
+
+.rd-setup-scroll {
+  scroll-padding-bottom: 28px;
+}
+
 /* —— Action bar: visible buttons share the full width —— */
 .rd-action-bar.pre-actions {
   display: flex;

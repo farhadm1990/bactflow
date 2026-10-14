@@ -85,7 +85,8 @@ if command -v strip >/dev/null 2>&1; then
         ! -name 'libperl.so*' ! -name 'libtorch*' ! -name 'libgomp*' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
     find "${PREFIX}/bin" -type f ! -name 'perl' ! -name 'perl5*' ! -name 'nextflow' \
-        ! -name 'guppy' ! -name 'pplacer' ! -name 'rppr' -print0 \
+        ! -name 'guppy' ! -name 'pplacer' ! -name 'rppr' \
+        ! -name 'mlst' ! -name 'any2fasta' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
 fi
 

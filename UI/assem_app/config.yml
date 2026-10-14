@@ -25,7 +25,12 @@ dependencies:
   - pandas=3.0.5
   - biopython=1.88
   - pysam=0.23.0
+  # matplotlib 3.10+ links ft2font against libraqm. Without a conda
+  # libraqm, Bakta loads the OS library and dies with
+  # undefined symbol: raqm_clear_contents.
   - matplotlib
+  - matplotlib-base
+  - libraqm>=0.10.1
   - h5py=3.16.0
 
   # --- pre-assembly (seqkit stats, pooling, plots) ---
@@ -81,6 +86,7 @@ dependencies:
   - skani=0.3.2
   # geNomad plasmid / MGE detection (pulls mmseqs2, tensorflow, etc.)
   - genomad=1.11.1
+  - mlst=2.23.0
 
   # --- post-assembly: R plots and CheckM MSA tree ---
   - r-base=4.4.3
@@ -117,3 +123,4 @@ dependencies:
     - psutil==7.1.2
     - plotly==6.3.1
     - quast==5.2.0
+    - reportlab==4.2.5

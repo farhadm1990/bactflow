@@ -252,13 +252,7 @@ html[data-theme="light"] .rd-plasma svg {
 }
 
 .rd-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  padding: 2px 4px;
-  text-decoration: none !important;
-  color: var(--rd-text) !important;
+  display: none !important;
 }
 
 .rd-brand-mark {
@@ -1422,6 +1416,17 @@ html[data-theme="light"] .rd-logs #output-bactflow {
   .rd-task-main {
     width: 100%;
   }
+}
+
+html.rd-live-results .rd-center .rd-logs {
+  flex: 0 0 auto;
+  height: min(28vh, 260px) !important;
+  min-height: 180px;
+  max-height: 32vh;
+}
+
+html.rd-live-results .rd-results.is-shown {
+  display: block;
 }
 
 /* —— Report tables: one table per header (no split scroll head), uniform rows —— */

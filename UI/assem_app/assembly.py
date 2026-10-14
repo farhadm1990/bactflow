@@ -34,6 +34,11 @@ app = Flask(__name__,
             template_folder = os.path.join(base_dir, "templates"),
             static_folder = os.path.join(base_dir, "static"))
 sys.path.insert(0, base_dir)
+_HUB = os.path.abspath(os.path.join(base_dir, "..", "bactflow_app"))
+if _HUB not in sys.path:
+    sys.path.insert(0, _HUB)
+
+BF_MODULE = "assembly"
 
 BACTFLOW_RUNTIME_SH = os.path.join(base_dir, "bactflow_runtime.sh")
 
@@ -48,8 +53,32 @@ export NXF_ANSI_LOG=true
 """
 
 
-def with_nextflow_java(command):
-    return NF_JAVA_SETUP + "\n" + command
+def with_nextflow_java(command, mem_gb=None):
+    extra = ""
+    if mem_gb:
+        from memory_cap import nxf_opts_export
+        extra = nxf_opts_export(mem_gb)
+    return extra + NF_JAVA_SETUP + "\n" + command
+
+
+def _lock_acquire(label, kind="sync"):
+    from run_lock import try_acquire
+    return try_acquire(BF_MODULE, os.getpid(), label, kind=kind)
+
+
+def _lock_worker(pid):
+    from run_lock import update_lock
+    update_lock(pid=pid, kind="worker")
+
+
+def _lock_release(pid=None):
+    from run_lock import release
+    release(module=BF_MODULE, pid=pid)
+
+
+def _memory_from_form():
+    from memory_cap import parse_and_cap
+    return parse_and_cap(request.form.get("memory_gb"))
 
 
 def _truthy(value, default=False):
@@ -451,6 +480,10 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 
     process_status["running"] = False
     process_status["pid"] = None
+    try:
+        _lock_release(pid=os.getpid())
+    except Exception:
+        pass
     return exit_code
 
 
@@ -595,21 +628,34 @@ def run_bactflow():
                     -ansi-log true"""
             if _truthy(resume_run, False):
                 command = command + " -resume"
-            command = with_nextflow_java(command)
+            mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
+            from memory_cap import inject_nextflow_memory, preamble
+            command = inject_nextflow_memory(command, out_dir, cpus, mem_gb)
+            command = preamble(mem_gb, mem_host, mem_capped) + command
+            command = with_nextflow_java(command, mem_gb)
+
+            ok, err = _lock_acquire("Assembly")
+            if not ok:
+                return err + "\n", 409
                 
             output_history[:] = []
             
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             _start_worker_process(back_process)
+            _lock_worker(back_process.pid)
         
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
             command = with_nextflow_java(f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true")
+            ok, err = _lock_acquire("Assembly")
+            if not ok:
+                return err + "\n", 409
             output_history[:] = []
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             _start_worker_process(back_process)
+            _lock_worker(back_process.pid)
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -618,6 +664,7 @@ def run_bactflow():
             pid = process_status.get("pid")
             was_running = bool(process_status.get("running")) or _pipeline_alive(pid)
             _clear_run_state()
+            _lock_release()
             try:
                 if pid:
                     _kill_process_tree(pid)

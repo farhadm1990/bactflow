@@ -9,6 +9,7 @@ genome stays visible with hover, zoom, and pan.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 from io import StringIO
@@ -22,6 +23,7 @@ SKIP_TYPES = {"source", "region", "comment"}
 
 TYPE_COLORS = {
     "cds": "#E07A5F",
+    "amr": "#EF4444",
     "trna": "#E9C46A",
     "rrna": "#E76F51",
     "tmrna": "#2A9D8F",
@@ -101,7 +103,11 @@ def _norm_ftype(ftype, name="", product=""):
     return raw.lower()
 
 
-def _add_feature(contig, ftype, start, end, strand, name, product, locus):
+def _clean_aa(seq):
+    return re.sub(r"[^A-Za-z]", "", str(seq or "")).upper().replace("U", "C").replace("O", "K")
+
+
+def _add_feature(contig, ftype, start, end, strand, name, product, locus, translation=""):
     if ftype.lower() in SKIP_TYPES:
         return
     start = max(int(start), 1)
@@ -115,6 +121,7 @@ def _add_feature(contig, ftype, start, end, strand, name, product, locus):
         "name": name or ftype,
         "product": product or "",
         "locus": locus or "",
+        "aa": _clean_aa(translation),
     })
 
 
@@ -151,6 +158,7 @@ def parse_gff(path):
                 _first(attrs, "Name", "gene", "locus_tag", "ID"),
                 _first(attrs, "product", "Product", "Note"),
                 _first(attrs, "locus_tag", "ID"),
+                _first(attrs, "translation", "Translation"),
             )
 
     def _attach_seqs(records):
@@ -190,6 +198,7 @@ def parse_gbk(path):
                 _first(quals, "gene", "locus_tag", "label"),
                 _first(quals, "product", "note"),
                 _first(quals, "locus_tag"),
+                _first(quals, "translation"),
             )
     return [store[cid] for cid in order if cid in store]
 
@@ -211,6 +220,53 @@ def collect_annotation_files(root):
     return sorted(by_stem.values())
 
 
+def _companion_faa(annot_path):
+    stem, _ = os.path.splitext(annot_path)
+    parent = os.path.dirname(annot_path)
+    for candidate in (stem + ".faa", os.path.join(parent, os.path.basename(stem) + ".faa")):
+        if os.path.isfile(candidate):
+            return candidate
+    hits = sorted(glob.glob(os.path.join(parent, "*.faa")))
+    if not hits:
+        return None
+    prefer = os.path.basename(stem).lower()
+    for hit in hits:
+        if os.path.splitext(os.path.basename(hit))[0].lower() == prefer:
+            return hit
+    return hits[0] if len(hits) == 1 else None
+
+
+def _attach_faa(genome):
+    faa = _companion_faa(genome.get("path") or "")
+    if not faa:
+        return
+    by_id = {}
+    try:
+        for rec in SeqIO.parse(faa, "fasta"):
+            aa = _clean_aa(str(rec.seq))
+            if not aa:
+                continue
+            key = rec.id.split()[0]
+            by_id[key] = aa
+            desc = str(rec.description or "")
+            for token in desc.replace("|", " ").split():
+                if token.startswith("locus_tag="):
+                    by_id[token.split("=", 1)[1]] = aa
+    except Exception:
+        return
+    if not by_id:
+        return
+    for contig in genome.get("contigs") or []:
+        for feat in contig.get("features") or []:
+            if feat.get("aa"):
+                continue
+            for key in (feat.get("locus"), feat.get("name")):
+                aa = by_id.get(str(key or ""))
+                if aa:
+                    feat["aa"] = aa
+                    break
+
+
 def load_genome(path):
     ext = os.path.splitext(path)[1].lower()
     name = os.path.splitext(os.path.basename(path))[0]
@@ -220,16 +276,163 @@ def load_genome(path):
         contigs = parse_gbk(path)
     else:
         raise ValueError(f"Unsupported annotation file: {path}")
-    return {"name": name, "path": path, "contigs": contigs}
+    genome = {"name": name, "path": path, "contigs": contigs}
+    _attach_faa(genome)
+    _attach_amr(genome)
+    return genome
 
 
 _GENOME_CACHE = {}
 
 
+def _companion_json(annot_path):
+    stem, _ = os.path.splitext(annot_path or "")
+    candidate = stem + ".json"
+    if os.path.isfile(candidate):
+        return candidate
+    parent = os.path.dirname(annot_path or "")
+    hits = glob.glob(os.path.join(parent, "*.json")) if parent else []
+    prefer = os.path.basename(stem).lower()
+    for hit in hits:
+        if os.path.splitext(os.path.basename(hit))[0].lower() == prefer:
+            return hit
+    return hits[0] if len(hits) == 1 else None
+
+
+# Bakta records every AMRFinderPlus hit as expert.type == "amrfinder".
+# AMRFinderPlus --plus also catalogs metal/biocide/stress/virulence genes
+# (Feldgarden et al., Sci. Rep. 2021). Those are not antibiotic AMR.
+_AMR_SCOPE_RE = re.compile(
+    r"\b(stress|metal|metalloid|biocide|virulen|acid resistance|heat (shock|resistance))\b",
+    re.I,
+)
+_AMR_METAL_PRODUCT_RE = re.compile(
+    r"arsenite|arsenate|arsenic|mercur(y|ic)|copper|cuprous|silver\b|cadmium|"
+    r"zinc\b|nickel|cobalt|chromate|chromium|tellur|bismuth|lead\b|selenite|"
+    r"molybden|tungsten|metal(loid)?|metallochaperone|quaternary ammonium|"
+    r"benzalkonium|disinfectant",
+    re.I,
+)
+_AMR_METAL_GENE_RE = re.compile(
+    r"^(ars|mer|cop|cue|cus|pco|sil|czc|cad|znt|ncr|chr|pbr|ter|teh|tel|"
+    r"ncc|cnr|rcn|qac|sugE|emrE)\w*$",
+    re.I,
+)
+
+
+def _is_antibiotic_amrfinder(info):
+    """Keep true antibiotic resistance; drop metal/stress/biocide/virulence."""
+    if not info:
+        return False
+    blob = " ".join(
+        str(info.get(key) or "")
+        for key in ("class", "subclass", "scope", "element_type", "gene", "product")
+    )
+    if _AMR_SCOPE_RE.search(blob) or _AMR_METAL_PRODUCT_RE.search(blob):
+        return False
+    gene = str(info.get("gene") or "").strip()
+    if gene and _AMR_METAL_GENE_RE.match(gene):
+        return False
+    return True
+
+
+def _amr_info_from_expert(feat):
+    experts = [
+        item for item in (feat.get("expert") or [])
+        if str(item.get("type") or "").strip().lower() == "amrfinder"
+    ]
+    if not experts:
+        return None
+    best = max(experts, key=lambda item: int(item.get("rank") or 0))
+    gene = str(best.get("gene") or feat.get("gene") or "").strip()
+    product = str(best.get("product") or feat.get("product") or "").strip()
+    method = str(best.get("method") or "").strip()
+    ident = str(best.get("id") or "").strip()
+    klass = str(
+        best.get("class")
+        or best.get("subclass")
+        or best.get("scope")
+        or best.get("element_type")
+        or ""
+    ).strip()
+    info = {
+        "gene": gene,
+        "product": product,
+        "method": method,
+        "id": ident,
+        "class": klass,
+        "label": "",
+    }
+    if not _is_antibiotic_amrfinder(info):
+        return None
+    bits = ["AMRFinder"]
+    if method:
+        bits.append(method)
+    if klass:
+        bits.append(klass)
+    if ident:
+        bits.append(ident)
+    info["label"] = " · ".join(bits)
+    return info
+
+
+def _attach_amr(genome):
+    """Flag CDS that Bakta already scored with AMRFinderPlus."""
+    json_path = _companion_json(genome.get("path") or "")
+    if not json_path:
+        return
+    try:
+        with open(json_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return
+    by_locus = {}
+    by_pos = {}
+    for feat in payload.get("features") or []:
+        info = _amr_info_from_expert(feat)
+        if not info:
+            continue
+        locus = str(feat.get("locus") or feat.get("locus_tag") or "").strip()
+        if locus:
+            by_locus[locus] = info
+        seq = str(feat.get("sequence") or "").strip()
+        try:
+            start = int(feat.get("start"))
+            stop = int(feat.get("stop"))
+        except (TypeError, ValueError):
+            continue
+        if seq:
+            by_pos[(seq, start, stop)] = info
+    if not by_locus and not by_pos:
+        return
+    count = 0
+    seen = set()
+    for contig in genome.get("contigs") or []:
+        cid = contig.get("id")
+        for feat in contig.get("features") or []:
+            if str(feat.get("type") or "").lower() not in {"cds", "cds_with_stop"}:
+                continue
+            info = by_locus.get(str(feat.get("locus") or "").strip())
+            if not info:
+                info = by_pos.get((cid, int(feat.get("start") or 0), int(feat.get("end") or 0)))
+            if not info:
+                continue
+            key = (cid, int(feat.get("start") or 0), int(feat.get("end") or 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            feat["amr"] = info
+            count += 1
+    genome["amr_count"] = count
+
+
 def load_genome_cached(path):
     path = os.path.abspath(path)
+    json_path = _companion_json(path)
     try:
         stamp = (os.path.getmtime(path), os.path.getsize(path))
+        if json_path:
+            stamp = stamp + (os.path.getmtime(json_path), os.path.getsize(json_path))
     except OSError:
         stamp = (0, 0)
     hit = _GENOME_CACHE.get(path)
@@ -245,6 +448,8 @@ def _wanted_types(feature_types):
     wanted = {str(t).strip().lower() for t in raw if str(t).strip()}
     if not wanted:
         wanted = {"cds"}
+    if wanted & {"amr", "amrfinder", "amrfinderplus"}:
+        wanted.add("amr")
     if wanted & {"ncrna", "ncrna-region"}:
         wanted.update({"ncrna", "ncrna-region"})
     if "crispr-repeat" in wanted:
@@ -323,7 +528,7 @@ def _parse_genome_names(genome):
     return [part.strip() for part in str(genome or "").split(",") if part.strip()]
 
 
-def _track_from_genome(chosen, contig, wanted):
+def _track_from_genome(chosen, contig, wanted, keep_aa=False):
     if contig and contig != "__all__":
         pieces = [c for c in chosen["contigs"] if c["id"] == contig]
         if not pieces:
@@ -341,10 +546,22 @@ def _track_from_genome(chosen, contig, wanted):
         length = max(int(piece.get("length") or 0), 1)
         boundaries.append({"id": piece["id"], "start": offset, "end": offset + length, "length": length})
         for feat in piece.get("features") or []:
-            if feat["type"].lower() not in wanted:
+            is_amr = bool(feat.get("amr"))
+            ftype = str(feat.get("type") or "").lower()
+            if is_amr and "amr" in wanted:
+                ftype = "amr"
+            elif ftype not in wanted:
                 continue
+            packed = dict(feat)
+            packed["type"] = ftype
+            if is_amr and ftype == "amr":
+                amr = feat.get("amr") or {}
+                packed["name"] = amr.get("gene") or feat.get("name") or "AMR"
+                product = amr.get("product") or feat.get("product") or ""
+                label = amr.get("label") or "AMRFinder"
+                packed["product"] = f"{label}: {product}".strip(": ")
             rows.append({
-                **feat,
+                **packed,
                 "contig": piece["id"],
                 "abs_start": offset + feat["start"],
                 "abs_end": offset + feat["end"],
@@ -366,17 +583,23 @@ def _track_from_genome(chosen, contig, wanted):
         hypo = _is_hypothetical(feat)
         if hypo:
             hypo_count += 1
-        features.append({
+        product = feat.get("product") or ""
+        row = {
             "s": int(feat["abs_start"]),
             "e": int(feat["abs_end"]),
             "lane": int(feat.get("lane") or 0),
             "strand": feat["strand"],
             "t": ftype,
             "n": (feat["name"] or ftype)[:80],
-            "p": (feat["product"] or "")[:120],
+            "p": product[:180] if ftype == "amr" else product[:120],
             "c": feat["contig"],
             "h": 1 if hypo else 0,
-        })
+        }
+        if ftype == "amr":
+            row["amr"] = 1
+        if keep_aa:
+            row["aa"] = feat.get("aa") or ""
+        features.append(row)
     title_contig = "all contigs" if contig == "__all__" or len(pieces) > 1 else pieces[0]["id"]
     return {
         "name": chosen["name"],
@@ -520,3 +743,344 @@ def slice_sequence(bakta_dir, genome="", contig="", start=1, end=1, limit=8000):
                 chunks.append("N" * (i1 - i0))
         offset += length
     return {"start": start, "end": end, "seq": "".join(chunks)}
+
+
+SYNTENY_METHOD = (
+    "Percent amino-acid identity from global Needleman–Wunsch alignment "
+    "(Needleman & Wunsch, J Mol Biol 1970) with BLOSUM62 "
+    "(Henikoff & Henikoff, PNAS 1992), following clinker "
+    "(Gilchrist & Chooi, Bioinformatics 2021). Reciprocal best hits "
+    "mark orthologs (Tatusov et al., Science 1997). The genome alignment "
+    "score is two-way AAI: the mean identity of those reciprocal best hits "
+    "(Konstantinidis & Tiedje, PNAS 2005)."
+)
+_GENERIC_NAMES = {
+    "cds", "gene", "hypotheticalprotein", "hypothetical", "unannotated",
+    "putativeprotein", "hypotheticalcds", "",
+}
+_AA_OK = set("ARNDCQEGHILKMFPSTWYVBZX")
+_KMER = 7
+_MAX_AA = 900
+_MAX_CAND = 8
+_MAX_LINKS = 3
+_NW = None
+_PID_CACHE = {}
+_LINK_CACHE = {}
+
+
+def _norm_token(text):
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+
+
+def _get_aligner():
+    global _NW
+    if _NW is not None:
+        return _NW
+    from Bio.Align import PairwiseAligner, substitution_matrices
+    aligner = PairwiseAligner()
+    aligner.mode = "global"
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+    aligner.open_gap_score = -10
+    aligner.extend_gap_score = -0.5
+    _NW = aligner
+    return _NW
+
+
+def _kmers(aa, k=_KMER):
+    if not aa or len(aa) < k:
+        return ()
+    step = 3 if len(aa) > 360 else 1
+    return {aa[i:i + k] for i in range(0, len(aa) - k + 1, step)}
+
+
+def _clean_nw_aa(seq):
+    return "".join(ch if ch in _AA_OK else "X" for ch in (seq or ""))[:_MAX_AA]
+
+
+def _pid_fast(aa1, aa2, kmers1=None, kmers2=None):
+    a, b = aa1 or "", aa2 or ""
+    if not a or not b:
+        return None
+    if a == b:
+        return (100.0, 100.0)
+    if min(len(a), len(b)) / max(len(a), len(b)) < 0.45:
+        return None
+    ka = kmers1 if kmers1 is not None else _kmers(a)
+    kb = kmers2 if kmers2 is not None else _kmers(b)
+    if not ka or not kb:
+        return None
+    shared = len(ka & kb)
+    if shared < 2:
+        return None
+    jac = 100.0 * shared / min(len(ka), len(kb))
+    return (round(jac, 2), round(jac, 2))
+
+
+def _pid_global(aa1, aa2):
+    a = _clean_nw_aa(aa1)
+    b = _clean_nw_aa(aa2)
+    if not a or not b:
+        return None
+    if min(len(a), len(b)) / max(len(a), len(b)) < 0.45:
+        return None
+    key = (a, b) if a <= b else (b, a)
+    hit = _PID_CACHE.get(key)
+    if hit is not None:
+        return hit
+    if a == b:
+        result = (100.0, 100.0)
+        if len(_PID_CACHE) > 20000:
+            _PID_CACHE.clear()
+        _PID_CACHE[key] = result
+        return result
+    try:
+        aln = next(iter(_get_aligner().align(a, b)))
+        length = int(aln.shape[1]) if getattr(aln, "shape", None) else 0
+        counts = aln.counts() if hasattr(aln, "counts") else None
+        if counts is not None and length:
+            ident = float(counts.identities)
+            paired = float(counts.aligned)
+        else:
+            s1, s2 = str(aln[0]), str(aln[1])
+            length = min(len(s1), len(s2))
+            ident = 0
+            paired = 0
+            for x, y in zip(s1[:length], s2[:length]):
+                if x == "-" or y == "-":
+                    continue
+                paired += 1
+                if x == y:
+                    ident += 1
+        if length < 1:
+            _PID_CACHE[key] = None
+            return None
+        pid = 100.0 * ident / length
+        cov = 100.0 * paired / min(len(a), len(b))
+        result = (round(pid, 2), round(cov, 2))
+    except Exception:
+        result = None
+    if len(_PID_CACHE) > 20000:
+        _PID_CACHE.clear()
+    _PID_CACHE[key] = result
+    return result
+
+
+def _name_score(fa, fb):
+    na, nb = _norm_token(fa.get("n")), _norm_token(fb.get("n"))
+    pa, pb = _norm_token(fa.get("p")), _norm_token(fb.get("p"))
+    if na and na == nb and na not in _GENERIC_NAMES:
+        return (100.0, 100.0)
+    if pa and pa == pb and pa not in _GENERIC_NAMES and len(pa) >= 8:
+        return (100.0, 100.0)
+    return None
+
+
+def _candidates_for(feats_a, feats_b):
+    by_name = {}
+    by_prod = {}
+    by_kmer = {}
+    for j, feat in enumerate(feats_b):
+        name = _norm_token(feat.get("n"))
+        if name not in _GENERIC_NAMES:
+            by_name.setdefault(name, []).append(j)
+        prod = _norm_token(feat.get("p"))
+        if prod not in _GENERIC_NAMES and len(prod) >= 8:
+            by_prod.setdefault(prod, []).append(j)
+        for kmer in _kmers(feat.get("aa") or ""):
+            bucket = by_kmer.setdefault(kmer, [])
+            if len(bucket) < 40:
+                bucket.append(j)
+    out = []
+    for i, feat in enumerate(feats_a):
+        cands = []
+        seen = set()
+        name = _norm_token(feat.get("n"))
+        prod = _norm_token(feat.get("p"))
+        for j in by_name.get(name, []) + by_prod.get(prod, []):
+            if j not in seen:
+                seen.add(j)
+                cands.append(j)
+        if feat.get("aa") and len(cands) < 4:
+            for kmer in _kmers(feat["aa"]):
+                for j in by_kmer.get(kmer, ()):
+                    if j not in seen:
+                        seen.add(j)
+                        cands.append(j)
+                    if len(cands) >= _MAX_CAND:
+                        break
+                if len(cands) >= _MAX_CAND:
+                    break
+        out.append(cands[:_MAX_CAND])
+    return out
+
+
+def _links_between(track_a, track_b, min_pid):
+    feats_a = [f for f in (track_a.get("features") or []) if not f.get("h")]
+    feats_b = [f for f in (track_b.get("features") or []) if not f.get("h")]
+    if not feats_a or not feats_b:
+        return []
+    km_a = [_kmers(f.get("aa") or "") for f in feats_a]
+    km_b = [_kmers(f.get("aa") or "") for f in feats_b]
+    cand = _candidates_for(feats_a, feats_b)
+    fast = {}
+    best_a, best_b = {}, {}
+    for i, js in enumerate(cand):
+        for j in js:
+            named = _name_score(feats_a[i], feats_b[j])
+            scored = named or _pid_fast(feats_a[i].get("aa") or "", feats_b[j].get("aa") or "", km_a[i], km_b[j])
+            if not scored:
+                continue
+            fast[(i, j)] = scored
+            pid = scored[0]
+            if i not in best_a or pid > best_a[i][1]:
+                best_a[i] = (j, pid)
+            if j not in best_b or pid > best_b[j][1]:
+                best_b[j] = (i, pid)
+
+    def _pack(i, j, pid, cov, kind):
+        fa, fb = feats_a[i], feats_b[j]
+        return {
+            "a": track_a["name"],
+            "b": track_b["name"],
+            "as": fa["s"],
+            "ae": fa["e"],
+            "bs": fb["s"],
+            "be": fb["e"],
+            "astrand": fa["strand"],
+            "bstrand": fb["strand"],
+            "an": fa["n"],
+            "bn": fb["n"],
+            "t": fa.get("t") or "cds",
+            "pid": pid,
+            "cov": cov,
+            "kind": kind,
+        }
+
+    links = []
+    used = set()
+    counts = {}
+    for i, (j, _pid) in best_a.items():
+        if best_b.get(j, (None,))[0] != i:
+            continue
+        precise = _pid_global(feats_a[i].get("aa") or "", feats_b[j].get("aa") or "") or fast[(i, j)]
+        if precise[0] < min_pid:
+            continue
+        used.add((i, j))
+        counts[("a", i)] = counts.get(("a", i), 0) + 1
+        counts[("b", j)] = counts.get(("b", j), 0) + 1
+        links.append(_pack(i, j, precise[0], precise[1], "rbh"))
+    extras = sorted(fast.items(), key=lambda item: -item[1][0])
+    for (i, j), (fast_pid, _cov) in extras:
+        if (i, j) in used or fast_pid < 70:
+            continue
+        if counts.get(("a", i), 0) >= _MAX_LINKS or counts.get(("b", j), 0) >= _MAX_LINKS:
+            continue
+        precise = _pid_global(feats_a[i].get("aa") or "", feats_b[j].get("aa") or "") or fast[(i, j)]
+        if precise[0] < max(min_pid, 50.0):
+            continue
+        used.add((i, j))
+        counts[("a", i)] = counts.get(("a", i), 0) + 1
+        counts[("b", j)] = counts.get(("b", j), 0) + 1
+        links.append(_pack(i, j, precise[0], precise[1], "paralog"))
+    return links
+
+
+def _load_scored_tracks(bakta_dir, genome="", contig="", feature_types=None):
+    files = collect_annotation_files(bakta_dir)
+    if not files:
+        return []
+    picked = _parse_genome_names(genome)
+    picked_set = set(picked)
+    genomes = []
+    for path in files:
+        name = os.path.splitext(os.path.basename(path))[0]
+        if picked_set and name not in picked_set:
+            continue
+        try:
+            genomes.append(load_genome_cached(path))
+        except Exception:
+            continue
+    if picked:
+        order = {name: idx for idx, name in enumerate(picked)}
+        chosen = [g for g in genomes if g["name"] in order]
+        chosen.sort(key=lambda item: order.get(item["name"], 999))
+    else:
+        chosen = genomes[:1]
+    wanted = _wanted_types(feature_types)
+    return [_track_from_genome(item, contig, wanted, keep_aa=True) for item in chosen]
+
+
+def build_synteny_links(bakta_dir, genome="", contig="", mode="pairwise", reference="", min_pid=30, feature_types=None):
+    try:
+        min_pid = float(min_pid)
+    except (TypeError, ValueError):
+        min_pid = 30.0
+    min_pid = min(100.0, max(20.0, min_pid))
+    mode = "reference" if str(mode or "").lower().startswith("ref") else "pairwise"
+    wanted = tuple(sorted(_wanted_types(feature_types)))
+    cache_key = (
+        os.path.abspath(bakta_dir),
+        tuple(_parse_genome_names(genome)),
+        str(contig or ""),
+        mode,
+        str(reference or "").strip(),
+        wanted,
+    )
+    cached = _LINK_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    tracks = _load_scored_tracks(bakta_dir, genome, contig, feature_types=feature_types)
+    if len(tracks) < 2:
+        return {
+            "links": [],
+            "scores": [],
+            "mode": mode,
+            "method": SYNTENY_METHOD,
+            "error": "Stack at least two genomes to cordify.",
+        }
+    names = [t["name"] for t in tracks]
+    ref = (reference or "").strip()
+    if mode == "reference":
+        if ref not in names:
+            ref = names[0]
+        pairs = [(ref, name) for name in names if name != ref]
+    else:
+        pairs = [(names[i], names[i + 1]) for i in range(len(names) - 1)]
+    by_name = {t["name"]: t for t in tracks}
+    links = []
+    scores = []
+    for name_a, name_b in pairs:
+        pair_links = _links_between(by_name[name_a], by_name[name_b], 20.0)
+        links.extend(pair_links)
+        rbh = [item for item in pair_links if item["kind"] == "rbh"]
+        n_rbh = len(rbh)
+        # Two-way AAI: mean identity of reciprocal best hits
+        # (Konstantinidis & Tiedje, PNAS 2005).
+        aai = round(sum(item["pid"] for item in rbh) / n_rbh, 2) if n_rbh else 0.0
+        genes_a = sum(1 for feat in (by_name[name_a].get("features") or []) if not feat.get("h"))
+        genes_b = sum(1 for feat in (by_name[name_b].get("features") or []) if not feat.get("h"))
+        denom = min(genes_a, genes_b) or 1
+        frac = round(100.0 * n_rbh / denom, 1)
+        scores.append({
+            "a": name_a,
+            "b": name_b,
+            "n": len(pair_links),
+            "mean_pid": aai,
+            "aai": aai,
+            "rbh": n_rbh,
+            "genes_a": genes_a,
+            "genes_b": genes_b,
+            "frac": frac,
+        })
+    payload = {
+        "links": links,
+        "scores": scores,
+        "mode": mode,
+        "reference": ref if mode == "reference" else "",
+        "min_pid": 20.0,
+        "method": SYNTENY_METHOD,
+    }
+    if len(_LINK_CACHE) >= 24:
+        _LINK_CACHE.pop(next(iter(_LINK_CACHE)))
+    _LINK_CACHE[cache_key] = payload
+    return payload

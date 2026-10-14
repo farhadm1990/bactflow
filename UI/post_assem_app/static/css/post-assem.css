@@ -195,6 +195,17 @@ table.dataTable thead th {
     box-sizing: border-box;
 }
 
+#linearDiv {
+    container-type: inline-size;
+    container-name: linear-plot;
+    scroll-margin-top: 108px;
+}
+
+#linearDiv > h4,
+#linear-plot-bar {
+    scroll-margin-top: 108px;
+}
+
 #linear-plot-bar {
     align-items: center;
     justify-content: flex-start;
@@ -205,6 +216,67 @@ table.dataTable thead th {
 #linear-plot-bar .bf-linear-pickers {
     flex: 1 1 auto;
     min-width: 0;
+    order: 1;
+    flex-wrap: wrap;
+}
+
+#linear-plot-bar .bf-plot-bar-actions {
+    flex: 0 0 auto;
+    order: 2;
+    margin-left: auto;
+    flex-wrap: nowrap;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+#linear-plot-bar .bf-plot-bar-actions .btn {
+    padding: 3px 9px;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+@container linear-plot (max-width: 960px) {
+    #linear-plot-bar {
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 10px 12px;
+        min-height: 92px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+    #linear-plot-bar .bf-plot-bar-actions {
+        order: 0;
+        flex: 0 0 auto;
+        align-self: flex-start;
+        margin-left: 0 !important;
+        margin-right: 4px;
+        width: auto;
+        max-width: 9.5rem;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 4px;
+    }
+    #linear-plot-bar .bf-plot-bar-actions .btn {
+        width: 100%;
+        padding: 2px 8px;
+        font-size: 0.68rem;
+        border-radius: 6px;
+        text-align: left;
+    }
+    #linear-plot-bar .bf-linear-pickers {
+        order: 1;
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        padding-top: 2px;
+    }
 }
 
 .bf-plot-bar-title {
@@ -219,9 +291,34 @@ table.dataTable thead th {
     gap: 8px 10px;
 }
 
-#linear-plot-bar .bf-plot-bar-actions {
-    flex: 0 0 auto;
-    margin-left: auto;
+.bf-linear-png-dims {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--hx-muted, #9ca3af);
+    white-space: nowrap;
+}
+
+.bf-linear-png-dims input[type="number"] {
+    width: 78px;
+    height: 28px;
+    padding: 2px 6px;
+    border: 1px solid #696969;
+    border-radius: 6px;
+    background: var(--hx-panel, #151b24);
+    color: var(--hx-text, #e7edf4);
+    font-size: 0.78rem;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.bf-linear-png-dims input[type="number"]::-webkit-outer-spin-button,
+.bf-linear-png-dims input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
 }
 
 .bf-dl-png,
@@ -545,8 +642,271 @@ table.dataTable thead th {
 
 .plasmid-chart {
     min-height: 280px;
+    max-height: 420px;
+    height: 320px;
+    overflow: hidden;
     background: var(--hx-canvas, #0f1419);
     border: 1px solid var(--hx-border, #2a3441);
     border-radius: 6px;
     padding: 4px;
+    box-sizing: border-box;
+}
+
+#mlst-charts.mlst-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+}
+
+.mlst-chart-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.mlst-chart-label {
+    margin: 0 4px 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--hx-muted, #9aa8b5);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+#mlst-chart-st,
+#mlst-chart-alleles {
+    height: 320px;
+    max-height: 320px;
+    min-height: 320px;
+    width: 100%;
+}
+
+#mlst-chart-bar.bf-plot-bar {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: flex-end;
+}
+
+#mlst-chart-bar .bf-mlst-dl {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+    margin-left: auto;
+}
+
+#mlst-chart-bar .bf-linear-png-dims {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#mlst-chart-bar .bf-linear-png-dims input {
+    width: 4.5rem;
+}
+
+@media (max-width: 900px) {
+    #mlst-charts.mlst-charts {
+        grid-template-columns: 1fr;
+    }
+}
+
+#heatmapDiv {
+    container-type: inline-size;
+    container-name: gene-heatmap;
+    scroll-margin-top: 108px;
+    overflow: visible !important;
+}
+
+#heatmap-plot-bar {
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 8px 10px;
+}
+
+#heatmap-plot-bar .bf-heatmap-pickers {
+    flex: 1 1 auto;
+    min-width: 0;
+    order: 0;
+    margin-right: auto;
+}
+
+.bf-heatmap-right {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    order: 1;
+    gap: 8px;
+    margin-left: auto;
+}
+
+#heatmap-plot-bar .bf-plot-bar-actions {
+    flex: 0 0 auto;
+    order: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
+    margin-left: 0;
+}
+
+#heatmap-plot-bar .bf-plot-bar-actions .btn {
+    padding: 2px 8px;
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+.bf-heatmap-pickers {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px 8px;
+    font-size: 0.76rem;
+    color: var(--rd-muted, #9ca3af);
+}
+
+.bf-heatmap-pickers label {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.bf-heatmap-pickers select {
+    min-width: 0;
+    width: auto;
+    padding: 2px 6px;
+    font-size: 0.74rem;
+}
+
+#heatmap-palette {
+    width: 6.4rem;
+}
+
+#heatmap-topn {
+    width: 4.2rem;
+}
+
+.bf-heatmap-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-bottom: 0;
+}
+
+.bf-heatmap-mode label {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+}
+
+.bf-heatmap-mode input {
+    accent-color: var(--hx-accent, #2dd4bf);
+    margin: 0;
+}
+
+.bf-heatmap-mode label:has(input:checked) {
+    color: var(--hx-accent, #2dd4bf);
+    background: rgba(45, 212, 191, 0.12);
+    border-color: rgba(45, 212, 191, 0.35);
+}
+
+.bf-heatmap-res-wrap {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 0;
+    gap: 4px;
+    margin: 0;
+    white-space: nowrap;
+    font-size: 0.76rem;
+    color: var(--rd-muted, #9ca3af);
+}
+
+.bf-heatmap-res.bf-linear-res,
+#heatmap-plot-bar .bf-heatmap-res {
+    min-width: 0;
+    width: auto;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+#heatmap-plot-bar .bf-heatmap-res input[type="range"] {
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+    margin: 0;
+}
+
+#heatmap-plot-bar .bf-heatmap-res .bf-linear-res-ticks {
+    display: none;
+}
+
+.bf-heatmap-res-label {
+    font-size: 0.64rem;
+    color: var(--hx-accent, #2dd4bf);
+    font-weight: 650;
+    min-width: 0;
+    width: 3.4em;
+}
+
+#heatmapPlot {
+    width: 100%;
+    min-height: 0;
+}
+
+#output-heatmap {
+    border: 1px solid rgb(105, 105, 105);
+    border-top: 0 !important;
+    padding: 10px;
+    margin: 10px;
+    margin-top: 0;
+    border-radius: 0 0 5px 5px;
+    width: 95%;
+    color: var(--hx-text);
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 72vh;
+}
+
+@container gene-heatmap (max-width: 960px) {
+    #heatmap-plot-bar {
+        flex-wrap: nowrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        min-height: 92px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+    #heatmap-plot-bar .bf-heatmap-pickers {
+        flex-wrap: wrap;
+    }
+    .bf-heatmap-right {
+        flex-direction: column;
+        align-items: flex-end;
+        margin-left: auto;
+    }
+    #heatmap-plot-bar .bf-plot-bar-actions {
+        flex-direction: column;
+        align-items: stretch;
+        max-width: 9.5rem;
+        gap: 4px;
+        margin-left: 0;
+    }
+    #heatmap-plot-bar .bf-plot-bar-actions .btn {
+        width: 100%;
+        padding: 2px 8px;
+        font-size: 0.68rem;
+        text-align: left;
+        border-radius: 6px;
+        white-space: nowrap;
+    }
 }

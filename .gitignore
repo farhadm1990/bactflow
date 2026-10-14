@@ -1,2 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.nextflow/
+.nextflow.log*
+work/
+*.sst
+bactflow_out/
+.bactflow-home/
 # Live CPU/RAM snapshots written while a Flask UI is running.
-UI/*/static/sys_stats.json
+**/static/sys_stats.json
+.DS_Store
+.env
+test_out/
+*.log

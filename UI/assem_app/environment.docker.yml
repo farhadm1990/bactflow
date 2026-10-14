@@ -26,6 +26,9 @@ dependencies:
   - numpy
   - pandas
   - biopython
+  - matplotlib
+  - matplotlib-base
+  - libraqm>=0.10.1
   - pysam
   - setuptools>=75,<81
   - pip
@@ -34,3 +37,4 @@ dependencies:
       - psutil==7.1.2
       - circlator==1.5.5
       - quast==5.2.0
+      - reportlab==4.2.5
