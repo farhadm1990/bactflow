@@ -257,8 +257,9 @@ function updateAssemblerUI() {
   showEl(pacbioDiv, isPacbio);
   showEl(spadesHint, isSpades);
   showEl(pacbioHint, isPacbio);
+  // Quality/length first in the form; coverage after. Both available for long-read assemblers.
+  showEl(nanofilterGroup, isFlye || isUnicycler || isPacbio);
   showEl(flyeCoverage, isFlye || isPacbio);
-  showEl(nanofilterGroup, isFlye || isUnicycler);
   showEl(flyePolish, isFlye);
   showEl(circleGenomeGroup, !isNone);
   showEl(concatReadsGroup, isLongRead);
@@ -331,6 +332,103 @@ function jumpToSection(id) {
   });
 }
 
+function showStartFailure(message) {
+  const msg = String(message || "Failed to start")
+    .replace(/\s+/g, " ")
+    .trim();
+  const out = document.getElementById("output-div");
+  if (out) {
+    out.style.display = "block";
+  }
+  BactflowTerminal.clear();
+  BactflowTerminal.append(msg, true);
+  BactflowTerminal.setStatus("Failed to start", "error");
+  if (window.BactflowRunDashboard) {
+    const dash = window.BactflowRunDashboard;
+    dash.failMessage = msg;
+    dash.markFailed("");
+    if (typeof dash.render === "function") {
+      dash.render();
+    }
+  }
+  const runBt = document.getElementById("run-bt");
+  const helpBt = document.getElementById("help-bt");
+  if (runBt) runBt.disabled = false;
+  if (helpBt) helpBt.disabled = false;
+  updateButtonStates("stopped");
+  jumpToSection("output-div");
+}
+
+function clearPreflightFailUi() {
+  if (!window.BactflowRunDashboard) {
+    return;
+  }
+  const dash = window.BactflowRunDashboard;
+  if (!dash.failed || dash.serverRunning) {
+    return;
+  }
+  if (typeof dash.clearFailState === "function") {
+    dash.clearFailState();
+  } else {
+    dash.failed = false;
+    dash.failMessage = "";
+    dash.failedProc = "";
+    dash.endedAt = null;
+    dash.startedAt = null;
+    dash.launchAt = null;
+    dash.frozenRows = null;
+  }
+  if (typeof dash.render === "function") {
+    dash.render();
+  }
+  if (window.BactflowTerminal) {
+    BactflowTerminal.setStatus("Ready", "idle");
+  }
+}
+
+async function preflightFastqInputs() {
+  const form = document.getElementById("runForm");
+  const formData = new FormData(form);
+  const assembler = (document.getElementById("assemblerDropdown") || {}).value || "";
+  const needsFastq = ["flye", "unicycler", "spades", "pacbio"].includes(assembler);
+  if (!needsFastq) {
+    return { ok: true };
+  }
+  const fastqDir = (document.getElementById("fastq_dir") || {}).value || "";
+  if (!String(fastqDir).trim()) {
+    return { ok: false, message: "Choose a FASTQ directory before starting the run." };
+  }
+  formData.set("assembler", assembler);
+  let response;
+  try {
+    response = await fetch("/validate-fastq", { method: "POST", body: formData });
+  } catch (err) {
+    // Network blip — let /run_bactflow enforce the same checks.
+    return { ok: true, skipped: true };
+  }
+  const text = ((await response.text()) || "").trim();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      data = null;
+    }
+  }
+  // Old server / missing route / HTML error page → do not block with a vague error.
+  if (!data && (response.status === 404 || /<!DOCTYPE|<html/i.test(text))) {
+    return { ok: true, skipped: true };
+  }
+  if (!response.ok || !data || !data.ok) {
+    const message =
+      (data && data.message) ||
+      text ||
+      "FASTQ directory check failed (no details from server).";
+    return { ok: false, message };
+  }
+  return data;
+}
+
 // Run BactFlow
 function run_wf(action){
 
@@ -356,12 +454,7 @@ function run_wf(action){
         .then(async (response) => {
         if(!response.ok) {
           const message = ((await response.text()) || "").trim();
-          BactflowTerminal.clear();
-          BactflowTerminal.append(message || "Error starting BactFlow. It might already be running?!", true);
-          BactflowTerminal.setStatus("Failed to start", "error");
-          document.getElementById('run-bt').disabled = false;
-          document.getElementById('help-bt').disabled = false;
-          jumpToSection("output-div");
+          showStartFailure(message || "Error starting BactFlow. It might already be running?!");
           return;
         };
         
@@ -375,11 +468,7 @@ function run_wf(action){
     })
     
     .catch((error) => {
-      BactflowTerminal.append("Failed to start BactFlow" + error.message, true);
-      BactflowTerminal.setStatus("Failed to start", "error");
-      updateButtonStates("stopped");
-      jumpToSection("output-div");
-      
+      showStartFailure("Failed to start BactFlow: " + (error && error.message ? error.message : error));
     });
         break;
       }
@@ -457,7 +546,7 @@ function run_wf(action){
   }
 }
 
-document.getElementById("runForm").addEventListener("submit", (e) => {
+document.getElementById("runForm").addEventListener("submit", async (e) => {
  e.preventDefault();
 
   const action = e.submitter.value;
@@ -471,29 +560,36 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
   if (action === "run" && selectedAssembler === "unicycler") {
     const shortReads = document.getElementById("short_read_dir").value.trim();
     if (!longReads || !shortReads) {
-      const out = document.getElementById("output-div");
-      if (out) {
-        out.style.display = "block";
-      }
-      BactflowTerminal.append("Unicycler hybrid assembly needs both a long-read path and a short-read path.", true);
-      jumpToSection("output-div");
-      document.getElementById('run-bt').disabled = false;
-      document.getElementById('stop-bt').disabled = true;
-      document.getElementById('help-bt').disabled = false;
+      showStartFailure("Unicycler hybrid assembly needs both a long-read path and a short-read path.");
       return;
     }
   }
-  if (action === "run" && selectedAssembler === "spades" && !longReads) {
-    const out = document.getElementById("output-div");
-    if (out) {
-      out.style.display = "block";
-    }
-    BactflowTerminal.append("SPAdes needs an Illumina paired-end FASTQ directory (sample_R1 / sample_R2).", true);
-    jumpToSection("output-div");
-    document.getElementById('run-bt').disabled = false;
-    document.getElementById('stop-bt').disabled = true;
-    document.getElementById('help-bt').disabled = false;
+  if (action === "run" && ["flye", "pacbio", "spades"].includes(selectedAssembler) && !longReads) {
+    showStartFailure(
+      selectedAssembler === "spades"
+        ? "SPAdes needs an Illumina paired-end FASTQ directory (sample_R1 / sample_R2)."
+        : "Choose a FASTQ directory before starting the run."
+    );
     return;
+  }
+
+  if (action === "run") {
+    document.getElementById("run-bt").disabled = true;
+    document.getElementById("stop-bt").disabled = true;
+    document.getElementById("help-bt").disabled = true;
+    try {
+      const check = await preflightFastqInputs();
+      if (!check.ok) {
+        showStartFailure(check.message || "FASTQ directory check failed.");
+        return;
+      }
+      if (check.message) {
+        BactflowTerminal.append(check.message, true);
+      }
+    } catch (err) {
+      showStartFailure("Could not validate FASTQ path: " + (err && err.message ? err.message : err));
+      return;
+    }
   }
 
   if (action !== "stop") {
@@ -1523,13 +1619,26 @@ window.addEventListener("beforeunloaded", ()=>{
 
 // Handle directory selection for FASTQ input
 if (fastqDirInput) {
+  fastqDirInput.addEventListener("input", () => {
+    clearPreflightFailUi();
+  });
   fastqDirInput.addEventListener("change", (event) => {
+    clearPreflightFailUi();
     const selectedFiles = Array.from(event.target.files || []);
 
     if (selectedFiles.length > 0) {
       const absolutePath = selectedFiles[0].path || selectedFiles[0].webkitRelativePath.split("/")[0];
       fastqDirInput.value = absolutePath;
     }
+  });
+}
+const shortReadDirInput = document.getElementById("short_read_dir");
+if (shortReadDirInput) {
+  shortReadDirInput.addEventListener("input", () => {
+    clearPreflightFailUi();
+  });
+  shortReadDirInput.addEventListener("change", () => {
+    clearPreflightFailUi();
   });
 }
 

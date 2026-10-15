@@ -16,7 +16,7 @@ ui_root = os.path.abspath(os.path.join(base_dir, ".."))
 if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 
-from run_lock import snapshot  # noqa: E402
+from run_lock import force_reset, snapshot  # noqa: E402
 
 
 def _load_module(name: str, path: str):
@@ -59,6 +59,42 @@ def wiki():
 @hub.route("/run-lock")
 def run_lock_status():
     return jsonify(snapshot())
+
+
+@hub.route("/run-lock/reset", methods=["POST"])
+def run_lock_reset():
+    """Clear a stalled run lock, stop its worker if any, and free module slots."""
+    result = force_reset()
+    for mod in (qc_mod, assem_mod, post_mod):
+        try:
+            clear_fn = getattr(mod, "_clear_run_state", None)
+            if callable(clear_fn):
+                clear_fn()
+        except Exception:
+            pass
+        try:
+            status = getattr(mod, "process_status", None)
+            if status is not None:
+                status["running"] = False
+                try:
+                    status["pid"] = None
+                except Exception:
+                    pass
+                try:
+                    status["exit_code"] = None
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    payload = snapshot()
+    payload.update(result)
+    payload["ok"] = True
+    payload["message"] = (
+        "Cleared stalled run lock"
+        + (f" ({result.get('label')})" if result.get("label") else "")
+        + ". Workspace is free."
+    )
+    return jsonify(payload)
 
 
 @hub.route("/host-info")

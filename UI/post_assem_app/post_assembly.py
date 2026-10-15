@@ -433,7 +433,15 @@ def _kill_process_tree(pid):
     return True
 
 
-def run_bact(command, process_status, output_queue, output_history, work_root=None):
+def run_bact(
+    command,
+    process_status,
+    output_queue,
+    output_history,
+    work_root=None,
+    out_dir=None,
+    cleanup_work=False,
+):
     """Function to run bactflow"""
 
     process_status["running"] = True
@@ -539,6 +547,13 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
     process_status["exit_code"] = int(exit_code) if exit_code is not None else 1
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
+        if cleanup_work and out_dir:
+            try:
+                from work_cleanup import cleanup_run_temps
+
+                output_queue.put(cleanup_run_temps(out_dir))
+            except Exception as exc:
+                output_queue.put(f"BactFlow: cleanup failed: {exc}")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
 
@@ -552,6 +567,15 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 
 
 # run bactflow
+
+@app.route("/validate-paths", methods=["POST"])
+def validate_paths_route():
+    """Preflight: genome / DB / output directories must exist (and hold required files)."""
+    from path_validate import validate_form_paths
+
+    check = validate_form_paths("post", request.form)
+    return jsonify(check), (200 if check.get("ok") else 400)
+
 
 @app.route('/run_bactflow', methods=['POST', 'GET'])
 def run_bactflow():
@@ -578,25 +602,17 @@ def run_bactflow():
             checkm_db = request.form.get('checkm_db', "")
             gtdbtk_data_path = request.form.get('gtdbtk_data_path', "")
             genome_dir = (request.form.get("genome_dir") or "").strip()
+            from path_validate import validate_form_paths
+
+            preflight = validate_form_paths("post", request.form)
+            if not preflight.get("ok"):
+                return (preflight.get("message") or "Invalid directory path.") + "\n", 400
             if str(setup_only).lower() != "true":
-                if not genome_dir:
-                    return (
-                        "genome_dir is required for post-assembly. Point it at a folder of FASTA files "
-                        "(for example .../circulated_fasta).\n"
-                    ), 400
-                if not os.path.isdir(genome_dir):
-                    hint = ""
-                    guess = genome_dir.replace("cirulated_fasta", "circulated_fasta")
-                    if guess != genome_dir and os.path.isdir(guess):
-                        hint = f" Did you mean '{guess}'?"
-                    return (
-                        f"genome_dir does not exist: {genome_dir}.{hint} "
-                        "Environment setup can finish, then Nextflow aborts here and the dashboard looks like it broke.\n"
-                    ), 400
                 genome_dir = os.path.abspath(genome_dir)
             run_checkm = request.form.get("run_checkm", "false")
             run_quast = request.form.get("run_quast", "true")
             resume_run = request.form.get("resume_run", "false")
+            cleanup_work_dir = request.form.get("cleanup_work_dir", "false")
             run_bakta = request.form.get("bakta_annot", "false")
             bakta_db = request.form.get("bakta_data_path", "")
             run_plasmids = request.form.get("run_plasmids", "false")
@@ -642,7 +658,18 @@ def run_bactflow():
                 
             output_history[:] = []
             process_status["running"] = True
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
+            back_process = Process(
+                target=run_bact,
+                args=(
+                    command,
+                    process_status,
+                    output_queue,
+                    output_history,
+                    base_dir,
+                    out_dir,
+                    _truthy(cleanup_work_dir, False),
+                ),
+            )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
         

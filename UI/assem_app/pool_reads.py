@@ -87,18 +87,22 @@ def _rewrite_path_part(path: Path, old: str, new: str) -> Path:
     return rebuilt
 
 
-def resolve_fastq_dir(raw: str | None) -> tuple[str, str]:
-    """Return (absolute directory, optional correction note)."""
+def resolve_fastq_dir(raw: str | None, *, allow_alias: bool = True) -> tuple[str, str]:
+    """Return (absolute directory, optional correction note).
+
+    When allow_alias is False, never rewrite typos — missing paths raise.
+    """
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
         raise PoolReadsError("Choose an existing FASTQ directory first.")
     path = Path(os.path.abspath(os.path.expanduser(os.path.expandvars(text))))
     if path.is_dir():
         return str(path), ""
-    for old, new in _DIR_ALIASES.items():
-        alt = _rewrite_path_part(path, old, new)
-        if alt != path and alt.is_dir():
-            return str(alt), f"Using {alt} ({path} does not exist)."
+    if allow_alias:
+        for old, new in _DIR_ALIASES.items():
+            alt = _rewrite_path_part(path, old, new)
+            if alt != path and alt.is_dir():
+                return str(alt), f"Using {alt} ({path} does not exist)."
     parent = path.parent
     hint = ""
     if parent.is_dir():
@@ -324,7 +328,8 @@ def _safe_sample_filename(sample: str) -> str:
 
 
 def pool_fastq_dir(fastq_dir: str | Path, extension: str = "auto", cpus: int = 1) -> list[Path]:
-    resolved, _note = resolve_fastq_dir(str(fastq_dir))
+    # Strict: do not silently rewrite typos (e.g. fastq_wg → fastqs_wg).
+    resolved, _note = resolve_fastq_dir(str(fastq_dir), allow_alias=False)
     root = Path(resolved)
 
     ext = _normalize_ext(extension)

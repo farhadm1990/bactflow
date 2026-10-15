@@ -351,6 +351,8 @@ nextflow run UI/assem_app/main.nf --help
 
 Add `-resume` to continue an interrupted run. Use `--cpus` for threads. Set `--out_dir` to an absolute path if you can.
 
+In the **Assembly** and **Post-assembly** UI, **Clean up work dir** (True/False) deletes `out_dir/.nextflow-work` and other temp files after a **successful** run to free disk. Leave it **False** if you plan to use **Resume** on the next run (Resume needs that work directory). Failed or stopped runs keep the work dir so you can debug or resume.
+
 ## 1. Pre-assembly
 
 The pre-assembly UI is the usual way to concatenate, trim tiny files, and plot reads. From the terminal you can concatenate barcode folders the same way the UI does:
@@ -536,12 +538,13 @@ From **Post-assembly** in the UI you can also:
 - **Variant calling (Medaka)** — tables from each genome’s **`medaka.vcf`** under `out_dir/vcs/`
 - **Circular plot** — from Bakta GBK/GFF outputs
 - **Strain finder** — abundance / prevalence tables and plots from enzyme + annotation inputs
+- **Clean up work dir** — same as Assembly: remove `.nextflow-work` / temp files after success (keep False for Resume)
 
 ---
 
 # Output directory (`bactflow_out`)
 
-Published results land here. Nextflow work files go to `bactflow_out/.nextflow-work` and are removed after a successful assembly run.
+Published results land here. Nextflow work files go to `bactflow_out/.nextflow-work`. Set **Clean up work dir = True** in the Assembly or Post-assembly UI to delete that folder (and other temp files) after a successful run.
 
 Folders that only appear when the matching flag is on are marked *(optional)*.
 

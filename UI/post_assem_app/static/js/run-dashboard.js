@@ -687,11 +687,23 @@
         }
       });
       if (this.failed && !rows.some((r) => r.state === "fail")) {
-        const culprit = rows.find((r) => r.procs.length && r.state !== "done");
+        let culprit = rows.find((r) => r.procs.length && r.state !== "done");
+        if (!culprit) {
+          const lastDone = rows.reduce((idx, r, i) => (r.state === "done" && !r.stage.side ? i : idx), -1);
+          culprit =
+            rows.find((r, i) => i > lastDone && !r.stage.side && r.state === "wait") ||
+            rows.find((r) => !r.stage.side && r.state === "wait");
+        }
         if (culprit) {
           culprit.state = "fail";
+          culprit.failDetail = this.failMessage || "";
         }
       }
+      rows.forEach((r) => {
+        if (r.state === "fail" && this.failMessage && !r.failDetail) {
+          r.failDetail = this.failMessage;
+        }
+      });
       return rows;
     },
 

@@ -47,7 +47,17 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   };
 
-  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start/i;
+  const FAIL_RE =
+    /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|No ONT FASTQ|No PacBio FASTQ|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|exited with code\s+[1-9]/i;
+
+  function cleanFailMessage(line) {
+    return String(line || "")
+      .replace(/^ERROR\s*~\s*/i, "")
+      .replace(/^BactFlow:\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+  }
 
   const STEP_TARGETS = {
     envsetup: [".rd-logs"],
@@ -85,6 +95,7 @@
     nfFinished: false,
     failed: false,
     failedProc: "",
+    failMessage: "",
     doneAtFail: null,
     stopping: false,
     frozenRows: null,
@@ -398,24 +409,33 @@
       }
     },
 
+    clearFailState() {
+      this.failed = false;
+      this.failedProc = "";
+      this.failMessage = "";
+      this.doneAtFail = null;
+      this.stopping = false;
+      this.frozenRows = null;
+      this.frozenKey = null;
+      this.nfFinished = false;
+      this.endedAt = null;
+      this.startedAt = null;
+      this.launchAt = null;
+    },
+
     /* —— Run lifecycle —— */
     bindRunHooks() {
       const runBt = document.getElementById("run-bt");
       if (runBt) {
         runBt.addEventListener("click", () => {
+          this.clearFailState();
           this.startedAt = Date.now();
           this.launchAt = this.startedAt;
-          this.endedAt = null;
-          this.nfFinished = false;
-          this.failed = false;
-          this.failedProc = "";
-          this.doneAtFail = null;
-          this.stopping = false;
-          this.frozenRows = null;
           this.stampRunId();
           // The form validates on submit, right after this click; a launched run disables the button.
           setTimeout(() => {
-            if (!runBt.disabled) {
+            if (!runBt.disabled && !this.failed) {
+              // Click did not start a run (e.g. empty path caught before disable).
               this.launchAt = null;
               this.startedAt = null;
             }
@@ -446,13 +466,31 @@
       term._rdHooked = true;
       const origAppend = term.append.bind(term);
       term.append = (raw, force) => {
-        this.inspectLine(String(raw || ""));
+        const text = String(raw || "");
+        this.inspectLine(text);
+        // Capture the detailed error body that accompanies "Failed to start".
+        if (
+          force &&
+          /does not exist|No ONT FASTQ|No PacBio FASTQ|No FASTQ|FASTQ directory|Invalid FASTQ|Choose a FASTQ|Did you mean/i.test(
+            text
+          )
+        ) {
+          this.failMessage = cleanFailMessage(text);
+          this.markFailed("");
+        }
         return origAppend(raw, force);
       };
       const origStatus = term.setStatus.bind(term);
       term.setStatus = (text, kind) => {
-        if (kind === "error" && /Failed to start/i.test(String(text || ""))) {
-          this.markFailed("");
+        if (kind === "error") {
+          const msg = cleanFailMessage(text);
+          // Keep a detailed body message; do not replace it with the short status label.
+          if (msg && !/Failed to start/i.test(msg) && !this.failMessage) {
+            this.failMessage = msg;
+          }
+          if (/Failed to start/i.test(String(text || ""))) {
+            this.markFailed("");
+          }
         }
         return origStatus(text, kind);
       };
@@ -466,16 +504,24 @@
         }
       }
       if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
-        this.nfFinished = true;
+        if (!this.failed) {
+          this.nfFinished = true;
+        }
       }
-      if (/Process completed|Nextflow finished successfully/i.test(line)) {
-        if (!this.endedAt && this.startedAt) {
+      if (/^Process completed$|Nextflow finished successfully/i.test(line)) {
+        if (!this.failed && !this.endedAt && this.startedAt) {
           this.endedAt = Date.now();
         }
+      }
+      if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
+        this.failMessage = cleanFailMessage(line) || this.failMessage;
+        this.markFailed("");
+        return;
       }
       if (this.stopping || !FAIL_RE.test(line)) {
         return;
       }
+      this.failMessage = cleanFailMessage(line) || this.failMessage;
       const m = line.match(/process\s*>\s*'?([A-Za-z_]\w*)/i);
       this.markFailed(m ? m[1] : "");
     },
@@ -497,6 +543,7 @@
         }
       }
       this.failed = true;
+      this.nfFinished = false;
       if (procName && !this.failedProc) {
         this.failedProc = norm(procName);
       }
@@ -561,12 +608,20 @@
           stages.push(S("concat", "Read pooling", "pool", /^fastqconcater/, "concat_reads"));
         }
         stages.push(S("pbcheck", "PacBio read check", "readcheck", /^pacbioreadcheck/, "pacbio_read_check"));
+        // Quality filter always before coverage when both are selected.
+        if (this.isTrue("nanofilter")) {
+          stages.push(S("readfilt", "Read filter", "filter", /^nanoreadfilt/, "readfilt"));
+        }
+        if (this.isTrue("coverage_filter")) {
+          stages.push(S("covfilt", "Coverage filter", "coverage", /^coveragefilt/, "coverage_filt"));
+        }
         stages.push(S("asm", "Flye (PacBio)", "pacbio", /^assemblypacbio/, "assembly_pacbio"));
       } else if (asm === "flye" || asm === "unicycler") {
         if (concat) {
           stages.push(S("concat", "Read pooling", "pool", /^fastqconcater/, "concat_reads"));
         }
         stages.push(S("dedup", "Deduplication", "dedup", /^deduper/, "deduper"));
+        // Quality filter always before coverage when both are selected.
         if (this.isTrue("nanofilter")) {
           stages.push(S("readfilt", "Read filter", "filter", /^nanoreadfilt/, "readfilt"));
         }
@@ -632,6 +687,7 @@
         const out = { stage, procs, state: "wait", pct: 0, remaining: expected, expected, elapsed: 0, cached: false };
         if (this.failed && this.failedProc && stage.match.test(this.failedProc)) {
           out.state = "fail";
+          out.failDetail = this.failMessage || "";
         }
         if (!procs.length) {
           return out;
@@ -685,11 +741,25 @@
         }
       });
       if (this.failed && !rows.some((r) => r.state === "fail")) {
-        const culprit = rows.find((r) => r.procs.length && r.state !== "done");
+        // Prefer a process that was mid-run; otherwise the next pending main step
+        // (e.g. Deduplication when the FASTQ channel was empty / path wrong).
+        let culprit = rows.find((r) => r.procs.length && r.state !== "done");
+        if (!culprit) {
+          const lastDone = rows.reduce((idx, r, i) => (r.state === "done" && !r.stage.side ? i : idx), -1);
+          culprit =
+            rows.find((r, i) => i > lastDone && !r.stage.side && r.state === "wait") ||
+            rows.find((r) => !r.stage.side && r.state === "wait");
+        }
         if (culprit) {
           culprit.state = "fail";
+          culprit.failDetail = this.failMessage || "";
         }
       }
+      rows.forEach((r) => {
+        if (r.state === "fail" && this.failMessage && !r.failDetail) {
+          r.failDetail = this.failMessage;
+        }
+      });
       return rows;
     },
 
@@ -877,7 +947,8 @@
         if (r.state === "done") {
           meta = r.skipped ? "Done" : r.cached ? "Cached" : "Done · " + this.formatDuration(r.elapsed);
         } else if (r.state === "fail") {
-          meta = "Failed";
+          meta = r.failDetail || this.failMessage || "Failed";
+          el.title = meta;
         } else if (r.state === "stop") {
           meta = `Stopped at ${r.pct}%`;
         } else if (r.state === "run") {
@@ -913,6 +984,26 @@
         row.classList.toggle("is-jump", r.state === "done");
         row.querySelector(".pct").textContent = r.state === "fail" ? "failed" : r.state === "stop" ? "stopped " + r.pct + "%" : r.pct + "%";
         row.querySelector(".track > i").style.width = r.pct + "%";
+        if (r.state === "fail") {
+          const detail = r.failDetail || this.failMessage || "Failed";
+          row.title = detail;
+          const nameEl = row.querySelector(".name");
+          if (nameEl) {
+            nameEl.textContent = r.stage.name;
+          }
+          let why = row.querySelector(".rd-fail-why");
+          if (!why) {
+            why = document.createElement("div");
+            why.className = "rd-fail-why";
+            row.appendChild(why);
+          }
+          why.textContent = detail;
+        } else {
+          const why = row.querySelector(".rd-fail-why");
+          if (why) {
+            why.remove();
+          }
+        }
       });
     },
 
@@ -969,7 +1060,9 @@
         desc = current ? `Step ${rows.indexOf(current) + 1} of ${rows.length} is running` : "Waiting for Nextflow to schedule the first step";
       } else if (state === "failed") {
         title = "Pipeline failed";
-        desc = current ? `${current.stage.name} failed. Check the live log for details.` : "Check the live log for details.";
+        desc =
+          this.failMessage ||
+          (current ? `${current.stage.name} failed. Check the live log for details.` : "Check the live log for details.");
       } else if (this.frozenRows) {
         title = "Stopped";
         desc = `Run stopped after ${doneN} of ${rows.length} steps.`;

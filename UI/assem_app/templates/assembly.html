@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/post-assem.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd26">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd28">
 <link rel="stylesheet" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 <script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
@@ -177,26 +177,6 @@
               </div>
             </div>
 
-            <div id="flyeCoverageOptions" style="display: none;">
-            <div class="mb-3">
-              <label for="coverage_filter" class="form-label">Coverage Filter</label>
-              <select class="form-select" id="coverage_filter" name="coverage_filter">
-                <option value="true">True</option>
-                <option value="false" selected>False</option>
-              </select>
-            </div>
-            <div id="covDiv" style="display: none;">
-              <div class="mb-3">
-                <label for="coverage" class="form-label">Coverage</label>
-                <input type="number" class="form-control" id="coverage" name="coverage" placeholder="40" />
-              </div>
-              <div class="mb-3">
-                <label for="genome_size" class="form-label">Genome Size</label>
-                <input type="number" class="form-control" id="genome_size" name="genome_size" placeholder="6" step="0.1"/>
-              </div>
-            </div>
-            </div>
-
             <div id="nanofilterGroup" style="display: none;">
             <div class="mb-3">
               <label for="nanofilter" class="form-label">Quality and length filter</label>
@@ -204,6 +184,7 @@
                 <option value="true">True</option>
                 <option value="false" selected> False</option>
               </select>
+              <div class="form-text">Runs before coverage filter when both are enabled.</div>
             </div>
             <div id="qualDiv" style="display: none;">
               <div class="mb-3">
@@ -213,6 +194,27 @@
               <div class="mb-3">
                 <label for="min_length" class="form-label">Minimum read length</label>
                 <input type="number" class="form-control" id="readLen" name="min_length" placeholder="1000" />
+              </div>
+            </div>
+            </div>
+
+            <div id="flyeCoverageOptions" style="display: none;">
+            <div class="mb-3">
+              <label for="coverage_filter" class="form-label">Coverage Filter</label>
+              <select class="form-select" id="coverage_filter" name="coverage_filter">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+              <div class="form-text">Applied after quality/length filtering when that step is also on.</div>
+            </div>
+            <div id="covDiv" style="display: none;">
+              <div class="mb-3">
+                <label for="coverage" class="form-label">Coverage</label>
+                <input type="number" class="form-control" id="coverage" name="coverage" placeholder="40" />
+              </div>
+              <div class="mb-3">
+                <label for="genome_size" class="form-label">Genome Size</label>
+                <input type="number" class="form-control" id="genome_size" name="genome_size" placeholder="6" step="0.1"/>
               </div>
             </div>
             </div>
@@ -366,6 +368,18 @@
                 <option value="true">True</option>
                 <option value="false" selected>False</option>
               </select>
+            </div>
+
+            <div class="mb-3">
+              <label for="cleanup_work_dir" class="form-label"><strong>Clean up work dir?</strong></label>
+              <select class="form-select" id="cleanup_work_dir" name="cleanup_work_dir">
+                <option value="true">True</option>
+                <option value="false" selected>False</option>
+              </select>
+              <div class="form-text">
+                After a successful run, delete <code>out_dir/.nextflow-work</code> and other temp files to free disk.
+                Leave False if you plan to use Resume on the next run.
+              </div>
             </div>
 
             <br>
@@ -720,9 +734,9 @@
     <!-- scripts -->
       <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
       <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars11"></script>
-      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd25"></script>
+      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd28"></script>
       <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
       <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports22"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports25"> </script>
 
 {% endblock %}

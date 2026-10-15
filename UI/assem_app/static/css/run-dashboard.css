@@ -819,6 +819,29 @@ html[data-theme="light"] .rd-plasma svg {
 
 .rd-stage.is-fail .rd-stage-meta {
   color: var(--rd-red);
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rd-fail-why {
+  grid-column: 1 / -1;
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+[data-theme="light"] .rd-fail-why {
+  color: #991b1b;
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .rd-stage.is-stop .rd-stage-node {

@@ -14,6 +14,7 @@
     "/post",
     "/wiki",
     "/run-lock",
+    "/run-lock/reset",
     "/host-info",
   ];
 
@@ -223,8 +224,17 @@
         </div>
       </a>
       <nav class="bf-chrome-nav" aria-label="BactFlow modules"></nav>
-      <div class="bf-chrome-status" id="bf-run-status">Ready</div>
+      <div class="bf-chrome-aside">
+        <div class="bf-chrome-status" id="bf-run-status">Ready</div>
+        <button type="button" class="bf-chrome-reset" id="bf-run-reset" title="Clear stalled run locks and free the workspace">Reset</button>
+      </div>
     `;
+    const resetBtn = bar.querySelector("#bf-run-reset");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        resetWorkspace(resetBtn);
+      });
+    }
     const nav = bar.querySelector(".bf-chrome-nav");
     VIEWS.forEach((item) => {
       const a = document.createElement("a");
@@ -260,12 +270,19 @@
 
   function applyLock(info) {
     const status = document.getElementById("bf-run-status");
+    const resetBtn = document.getElementById("bf-run-reset");
     const busy = Boolean(info && info.running && info.module);
     if (status) {
       status.classList.toggle("is-busy", busy);
       status.textContent = busy
         ? `${info.label || "A module"} is running`
         : "Ready";
+    }
+    if (resetBtn) {
+      resetBtn.classList.toggle("is-needed", busy);
+      resetBtn.title = busy
+        ? `Clear stalled ${info.label || "job"} lock and free the workspace`
+        : "Clear stalled run locks and free the workspace";
     }
     applyLockButtons(info, thisModule);
     document.querySelectorAll("iframe[data-bf-view]").forEach((frame) => {
@@ -289,6 +306,38 @@
       applyLock(await res.json());
     } catch (err) {
       /* hub may be down when a module is launched standalone */
+    }
+  }
+
+  async function resetWorkspace(btn) {
+    const busyLabel = (document.getElementById("bf-run-status") || {}).textContent || "";
+    const ok = window.confirm(
+      busyLabel && /running/i.test(busyLabel)
+        ? `${busyLabel}.\n\nStop any stalled job, clear the run lock, and free the workspace?`
+        : "Clear any stalled run lock and free the workspace?"
+    );
+    if (!ok) return;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Resetting…";
+    }
+    try {
+      const res = await fetch("/run-lock/reset", { method: "POST", cache: "no-store" });
+      const data = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        window.alert((data && data.message) || "Could not reset the workspace.");
+        return;
+      }
+      applyLock(data);
+      window.alert(data.message || "Workspace is free.");
+    } catch (err) {
+      window.alert("Could not reset the workspace.");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Reset";
+      }
+      pollLock();
     }
   }
 

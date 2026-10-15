@@ -6,9 +6,9 @@
     <meta name="bactflow-root" content="">
     <title>BactFlow</title>
     <link rel="shortcut icon" href="/hub/static/images/logo.png">
-    <link rel="stylesheet" href="/hub/static/css/hub.css?v=hub9">
-    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub9">
-    <script src="/hub/static/js/chrome.js?v=hub9"></script>
+    <link rel="stylesheet" href="/hub/static/css/hub.css?v=hub10">
+    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub10">
+    <script src="/hub/static/js/chrome.js?v=hub10"></script>
   </head>
   <body class="bf-hub bf-hub-shell helix-shell">
     <div class="bf-stage">
@@ -132,6 +132,7 @@
               <ul>
                 <li><code>Assembler</code> — Flye (ONT), SPAdes (Illumina isolate), Unicycler (hybrid), PacBio Flye.</li>
                 <li><code>Resume</code> — continue a previous Nextflow run in the same output directory.</li>
+                <li><code>Clean up work dir</code> — after success, delete <code>.nextflow-work</code> and temp files under the output directory. Leave False if you will Resume.</li>
                 <li>Start BactFlow. Stop cancels the tree. Display results appears when reports exist.</li>
               </ul>
             </section>
@@ -156,6 +157,7 @@
                 <li><code>Bakta</code> — annotation. Linear plots, AMR, orphans, and the heatmap read these results.</li>
                 <li><code>geNomad</code> — plasmids / viruses with a local database.</li>
                 <li><code>MLST</code> — PubMLST sequence typing. No extra database path.</li>
+                <li><code>Clean up work dir</code> — after success, delete <code>.nextflow-work</code> and temp files. Leave False if you will Resume.</li>
                 <li><code>Generate report</code> — HTML + PDF summary of every result table with written interpretation.</li>
               </ul>
             </section>

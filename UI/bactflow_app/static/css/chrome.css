@@ -116,6 +116,13 @@ html.bf-hubbed .rd-main {
   border: 1px solid rgba(148, 163, 184, 0.22);
 }
 
+.bf-chrome-aside {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .bf-chrome-status {
   font-size: 12px;
   color: #94a3b8;
@@ -129,6 +136,37 @@ html.bf-hubbed .rd-main {
   color: #fde68a;
   border-color: rgba(245, 158, 11, 0.45);
   background: rgba(245, 158, 11, 0.12);
+}
+
+.bf-chrome-reset {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bf-chrome-reset:hover,
+.bf-chrome-reset:focus {
+  color: #fff;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.14);
+  outline: none;
+}
+
+.bf-chrome-reset.is-needed {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.bf-chrome-reset:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 button.is-run-locked,

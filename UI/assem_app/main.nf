@@ -161,14 +161,52 @@ workflow {
                 pacbio_inputs,
                 params.cpus
             )
+            // FASTQs from classification → quality filter (optional) → coverage (optional) → Flye
+            pb_reads = pacbio_ready.ready_dir.flatMap { rd ->
+                def dir = file(rd)
+                def hits = []
+                dir.eachFile { f ->
+                    def n = f.name.toLowerCase()
+                    if (n.endsWith('.fastq') || n.endsWith('.fq') || n.endsWith('.fastq.gz') || n.endsWith('.fq.gz')) {
+                        hits << f
+                    }
+                }
+                if (!hits) {
+                    error "No PacBio FASTQ files produced by pacbio_read_check in ${rd}"
+                }
+                return hits
+            }.collect()
+
+            if (params.nanofilter) {
+                filt_fastqs = nano_read_filt(
+                    env_check,
+                    pb_reads,
+                    params.min_quality,
+                    params.min_length
+                )
+            } else {
+                filt_fastqs = pb_reads
+            }
+
+            if (params.coverage_filter) {
+                asm_reads = coverage_filt(
+                    env_check,
+                    filt_fastqs,
+                    params.coverage,
+                    params.genome_size
+                )
+            } else {
+                asm_reads = filt_fastqs
+            }
+
             assembly_pacbio(
                 env_check,
-                pacbio_ready.ready_dir,
+                asm_reads,
                 params.cpus,
                 params.pacbio_read_type
             )
             fastas_fold = assembly_pacbio.out.fastas_fold
-        // ONT / hybrid: concatenate, dedup, optional filters, then assemble
+        // ONT / hybrid: concatenate, dedup, quality filter (optional), coverage (optional), then assemble
         } else if (params.run_flye || params.run_unicycler) {
             if (params.concat_reads){
                 pooled_out = fastqConcater(
@@ -178,8 +216,17 @@ workflow {
                 params.extension
             )
             } else {
-                pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq*")
-                                .collect() 
+                // Missing/wrong --fastq_dir used to yield an empty channel and a silent
+                // "success" after only envSetUP. Fail loudly instead.
+                pooled_out = Channel
+                    .fromPath("${params.fastq_dir}/*.fastq.gz", checkIfExists: false)
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq.gz", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fastq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq", checkIfExists: false))
+                    .ifEmpty {
+                        error "No ONT FASTQ files found in ${params.fastq_dir}. Check the path (e.g. fastqs_wg vs fastq_wg) and that Concat Reads is off for already-pooled files."
+                    }
+                    .collect()
             }
            
 
@@ -1047,17 +1094,17 @@ process pacbio_read_check {
 }
 
 
-// PacBio Flye: uses user-selected --pacbio_read_type on classified FASTQs
+// PacBio Flye: uses user-selected --pacbio_read_type on (optionally filtered) FASTQs
 process assembly_pacbio {
     cpus params.cpus
     debug true
     label 'Assemlby'
-    tag "PacBio assembling ${ready_dir}"
+    tag "PacBio assembling"
     publishDir path: "${params.out_dir}/asm_out_dir/fastas", mode: 'copy', overwrite: true, pattern: '*.fasta', saveAs: { publishFasta(it, '.fasta') }
 
     input:
     path env_check
-    path ready_dir
+    path read_fastqs
     val cpus
     val pacbio_read_type
 
@@ -1075,12 +1122,6 @@ process assembly_pacbio {
 
     mkdir -p asm_out_dir/fastas
 
-    if [ -f "${ready_dir}/pacbio_message.txt" ]
-    then
-        echo "==== PacBio classification ===="
-        cat "${ready_dir}/pacbio_message.txt"
-    fi
-
     pb_mode="${pacbio_read_type}"
     if [ -z "\$pb_mode" ]
     then
@@ -1088,16 +1129,7 @@ process assembly_pacbio {
     fi
     echo "PacBio Flye mode: \$pb_mode"
 
-    shopt -s nullglob
-    read_files=("${ready_dir}"/*.fastq.gz "${ready_dir}"/*.fq.gz "${ready_dir}"/*.fastq "${ready_dir}"/*.fq)
-    if [ \${#read_files[@]} -eq 0 ]
-    then
-        echo "No FASTQ files in ${ready_dir}" >&2
-        ls -la "${ready_dir}" >&2 || true
-        exit 1
-    fi
-
-    for i in "\${read_files[@]}"
+    for i in ${read_fastqs}
     do
         out_name=\$(basename "\$i")
         out_name=\${out_name%.fastq.gz}
@@ -1107,6 +1139,7 @@ process assembly_pacbio {
         out_name=\${out_name%.subreads}
         out_name=\${out_name%_pooled}
         out_name=\${out_name%_fastq}
+        out_name=\${out_name%_filt}
         pb_dir=asm_out_dir/"\${out_name}"_pacbio
 
         echo "running Flye (\$pb_mode) on PacBio reads for \${out_name}..."

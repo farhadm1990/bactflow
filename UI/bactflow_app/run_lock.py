@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import time
 
 LOCK_DIR = os.path.join(os.environ.get("HOME") or "/tmp", ".bactflow")
 LOCK_PATH = os.path.join(LOCK_DIR, "ui-run.lock")
+
+# Sync locks use the Flask PID; if a request dies without release they can stick.
+# Drop them after this many seconds so the hub is not blocked forever.
+SYNC_MAX_AGE_SEC = 45 * 60
 
 LABELS = {
     "qc": "QC",
@@ -62,9 +67,20 @@ def current() -> dict | None:
     if not data:
         return None
     kind = data.get("kind") or "worker"
-    if kind == "worker" and not _pid_alive(data.get("pid")):
+    # Always drop locks whose owner PID is gone (previous bug: only "worker" was checked,
+    # so a dead sync lock after a restart kept the UI stuck on "QC is running").
+    if not _pid_alive(data.get("pid")):
         _clear()
         return None
+    if kind == "sync":
+        started = data.get("updated") or data.get("started") or 0
+        try:
+            age = time.time() - float(started)
+        except (TypeError, ValueError):
+            age = SYNC_MAX_AGE_SEC + 1
+        if age > SYNC_MAX_AGE_SEC:
+            _clear()
+            return None
     return data
 
 
@@ -118,6 +134,71 @@ def release(module: str | None = None, pid=None) -> None:
     _clear()
 
 
+def _terminate_tree(pid: int) -> list[int]:
+    """Best-effort terminate of pid and children. Never targets the current process."""
+    killed: list[int] = []
+    if pid <= 0 or pid == os.getpid():
+        return killed
+    try:
+        import psutil
+
+        parent = psutil.Process(pid)
+        procs = list(parent.children(recursive=True)) + [parent]
+        for proc in procs:
+            try:
+                if proc.pid == os.getpid():
+                    continue
+                proc.terminate()
+                killed.append(proc.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        _, alive = psutil.wait_procs(procs, timeout=2)
+        for proc in alive:
+            try:
+                if proc.pid != os.getpid():
+                    proc.kill()
+                    if proc.pid not in killed:
+                        killed.append(proc.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return killed
+    except Exception:
+        pass
+    try:
+        os.kill(pid, signal.SIGTERM)
+        killed.append(pid)
+    except (OSError, ProcessLookupError):
+        pass
+    return killed
+
+
+def force_reset() -> dict:
+    """Clear the run lock and stop any worker PID it pointed at (not the UI itself)."""
+    data = _read()
+    killed: list[int] = []
+    module = (data or {}).get("module")
+    label = (data or {}).get("label")
+    pid = (data or {}).get("pid")
+    kind = (data or {}).get("kind")
+    try:
+        pid_i = int(pid) if pid is not None else 0
+    except (TypeError, ValueError):
+        pid_i = 0
+    if data and pid_i > 0 and pid_i != os.getpid() and _pid_alive(pid_i):
+        killed = _terminate_tree(pid_i)
+    _clear()
+    return {
+        "had_lock": bool(data),
+        "module": module,
+        "label": label,
+        "pid": pid_i or None,
+        "kind": kind,
+        "killed": killed,
+        "cleared": True,
+        "lock_path": LOCK_PATH,
+    }
+
+
 def snapshot() -> dict:
     from memory_cap import default_memory_gb, host_mem_gb
 
@@ -128,6 +209,8 @@ def snapshot() -> dict:
         "module": (data or {}).get("module"),
         "label": (data or {}).get("label"),
         "pid": (data or {}).get("pid"),
+        "kind": (data or {}).get("kind"),
+        "lock_path": LOCK_PATH,
         "host_mem_gb": host,
         "max_memory_gb": max(2, host - (1 if host > 3 else 0)),
         "default_memory_gb": default_memory_gb(host),

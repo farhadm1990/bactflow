@@ -209,6 +209,92 @@ def long_read_filter_enabled(form):
     return (form.get("read_filter") or "false").lower() == "true"
 
 
+def coverage_filter_enabled(form):
+    """Coverage normalization is for long reads and always runs after quality filter."""
+    if is_illumina_form(form):
+        return False
+    return (form.get("coverage_filter") or "false").lower() == "true"
+
+
+def run_coverage_filter(src_dir, form, report_progress=False):
+    """Downsample reads to a target coverage with rasusa (after quality filtering)."""
+    if not src_dir or not os.path.isdir(src_dir):
+        return None, f"Coverage filter input directory does not exist: {src_dir}"
+    out_dir = (form.get("out_dir") or "./bactflow_out").strip()
+    try:
+        coverage = max(1, int(float(form.get("coverage") or 40)))
+    except ValueError:
+        coverage = 40
+    try:
+        genome_size = float(form.get("genome_size") or 6)
+        if genome_size <= 0:
+            genome_size = 6.0
+    except ValueError:
+        genome_size = 6.0
+
+    os.makedirs(out_dir, exist_ok=True)
+    out_dir = os.path.abspath(out_dir)
+    dest = os.path.join(out_dir, "cov_filt")
+    os.makedirs(dest, exist_ok=True)
+    fastq_files = list_fastq_files(src_dir)
+    if not fastq_files:
+        return None, f"No FASTQ files found in {src_dir} for coverage filtering."
+
+    fingerprint = f"{_file_fingerprint(fastq_files)}|cov={coverage}|g={genome_size}"
+    marker = os.path.join(dest, ".filter_meta.json")
+    if os.path.isfile(marker):
+        try:
+            with open(marker, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+            if meta.get("fingerprint") == fingerprint and list_fastq_files(dest):
+                if report_progress:
+                    progress_begin("covfilt", 1)
+                    progress_finish()
+                return dest, None
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+    for stale in list_fastq_files(dest):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+
+    if report_progress:
+        progress_begin("covfilt", len(fastq_files))
+
+    for path in fastq_files:
+        name = os.path.basename(path)
+        root, ext = os.path.splitext(name)
+        if ext.lower() == ".gz":
+            root, _inner = os.path.splitext(root)
+        # Drop prior filter suffixes so names stay readable.
+        for suffix in ("_filt", "_filtered"):
+            if root.endswith(suffix):
+                root = root[: -len(suffix)]
+        dest_name = f"{root}.fastq"
+        dst = os.path.join(dest, dest_name)
+        cmd = (
+            f"rasusa reads -c {coverage} -g {genome_size}mb "
+            f"{shlex.quote(path)} > {shlex.quote(dst)}"
+        )
+        err = run_seqkit(cmd)  # same conda-activated shell helper
+        if err:
+            return None, f"Coverage filtering failed: {err}"
+        if report_progress:
+            progress_tick()
+
+    kept = list_fastq_files(dest)
+    if not kept:
+        return None, "Coverage filtering produced no FASTQ files."
+
+    with open(marker, "w", encoding="utf-8") as handle:
+        json.dump({"fingerprint": fingerprint, "files": [os.path.basename(p) for p in kept]}, handle)
+    if report_progress:
+        progress_finish()
+    return dest, None
+
+
 IN_DOCKER = os.environ.get("BACTFLOW_IN_DOCKER") == "1" or os.path.exists("/.dockerenv")
 
 
@@ -383,7 +469,7 @@ def run_illumina_filter(form, report_progress=False):
 
 def resolve_unfiltered_reads_dir(form):
     try:
-        fastq_dir, _correction = resolve_fastq_dir(form.get("fastq_dir"))
+        fastq_dir, _correction = resolve_fastq_dir(form.get("fastq_dir"), allow_alias=False)
     except PoolReadsError as exc:
         return None, str(exc)
     layout = inspect_layout(fastq_dir)
@@ -492,11 +578,20 @@ def run_long_read_filter(form, report_progress=False):
 
 
 def prepare_reads_dir(form):
+    # Order is fixed: quality/length filter first, then coverage (when both are on).
     if illumina_filter_enabled(form):
         return run_illumina_filter(form)
     if long_read_filter_enabled(form):
-        return run_long_read_filter(form)
-    return resolve_unfiltered_reads_dir(form)
+        src, err = run_long_read_filter(form)
+        if err:
+            return None, err
+    else:
+        src, err = resolve_unfiltered_reads_dir(form)
+        if err:
+            return None, err
+    if coverage_filter_enabled(form):
+        return run_coverage_filter(src, form)
+    return src, None
 
 manager = Manager()
 process_status = manager.dict({"running": False})
@@ -617,6 +712,15 @@ def bact_check():
  
 
 
+@app.route("/validate-paths", methods=["POST"])
+def validate_paths_route():
+    """Preflight: FASTQ / output directories must exist (and hold required files)."""
+    from path_validate import validate_form_paths
+
+    check = validate_form_paths("qc", request.form)
+    return jsonify(check), (200 if check.get("ok") else 400)
+
+
 # install bactflow
 
 @app.route('/install-bactflow', methods = ['POST', 'GET'])
@@ -661,10 +765,15 @@ def ls_fastq():
 
 
 def _ls_fastq_body():
+        from path_validate import validate_form_paths
+
+        preflight = validate_form_paths("qc", request.form)
+        if not preflight.get("ok"):
+            return jsonify({"error": preflight.get("message") or "Invalid directory path.", "message": preflight.get("message")}), 400
         try:
-            fastq_dir, correction = resolve_fastq_dir(request.form.get("fastq_dir"))
+            fastq_dir, correction = resolve_fastq_dir(request.form.get("fastq_dir"), allow_alias=False)
         except PoolReadsError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": str(exc), "message": str(exc)}), 400
         extension = (request.form.get("extension") or "auto").strip() or "auto"
         out_dir = (request.form.get("out_dir") or "").strip()
         try:
@@ -736,9 +845,9 @@ def _ls_fastq_body():
 def trim_list():
     if request.method == 'POST':
         try:
-            fastq_dir, _correction = resolve_fastq_dir(request.form.get("fastq_dir"))
+            fastq_dir, _correction = resolve_fastq_dir(request.form.get("fastq_dir"), allow_alias=False)
         except PoolReadsError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": str(exc), "message": str(exc)}), 400
         concater = "true" if concat_enabled(request.form) else "false"
         threshold = request.form.get("size-threshold")
         target = os.path.join(fastq_dir, "pooled") if concater == "true" else fastq_dir
@@ -780,17 +889,36 @@ def filter_illumina():
 def filter_long_reads():
     if is_illumina_form(request.form):
         return jsonify({"error": "Use Filter reads with Illumina selected for paired-end filtering."}), 400
+    want_quality = long_read_filter_enabled(request.form)
+    want_coverage = coverage_filter_enabled(request.form)
+    if not want_quality and not want_coverage:
+        return jsonify({"error": "Turn on quality filter and/or coverage filter first."}), 400
     ok, err = _lock_acquire("QC")
     if not ok:
         return _busy_json(err)
     try:
-        dest, err = run_long_read_filter(request.form, report_progress=True)
-        if err:
-            return jsonify({"error": err, "message": err}), 400
+        # Quality first, then coverage — never the reverse.
+        if want_quality:
+            dest, err = run_long_read_filter(request.form, report_progress=True)
+            if err:
+                return jsonify({"error": err, "message": err}), 400
+        else:
+            dest, err = resolve_unfiltered_reads_dir(request.form)
+            if err:
+                return jsonify({"error": err, "message": err}), 400
+        if want_coverage:
+            dest, err = run_coverage_filter(dest, request.form, report_progress=True)
+            if err:
+                return jsonify({"error": err, "message": err}), 400
         kept = list_fastq_files(dest)
+        steps = []
+        if want_quality:
+            steps.append("quality/length")
+        if want_coverage:
+            steps.append("coverage")
         return jsonify({
             "status": "completed",
-            "message": f"Filtered reads written to {dest} ({len(kept)} files).",
+            "message": f"Filtered reads ({' → '.join(steps)}) written to {dest} ({len(kept)} files).",
             "reads_dir": dest,
         }), 200
     finally:

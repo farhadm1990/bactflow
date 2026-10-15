@@ -7,8 +7,8 @@
     <title>BactFlow wiki</title>
     <link rel="shortcut icon" href="/hub/static/images/logo.png">
     <link rel="stylesheet" href="/hub/static/css/hub.css?v=hub5">
-    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub5">
-    <script src="/hub/static/js/chrome.js?v=hub5"></script>
+    <link rel="stylesheet" href="/hub/static/css/chrome.css?v=hub10">
+    <script src="/hub/static/js/chrome.js?v=hub10"></script>
   </head>
   <body class="bf-hub helix-shell">
     <article class="bf-wiki">
@@ -66,6 +66,7 @@
             <li><code>Filter / coverage / genome size</code> — optional downsampling before Flye.</li>
             <li><code>Medaka polish</code> — extra RAM; keep Memory high enough or leave it off on small machines.</li>
             <li><code>Resume</code> — continue a previous Nextflow run in the same output directory.</li>
+            <li><code>Clean up work dir</code> — after a successful run, delete <code>out_dir/.nextflow-work</code> and other temp files to free disk. Leave False if you plan to Resume later.</li>
             <li>Start BactFlow. Stop cancels the tree. Display results appears when reports exist.</li>
           </ul>
         </section>
@@ -83,6 +84,7 @@
             <li><code>Bakta</code> — annotation. Needs a Bakta database. Linear plots, AMR (antibiotic only), orphans, and the gene heatmap read these results.</li>
             <li><code>geNomad plasmids</code> — optional plasmid/virus screen with a geNomad database.</li>
             <li><code>MLST</code> — PubMLST sequence typing (Torsten Seemann <code>mlst</code>). No extra database path. Shows ST table, ST bar chart, and allele heatmap.</li>
+            <li><code>Clean up work dir</code> — after a successful run, delete <code>out_dir/.nextflow-work</code> and other temp files. Leave False if you plan to Resume later.</li>
             <li><code>Generate report</code> — after results exist, builds a narrative HTML + PDF from QUAST, CheckM, GTDB-Tk, MLST, Bakta/AMR, and geNomad into <code>out_dir/bactflow_report/</code>.</li>
           </ul>
         </section>

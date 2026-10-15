@@ -221,6 +221,19 @@
                 <label for="out_dir" class="form-label">Output Directory</label>
                 <input type="text" class="form-control" id="out_dir" name="out_dir" placeholder="bactflow_out"/>
               </div>
+
+              <hr>
+              <div class="mb-3">
+                <label for="cleanup_work_dir" class="form-label"><strong>Clean up work dir?</strong></label>
+                <select class="form-select" id="cleanup_work_dir" name="cleanup_work_dir">
+                  <option value="true">True</option>
+                  <option value="false" selected>False</option>
+                </select>
+                <div class="form-text">
+                  After a successful run, delete <code>out_dir/.nextflow-work</code> and other temp files to free disk.
+                  Leave False if you plan to use Resume on the next run.
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1198,7 +1211,7 @@
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
 <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars22"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd41"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd42"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
 <script src="{{ url_for('static', filename='js/mlst-viz.js') }}?v=mlst2"></script>

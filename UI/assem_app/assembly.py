@@ -91,26 +91,76 @@ def _nf_work_dir(out_dir):
     return os.path.join(out_dir, ".nextflow-work")
 
 
-def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
-    """Enable pooling and CLR Flye mode for nested PacBio subread folders."""
+def _suggest_fastq_dir(raw: str) -> str:
+    """If the typed path is missing, suggest a known typo fix (do not auto-use it)."""
     try:
-        from pool_reads import inspect_layout, resolve_fastq_dir
+        from pool_reads import resolve_fastq_dir
     except ImportError:
-        return concat_reads, extension, pacbio_read_type, fastq_dir
+        return ""
     try:
-        fastq_dir, note = resolve_fastq_dir(fastq_dir)
-        if note:
-            print(note, flush=True)
-    except Exception as exc:
-        print(exc, flush=True)
-        return concat_reads, extension, pacbio_read_type, fastq_dir
-    layout = inspect_layout(fastq_dir)
-    if layout.get("needs_concat"):
-        concat_reads = "true"
-        sniffed = layout.get("extension") or extension
-        current = (extension or "").strip() or ".fastq.gz"
-        if current in (".fastq.gz", ".fq.gz") and sniffed:
-            extension = sniffed
+        alt, note = resolve_fastq_dir(raw, allow_alias=True)
+    except Exception:
+        return ""
+    if note and alt:
+        return str(alt)
+    return ""
+
+
+def validate_fastq_inputs(fastq_dir, *, mode="flye", concat_reads="false", extension="auto", short_read_dir=""):
+    """Strict preflight: typed path must exist and contain the required FASTQ files."""
+    from path_validate import check_fastq_dir
+
+    check = check_fastq_dir(
+        fastq_dir,
+        mode=mode,
+        concat_reads=concat_reads,
+        extension=extension,
+        short_read_dir=short_read_dir,
+    )
+    # Preserve legacy key used by apply_* helpers.
+    check["directory"] = check.get("path") or check.get("directory") or ""
+    return check
+
+
+def apply_ont_layout(fastq_dir, concat_reads, extension):
+    """Validate ONT path + files; pick concat/extension for flat vs nested layouts."""
+    check = validate_fastq_inputs(
+        fastq_dir, mode="flye", concat_reads=concat_reads, extension=extension or "auto"
+    )
+    if not check.get("ok"):
+        return concat_reads, extension, fastq_dir, check.get("message") or "Invalid FASTQ directory."
+    resolved = check["directory"]
+    concat_reads = check.get("concat_reads", concat_reads)
+    extension = check.get("extension", extension)
+    print(check.get("message", ""), flush=True)
+    if str(concat_reads).lower() == "true":
+        print(
+            f"ONT sample folders detected; pooling first (concat=true, extension={extension})",
+            flush=True,
+        )
+    else:
+        print(
+            f"Using top-level FASTQs; Concat Reads=false, extension={extension}",
+            flush=True,
+        )
+    return concat_reads, extension, resolved, ""
+
+
+def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
+    """Validate PacBio path + files; enable pooling / CLR Flye mode when needed."""
+    check = validate_fastq_inputs(
+        fastq_dir, mode="pacbio", concat_reads=concat_reads, extension=extension or "auto"
+    )
+    if not check.get("ok"):
+        return concat_reads, extension, pacbio_read_type, fastq_dir, check.get("message") or "Invalid FASTQ directory."
+    resolved = check["directory"]
+    concat_reads = check.get("concat_reads", concat_reads)
+    extension = check.get("extension", extension)
+    try:
+        from pool_reads import inspect_layout
+    except ImportError:
+        return concat_reads, extension, pacbio_read_type, resolved, ""
+    layout = inspect_layout(resolved)
     if layout.get("looks_like_subreads") and (pacbio_read_type or "pacbio-hifi") == "pacbio-hifi":
         pacbio_read_type = "pacbio-raw"
         print(
@@ -123,7 +173,8 @@ def apply_pacbio_layout(fastq_dir, concat_reads, extension, pacbio_read_type):
             f"PacBio sample folders detected; pooling first (concat=true, extension={extension})",
             flush=True,
         )
-    return concat_reads, extension, pacbio_read_type, fastq_dir
+    print(check.get("message", ""), flush=True)
+    return concat_reads, extension, pacbio_read_type, resolved, ""
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
@@ -370,7 +421,15 @@ def _kill_process_tree(pid):
     return True
 
 
-def run_bact(command, process_status, output_queue, output_history, work_root=None):
+def run_bact(
+    command,
+    process_status,
+    output_queue,
+    output_history,
+    work_root=None,
+    out_dir=None,
+    cleanup_work=False,
+):
     """Function to run bactflow"""
 
     process_status["running"] = True
@@ -475,6 +534,13 @@ def run_bact(command, process_status, output_queue, output_history, work_root=No
 
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
+        if cleanup_work and out_dir:
+            try:
+                from work_cleanup import cleanup_run_temps
+
+                output_queue.put(cleanup_run_temps(out_dir))
+            except Exception as exc:
+                output_queue.put(f"BactFlow: cleanup failed: {exc}")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
 
@@ -543,6 +609,7 @@ def run_bactflow():
             genomad_db = request.form.get("genomad_db", "")
             run_quast = request.form.get("run_quast", "true")
             resume_run = request.form.get("resume_run", "false")
+            cleanup_work_dir = request.form.get("cleanup_work_dir", "false")
             bakta_annot = request.form.get("bakta_annot", "false")
             bakta_db = request.form.get("bakta_data_path", "")
             command = None
@@ -573,18 +640,67 @@ def run_bactflow():
             genomad_db = (genomad_db or "").strip()
             gtdbtk_data_path = (gtdbtk_data_path or "").strip()
             short_read_dir = (short_read_dir or "").strip()
-            extension = (extension or "").strip() or ".fastq.gz"
+            extension = (extension or "").strip() or "auto"
+
+            from path_validate import validate_form_paths
+
+            preflight = validate_form_paths("assembly", request.form)
+            if not preflight.get("ok"):
+                return (preflight.get("message") or "Invalid directory path.") + "\n", 400
             coverage = coverage if str(coverage).strip() not in ("", "None") else "40"
             genome_size = genome_size if str(genome_size).strip() not in ("", "None") else "5"
             min_length = min_length if str(min_length).strip() not in ("", "None") else "1000"
             min_quality = min_quality if str(min_quality).strip() not in ("", "None") else "10"
             tensor_batch = tensor_batch if str(tensor_batch).strip() not in ("", "None") else "200"
 
-            if str(run_pacbio).lower() == "true" and fastq_dir:
-                concat_reads, extension, pacbio_read_type, fastq_dir = apply_pacbio_layout(
-                    fastq_dir, concat_reads, extension, pacbio_read_type
-                )
-             
+            needs_fastq = any(
+                str(v).lower() == "true"
+                for v in (run_flye, run_unicycler, run_spades, run_pacbio)
+            )
+            if needs_fastq:
+                if not str(fastq_dir or "").strip():
+                    return "Choose a FASTQ directory before starting the run.\n", 400
+                if str(run_pacbio).lower() == "true":
+                    concat_reads, extension, pacbio_read_type, fastq_dir, err = apply_pacbio_layout(
+                        fastq_dir, concat_reads, extension, pacbio_read_type
+                    )
+                    if err:
+                        return err + "\n", 400
+                elif str(run_flye).lower() == "true" or str(run_unicycler).lower() == "true":
+                    concat_reads, extension, fastq_dir, err = apply_ont_layout(
+                        fastq_dir, concat_reads, extension
+                    )
+                    if err:
+                        return err + "\n", 400
+                    if str(run_unicycler).lower() == "true":
+                        short_check = validate_fastq_inputs(
+                            short_read_dir,
+                            mode="spades",
+                            concat_reads="false",
+                            extension="auto",
+                        )
+                        if not short_check.get("ok"):
+                            return (
+                                "Short-read directory: "
+                                + (short_check.get("message") or "invalid")
+                                + "\n"
+                            ), 400
+                else:
+                    check = validate_fastq_inputs(
+                        fastq_dir,
+                        mode="spades",
+                        concat_reads="false",
+                        extension=extension or "auto",
+                    )
+                    if not check.get("ok"):
+                        return (check.get("message") or "Invalid FASTQ directory.") + "\n", 400
+                    fastq_dir = check["directory"]
+                    extension = check.get("extension") or extension
+                    print(check.get("message", ""), flush=True)
+
+            if not extension or extension == "auto":
+                extension = ".fastq.gz"
+
             command = f"""mkdir -p '{out_dir}' '{_nf_work_dir(out_dir)}'
                     export NXF_WORK='{_nf_work_dir(out_dir)}'
                     cd '{base_dir}' && \\
@@ -640,7 +756,18 @@ def run_bactflow():
                 
             output_history[:] = []
             
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
+            back_process = Process(
+                target=run_bact,
+                args=(
+                    command,
+                    process_status,
+                    output_queue,
+                    output_history,
+                    base_dir,
+                    out_dir,
+                    _truthy(cleanup_work_dir, False),
+                ),
+            )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
         
@@ -653,7 +780,10 @@ def run_bactflow():
             if not ok:
                 return err + "\n", 409
             output_history[:] = []
-            back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
+            back_process = Process(
+                target=run_bact,
+                args=(command, process_status, output_queue, output_history, base_dir, None, False),
+            )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
             
@@ -689,6 +819,16 @@ def run_bactflow():
                 return f"Error stopping process: {str(e)}\n", 500
 
         return f"Unknown action: {action}\n", 400
+
+@app.route("/validate-fastq", methods=["POST"])
+@app.route("/validate-paths", methods=["POST"])
+def validate_paths_route():
+    """Preflight: every directory field must exist (and hold required files)."""
+    from path_validate import validate_form_paths
+
+    check = validate_form_paths("assembly", request.form)
+    return jsonify(check), (200 if check.get("ok") else 400)
+
 
 # a constant ouput
 @app.route('/bactflow_output', methods = ['GET'])

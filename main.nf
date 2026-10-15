@@ -77,8 +77,15 @@ workflow {
                 params.extension
             )
             } else {
-                pooled_out = Channel.fromPath(params.fastq_dir + "/*.fastq*")
-                                .collect() 
+                pooled_out = Channel
+                    .fromPath("${params.fastq_dir}/*.fastq.gz", checkIfExists: false)
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq.gz", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fastq", checkIfExists: false))
+                    .mix(Channel.fromPath("${params.fastq_dir}/*.fq", checkIfExists: false))
+                    .ifEmpty {
+                        error "No ONT FASTQ files found in ${params.fastq_dir}. Check the path (e.g. fastqs_wg vs fastq_wg) and that Concat Reads is off for already-pooled files."
+                    }
+                    .collect()
             }
            
 
