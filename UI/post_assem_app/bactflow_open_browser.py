@@ -28,17 +28,42 @@ def _default_port() -> int:
     return 5000
 
 
+def _in_docker() -> bool:
+    return os.environ.get("BACTFLOW_IN_DOCKER") == "1" or Path("/.dockerenv").exists()
+
+
+def _docker_bridge_ip() -> str:
+    """Primary non-loopback IPv4 inside a container (e.g. 172.17.0.2)."""
+    try:
+        out = subprocess.check_output(["hostname", "-I"], text=True, stderr=subprocess.DEVNULL)
+        for part in out.split():
+            if part and not part.startswith("127."):
+                return part
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except OSError:
+        pass
+    return ""
+
+
 def public_ui_url(port: int | None = None) -> str:
     explicit = (os.environ.get("BACTFLOW_PUBLIC_URL") or "").strip()
     if explicit:
         return explicit if explicit.endswith("/") else explicit + "/"
-    host = (os.environ.get("BACTFLOW_PUBLIC_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     p = port or _default_port()
+    # Raw docker run without -p: only the bridge IP is reachable from the host.
+    if _in_docker():
+        bridge = _docker_bridge_ip()
+        if bridge:
+            return f"http://{bridge}:{p}/"
+    host = (os.environ.get("BACTFLOW_PUBLIC_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     return f"http://{host}:{p}/"
-
-
-def _in_docker() -> bool:
-    return os.environ.get("BACTFLOW_IN_DOCKER") == "1" or Path("/.dockerenv").exists()
 
 
 def _write_url_dropfile(url: str) -> None:

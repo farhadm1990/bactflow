@@ -208,6 +208,8 @@ If the browser does not open, the terminal still prints the URL. If port 5000 is
 | You saw | Likely fix |
 | --- | --- |
 | I ran `docker run` / `singularity` / `python …app.py` | Stop that process. Start with `./bactflow.sh run "${WORK_DIR}" --service …` |
+| Flask prints several `Running on http://…` links | Use the single **Open this URL** / **Access URL** line. Raw `docker run` without `-p` only reaches the container IP (e.g. `http://172.17.0.2:5000`). Prefer `./bactflow.sh run … --service docker`, which maps the port and uses http://127.0.0.1:5000 |
+| `python: can't open file '/app/app.py'` (Apptainer) | Update to the latest `bactflow.sh` (it starts `/app/UI/bactflow_app/app.py`). Then `./bactflow.sh run "${WORK_DIR}" --service apptainer --pull` |
 | `Docker is not installed` / `daemon is not reachable` | Use `--service apptainer` or `--service conda`, or fix the Docker group |
 | `Apptainer/Singularity is not installed` | Install Apptainer, or use `--service conda` |
 | `unable to retrieve auth token: invalid username/password` | Stale Docker Hub login in `~/.docker/config.json`. Retry; BactFlow now prefers `docker save` → `.sif` so Singularity never talks to Hub. |

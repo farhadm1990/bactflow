@@ -159,6 +159,7 @@ RUN rm -rf \
         /app/UI/*/.dockerignore \
         /app/UI/*/__pycache__ \
         /app/UI/*/*/__pycache__ \
+    && ln -sfn /app/UI/bactflow_app/app.py /app/app.py \
     && chmod +x \
         /app/UI/bactflow_app/*.py \
         /app/UI/pre_assem_app/*.sh \
@@ -171,7 +172,8 @@ RUN rm -rf \
     && test -x /app/UI/post_assem_app/mlst_run.sh \
     && test -f /app/UI/post_assem_app/genome_report.py \
     && test -f /app/UI/post_assem_app/mlst_report.py \
-    && test -f /app/UI/post_assem_app/static/js/mlst-viz.js
+    && test -f /app/UI/post_assem_app/static/js/mlst-viz.js \
+    && test -e /app/app.py
 
 ENV BACTFLOW_MODULE=ui
 ENV BACTFLOW_HOST_PORT=5000

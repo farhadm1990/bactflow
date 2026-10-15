@@ -89,6 +89,14 @@ def _ui_port(default=5000):
     return port if 1 <= port <= 65535 else default
 
 
+def _access_url(port: int | None = None) -> str:
+    port = port if port is not None else _ui_port(5000)
+    explicit = (os.environ.get("BACTFLOW_PUBLIC_URL") or "").strip()
+    if explicit:
+        return explicit if explicit.endswith("/") else explicit + "/"
+    return f"http://127.0.0.1:{port}/"
+
+
 def open_browser():
     try:
         from bactflow_open_browser import open_bactflow_browser
@@ -99,6 +107,9 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    port = _ui_port(5000)
+    url = _access_url(port)
+    print(f"\n=== BactFlow UI ===\nOpen this URL: {url}\n", flush=True)
     want_browser = (
         os.environ.get("BACTFLOW_NO_BROWSER") != "1"
         or os.environ.get("BACTFLOW_FORCE_BROWSER") == "1"
@@ -108,7 +119,7 @@ if __name__ == "__main__":
     flask_debug = os.environ.get("BACTFLOW_FLASK_DEBUG") == "1"
     hub.run(
         debug=flask_debug,
-        port=_ui_port(5000),
+        port=port,
         host="0.0.0.0",
         use_reloader=False,
         threaded=True,

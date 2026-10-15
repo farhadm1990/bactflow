@@ -771,7 +771,8 @@ run_apptainer() {
     }
     trap cleanup INT TERM EXIT
 
-    app_in_sif="/app/$(basename "${APP_PY}")"
+    # Image layout (unified UI): /app/UI/bactflow_app/app.py (+ symlink /app/app.py).
+    app_in_sif="${APP_IN_IMAGE}"
     # exec + entrypoint: old Singularity Docker conversions often have an empty runscript.
     "${APPTAINER_BIN}" exec \
         "${extra[@]}" \
@@ -975,6 +976,7 @@ DEFAULT_MEMORY="16g"
 CONTAINER_PORT="5000"
 DEFAULT_HOST_PORT="5000"
 APP_PY="${SCRIPT_DIR}/UI/bactflow_app/app.py"
+APP_IN_IMAGE="/app/UI/bactflow_app/app.py"
 
 if [[ -n "${USER_CPUS}" ]]; then
     CPUS="--cpus=${USER_CPUS}"
