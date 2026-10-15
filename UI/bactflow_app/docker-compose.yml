@@ -10,6 +10,8 @@ services:
     build:
       context: ../..
       dockerfile: UI/bactflow_app/Dockerfile
+      args:
+        BACTFLOW_PROFILE: ${BACTFLOW_PROFILE:-full}
     init: true
     ports:
       - "${BACTFLOW_PORT:-5000}:5000"

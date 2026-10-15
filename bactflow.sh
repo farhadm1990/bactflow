@@ -42,10 +42,13 @@ ${YELLOW}OPTIONS:${NC}
     --tag TAG           Pin a Hub tag (e.g. v1.0) instead of auto-latest
     --help              Show this help message
 
+    Env: BACTFLOW_PROFILE=full|slim  (local docker build; slim omits geNomad ~half size)
+
 ${YELLOW}EXAMPLES:${NC}
     $0 run /home/user/work_dir
     $0 run /home/user/work_dir --service conda
     $0 run /home/user/work_dir --service docker --local --rebuild
+    BACTFLOW_PROFILE=slim $0 run /home/user/work_dir --service docker --local --rebuild
     $0 run /home/user/work_dir --service docker --cpus 16 --memory 32g
     $0 run /home/user/work_dir --service apptainer
     docker compose up --build
@@ -285,8 +288,10 @@ build_image() {
     local image="$1"
     local dockerfile="$2"
     local context="$3"
-    echo -e "${BLUE}Building ${image} (this is only needed once unless you pass --rebuild)...${NC}"
+    local profile="${BACTFLOW_PROFILE:-full}"
+    echo -e "${BLUE}Building ${image} (profile=${profile}; once unless you pass --rebuild)...${NC}"
     docker build \
+        --build-arg "BACTFLOW_PROFILE=${profile}" \
         -t "${image}" \
         -f "${dockerfile}" \
         "${context}"

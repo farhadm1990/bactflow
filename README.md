@@ -25,6 +25,27 @@ Switch pages from the top bar. Only **one assembler** runs per assembly invocati
 
 **Every start goes through `./bactflow.sh run`.** That script picks the image or Conda env, mounts your work directory, waits until the UI is up, and opens the browser. Do **not** run `docker run`, `singularity` / `apptainer`, `conda activate` + `python …/app.py`, or `scripts/setup_bactflow_env.sh` by hand.
 
+### Docker image size (multi-stage)
+
+The Dockerfile is **multi-stage**: conda envs, JRE, BLAST, and UI source are built in separate stages; the final image only copies runtime trees (no micromamba, no JDK, no package caches).
+
+The full unified image is still large mainly because of **geNomad → TensorFlow + MMseqs2**, **Medaka → PyTorch**, and PubMLST schemes. Stripping drops unused Qt/PySide, duplicate MLST BLAST/JVM, TensorBoard, and docs — **without removing app features**.
+
+To go roughly **half size**, omit geNomad only:
+
+```sh
+BACTFLOW_PROFILE=slim ./bactflow.sh run "${WORK_DIR}" --service docker --local --rebuild
+# or:
+docker build -f UI/bactflow_app/Dockerfile \
+  --build-arg BACTFLOW_PROFILE=slim \
+  -t bactflow:v1.0 .
+```
+
+| Profile | geNomad / plasmids | Typical size after rebuild |
+| --- | --- | --- |
+| `full` (default) | yes | smaller than Hub ~7GB; still multi‑GB (TF + Torch) |
+| `slim` | no | ~half of full |
+
 ```sh
 ./bactflow.sh run <work_dir> --service docker|apptainer|conda
 ```

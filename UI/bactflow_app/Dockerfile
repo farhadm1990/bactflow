@@ -1,12 +1,63 @@
 # syntax=docker/dockerfile:1
-# Unified BactFlow image: one Flask hub wrapping QC, Assembly, and Post-assembly.
-# Keep the runtime small: micromamba env → strip, custom JRE, NCBI BLAST tarball
-# (not conda BLAST), CPU torch for Medaka. Databases stay on the host.
+# Unified BactFlow image — multi-stage so the final layer only gets runtime bits.
+#
+# Stages (built in parallel where independent):
+#   env-main  — conda pipeline env + Medaka/torch, then strip non-runtime files
+#   env-mlst  — PubMLST sidecar, then strip duplicate BLAST/JVM/docs
+#   jre       — custom jlink JRE (Nextflow / Pilon)
+#   blast     — NCBI BLAST+ binaries only (not conda BLAST)
+#   app       — pruned UI source (no Dockerfiles / env yml)
+#   runtime   — debian-slim + copies from the stages above
 #
 # Build from the repository root:
 #   docker build -f UI/bactflow_app/Dockerfile -t bactflow:v1.0 .
+#
+# Profiles (BACTFLOW_PROFILE):
+#   full (default) — includes geNomad (TensorFlow + MMseqs2)
+#   slim           — no geNomad (~half size; plasmid/virus screen unavailable)
+#   docker build --build-arg BACTFLOW_PROFILE=slim -t bactflow:slim .
 
-FROM mambaorg/micromamba:1.5.10 AS builder
+
+# ─── Main conda environment ───────────────────────────────────────────────────
+FROM mambaorg/micromamba:1.5.10 AS env-main
+USER root
+ARG MAMBA_DOCKERFILE_ACTIVATE=1
+ARG BACTFLOW_PROFILE=full
+SHELL ["/bin/bash", "-lc"]
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CONDA_OVERRIDE_CUDA=""
+COPY UI/bactflow_app/environment.docker.yml /tmp/environment.full.yml
+COPY UI/bactflow_app/environment.docker.slim.yml /tmp/environment.slim.yml
+
+RUN if [ "${BACTFLOW_PROFILE}" = "slim" ]; then \
+        cp /tmp/environment.slim.yml /tmp/environment.yml; \
+    else \
+        cp /tmp/environment.full.yml /tmp/environment.yml; \
+    fi \
+    && rm -f /tmp/environment.full.yml /tmp/environment.slim.yml \
+    && /bin/micromamba create -y -p /opt/conda/envs/bactflow -f /tmp/environment.yml \
+    && /opt/conda/envs/bactflow/bin/pip install --no-cache-dir \
+        torch --index-url https://download.pytorch.org/whl/cpu \
+    && /opt/conda/envs/bactflow/bin/pip install --no-cache-dir medaka==2.2.1 \
+    && micromamba clean -afy --all \
+    && rm -rf /opt/conda/pkgs /tmp/environment.yml /root/.cache /tmp/pip-*
+
+COPY UI/post_assem_app/docker/slim-env.sh /tmp/slim-env.sh
+# Smoke-test after strip so a bad cleanup fails this stage early.
+RUN bash /tmp/slim-env.sh /opt/conda/envs/bactflow \
+    && rm -f /tmp/slim-env.sh \
+    && /opt/conda/envs/bactflow/bin/python -c \
+         "import flask, plotly, pandas, Bio, bakta, unicycler; import flye" \
+    && /opt/conda/envs/bactflow/bin/seqkit version \
+    && /opt/conda/envs/bactflow/bin/flye --version
+
+
+# ─── MLST sidecar (independent of env-main → parallel build) ───────────────────
+FROM mambaorg/micromamba:1.5.10 AS env-mlst
 USER root
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 SHELL ["/bin/bash", "-lc"]
@@ -15,27 +66,22 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends binutils \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CONDA_OVERRIDE_CUDA=""
-COPY UI/bactflow_app/environment.docker.yml /tmp/environment.yml
 COPY UI/bactflow_app/environment.mlst.yml /tmp/environment.mlst.yml
-
-# Main pipeline env (no mlst — perl-bioperl conflicts with infernal/samtools/spades).
-RUN /bin/micromamba create -y -p /opt/conda/envs/bactflow -f /tmp/environment.yml \
-    && /opt/conda/envs/bactflow/bin/pip install --no-cache-dir \
-        torch --index-url https://download.pytorch.org/whl/cpu \
-    && /opt/conda/envs/bactflow/bin/pip install --no-cache-dir medaka==2.2.1 \
-    && micromamba clean -afy --all \
-    && rm -f /tmp/environment.yml
-
-# Sidecar env for PubMLST (Torsten Seemann mlst + any2fasta + scheme DBs).
 RUN /bin/micromamba create -y -p /opt/conda/envs/bactflow_mlst -f /tmp/environment.mlst.yml \
     && micromamba clean -afy --all \
-    && rm -f /tmp/environment.mlst.yml
+    && rm -rf /opt/conda/pkgs /tmp/environment.mlst.yml
 
-COPY UI/post_assem_app/docker/slim-env.sh /tmp/slim-env.sh
-RUN bash /tmp/slim-env.sh /opt/conda/envs/bactflow
+COPY UI/post_assem_app/docker/slim-mlst-env.sh /tmp/slim-mlst-env.sh
+RUN bash /tmp/slim-mlst-env.sh /opt/conda/envs/bactflow_mlst \
+    && rm -f /tmp/slim-mlst-env.sh \
+    && test -x /opt/conda/envs/bactflow_mlst/bin/mlst \
+    && test -x /opt/conda/envs/bactflow_mlst/bin/any2fasta \
+    && env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT -u CONDA_PREFIX \
+        PATH=/opt/conda/envs/bactflow_mlst/bin:/usr/bin:/bin \
+        /opt/conda/envs/bactflow_mlst/bin/mlst --version
 
 
+# ─── Custom JRE for Nextflow / Pilon ───────────────────────────────────────────
 FROM debian:bookworm-slim AS jre
 RUN apt-get update \
     && apt-get install -y --no-install-recommends binutils openjdk-17-jdk-headless \
@@ -49,14 +95,50 @@ RUN apt-get update \
         --output /opt/jre
 
 
-FROM debian:bookworm-slim
+# ─── NCBI BLAST+ only (no full toolkit tree in the final image) ────────────────
+FROM debian:bookworm-slim AS blast
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY UI/post_assem_app/docker/install-blast.sh /tmp/install-blast.sh
+RUN bash /tmp/install-blast.sh 2.17.0 /opt/blast/bin \
+    && rm -f /tmp/install-blast.sh \
+    && /opt/blast/bin/blastn -version | grep -q '2.17.0'
+
+
+# ─── Pruned application source ─────────────────────────────────────────────────
+FROM debian:bookworm-slim AS app
+COPY UI/bactflow_app /app/UI/bactflow_app
+COPY UI/pre_assem_app /app/UI/pre_assem_app
+COPY UI/assem_app /app/UI/assem_app
+COPY UI/post_assem_app /app/UI/post_assem_app
+RUN rm -rf \
+        /app/UI/*/docker \
+        /app/UI/*/Dockerfile \
+        /app/UI/*/docker-compose.yml \
+        /app/UI/*/environment.docker.yml \
+        /app/UI/*/environment.docker.slim.yml \
+        /app/UI/*/environment.mlst.yml \
+        /app/UI/*/.dockerignore \
+        /app/UI/*/__pycache__ \
+        /app/UI/*/*/__pycache__ \
+        /app/UI/*/.git \
+    && find /app -type f -name '*.pyc' -delete \
+    && ln -sfn /app/UI/bactflow_app/app.py /app/app.py
+
+
+# ─── Final runtime image ───────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
 
 ARG BACTFLOW_VERSION=v1.0
+ARG BACTFLOW_PROFILE=full
 LABEL org.opencontainers.image.title="BactFlow" \
       org.opencontainers.image.version="${BACTFLOW_VERSION}" \
-      org.opencontainers.image.source="https://github.com/farhadm1990/bactflow"
+      org.opencontainers.image.source="https://github.com/farhadm1990/bactflow" \
+      org.opencontainers.image.description="Unified QC + Assembly + Post-assembly UI"
 
 ENV BACTFLOW_VERSION=${BACTFLOW_VERSION} \
+    BACTFLOW_PROFILE=${BACTFLOW_PROFILE} \
     BACTFLOW_IN_DOCKER=1 \
     BACTFLOW_NXF_VER=24.10.2 \
     NXF_VER=24.10.2 \
@@ -69,6 +151,7 @@ ENV BACTFLOW_VERSION=${BACTFLOW_VERSION} \
     PILON_JAR=/usr/local/share/pilon/pilon.jar \
     PATH=/opt/conda/envs/bactflow/bin:/opt/conda/bin:/usr/lib/jvm/bactflow-java/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Minimal OS libs only — no JDK, no micromamba, no build toolchain.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         bash \
@@ -92,19 +175,20 @@ RUN apt-get update \
     && curl -fsSL -o /usr/local/share/pilon/pilon.jar \
         "https://github.com/broadinstitute/pilon/releases/download/v1.24/pilon-1.24.jar"
 
-COPY UI/post_assem_app/docker/install-blast.sh /tmp/install-blast.sh
-RUN bash /tmp/install-blast.sh 2.17.0 /usr/local/bin && rm -f /tmp/install-blast.sh
-
+# Runtime payloads from earlier stages (no builders / JDKs / package caches).
 COPY --from=jre /opt/jre /usr/lib/jvm/bactflow-java
-COPY --from=builder /opt/conda/envs/bactflow /opt/conda/envs/bactflow
-COPY --from=builder /opt/conda/envs/bactflow_mlst /opt/conda/envs/bactflow_mlst
+COPY --from=blast /opt/blast/bin/ /usr/local/bin/
+COPY --from=env-main /opt/conda/envs/bactflow /opt/conda/envs/bactflow
+COPY --from=env-mlst /opt/conda/envs/bactflow_mlst /opt/conda/envs/bactflow_mlst
 COPY UI/assem_app/docker/conda.sh /opt/conda/etc/profile.d/conda.sh
 COPY UI/assem_app/docker/conda /opt/conda/bin/conda
 COPY UI/assem_app/docker/entrypoint.sh /usr/local/bin/bactflow-entrypoint
 COPY UI/assem_app/docker/pilon /usr/local/bin/pilon
 COPY UI/post_assem_app/bactflow_runtime.sh /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh
+COPY --from=app /app /app
 
 RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
+        /opt/conda/envs/bactflow_mlst/bin \
     && chmod 755 /opt/conda/bin/conda /usr/local/bin/bactflow-entrypoint /usr/local/bin/pilon \
         /opt/conda/envs/bactflow/etc/conda/activate.d/zz-bactflow-runtime.sh \
     && ln -sfn /opt/conda/bin/conda /opt/conda/condabin/conda \
@@ -112,6 +196,10 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && ln -sfn /usr/local/bin/blastn /opt/conda/envs/bactflow/bin/blastn \
     && ln -sfn /usr/local/bin/blastp /opt/conda/envs/bactflow/bin/blastp \
     && ln -sfn /usr/local/bin/makeblastdb /opt/conda/envs/bactflow/bin/makeblastdb \
+    && ln -sfn /usr/local/bin/blastn /opt/conda/envs/bactflow_mlst/bin/blastn \
+    && ln -sfn /usr/local/bin/blastp /opt/conda/envs/bactflow_mlst/bin/blastp \
+    && ln -sfn /usr/local/bin/makeblastdb /opt/conda/envs/bactflow_mlst/bin/makeblastdb \
+    && ln -sfn /app/UI/bactflow_app/app.py /app/app.py \
     && printf '%s\n' \
         'export CONDA_PREFIX=/opt/conda/envs/bactflow' \
         'export CONDA_DEFAULT_ENV=bactflow' \
@@ -121,6 +209,12 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
         > /etc/profile.d/bactflow.sh \
     && chmod 644 /etc/profile.d/bactflow.sh \
     && echo '[ -f /etc/profile.d/bactflow.sh ] && . /etc/profile.d/bactflow.sh' >> /etc/bash.bashrc \
+    && chmod +x \
+        /app/UI/bactflow_app/*.py \
+        /app/UI/pre_assem_app/*.sh \
+        /app/UI/assem_app/*.sh \
+        /app/UI/post_assem_app/*.sh \
+        2>/dev/null || true \
     && python -c "import flask, plotly, pandas, Bio, psutil, pkg_resources, circlator, bakta, unicycler, reportlab" \
     && seqkit version \
     && flye --version \
@@ -129,10 +223,18 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && blastn -version | grep -q '2.17.0' \
     && bakta --version \
     && command -v gtdbtk \
+    && if [ "${BACTFLOW_PROFILE}" = "full" ]; then \
+         command -v genomad \
+         && python -c "import tensorflow, genomad; print('geNomad OK')"; \
+       else \
+         echo "slim profile: geNomad omitted"; \
+       fi \
+    && python -c "import medaka, torch; print('Medaka/torch OK', torch.__version__)" \
     && test -x /opt/conda/envs/bactflow_mlst/bin/mlst \
+    && test -x /opt/conda/envs/bactflow_mlst/bin/blastn \
     && test -x /opt/conda/envs/bactflow_mlst/bin/any2fasta \
     && env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT -u CONDA_PREFIX \
-        PATH=/opt/conda/envs/bactflow_mlst/bin:/usr/bin:/bin \
+        PATH=/opt/conda/envs/bactflow_mlst/bin:/usr/local/bin:/usr/bin:/bin \
         /opt/conda/envs/bactflow_mlst/bin/mlst --version \
     && checkm -h >/dev/null \
     && quast.py --help >/dev/null \
@@ -140,41 +242,15 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && java -jar /usr/local/share/pilon/pilon.jar --help >/dev/null \
     && pilon --help >/dev/null \
     && /usr/local/bin/nextflow -version 2>&1 | grep -qE 'version 24\.' \
-    && rm -rf /root/.nextflow/cache /tmp/* \
+    && test -x /app/UI/post_assem_app/mlst_run.sh \
+    && test -f /app/UI/post_assem_app/genome_report.py \
+    && test -e /app/app.py \
+    && rm -rf /root/.nextflow/cache /tmp/* /root/.cache \
     && conda info --base | grep -qx /opt/conda \
     && conda env list --json | grep -q bactflow \
     && conda env list --json | grep -q bactflow_mlst
 
 WORKDIR /app
-COPY UI/bactflow_app /app/UI/bactflow_app
-COPY UI/pre_assem_app /app/UI/pre_assem_app
-COPY UI/assem_app /app/UI/assem_app
-COPY UI/post_assem_app /app/UI/post_assem_app
-RUN rm -rf \
-        /app/UI/*/docker \
-        /app/UI/*/Dockerfile \
-        /app/UI/*/docker-compose.yml \
-        /app/UI/*/environment.docker.yml \
-        /app/UI/*/environment.mlst.yml \
-        /app/UI/*/.dockerignore \
-        /app/UI/*/__pycache__ \
-        /app/UI/*/*/__pycache__ \
-    && ln -sfn /app/UI/bactflow_app/app.py /app/app.py \
-    && chmod +x \
-        /app/UI/bactflow_app/*.py \
-        /app/UI/pre_assem_app/*.sh \
-        /app/UI/assem_app/*.sh \
-        /app/UI/post_assem_app/*.sh \
-        /usr/local/bin/bactflow-entrypoint \
-        /opt/conda/bin/conda \
-        /usr/local/bin/pilon \
-        2>/dev/null || true \
-    && test -x /app/UI/post_assem_app/mlst_run.sh \
-    && test -f /app/UI/post_assem_app/genome_report.py \
-    && test -f /app/UI/post_assem_app/mlst_report.py \
-    && test -f /app/UI/post_assem_app/static/js/mlst-viz.js \
-    && test -e /app/app.py
-
 ENV BACTFLOW_MODULE=ui
 ENV BACTFLOW_HOST_PORT=5000
 

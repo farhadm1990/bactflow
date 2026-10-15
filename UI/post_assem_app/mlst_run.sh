@@ -58,10 +58,11 @@ fi
 
 # Bind PATH to the env that owns mlst. Clear Perl vars so the main Docker
 # env's PERL5LIB/@INC (bactflow) cannot shadow sidecar modules (Moo, etc.).
+# Prefer /usr/local/bin BLAST (shared NCBI tarball) over any leftover conda BLAST.
 unset PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT 2>/dev/null || true
 export CONDA_PREFIX="${_mlst_prefix}"
 export CONDA_DEFAULT_ENV="$(basename "${_mlst_prefix}")"
-export PATH="${_mlst_prefix}/bin:${PATH}"
+export PATH="${_mlst_prefix}/bin:/usr/local/bin:${PATH}"
 if [ -d "${_mlst_prefix}/lib" ]
 then
     export LD_LIBRARY_PATH="${_mlst_prefix}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

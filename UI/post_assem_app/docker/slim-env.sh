@@ -80,13 +80,53 @@ rm -rf \
     "${PREFIX}/share/spades/biosynthetic_spades_hmms" \
     "${PREFIX}/share/spades/rna_spades" 2>/dev/null || true
 
+# Qt / PySide are pulled transitively and unused by the Flask UI (~120–150MB).
+rm -rf \
+    "${PREFIX}/lib/qt6" \
+    "${PREFIX}/share/qt6" \
+    "${PREFIX}/share/PySide6" \
+    "${PREFIX}/PySide6" \
+    "${PREFIX}/shiboken6" \
+    "${PREFIX}/shiboken6_generator" \
+    "${PREFIX}/lib/python3.11/site-packages/PySide6" \
+    "${PREFIX}/lib/python3.11/site-packages/shiboken6" \
+    "${PREFIX}/lib/python3.11/site-packages/PySide6-"* \
+    "${PREFIX}/lib/python3.11/site-packages/shiboken6-"* 2>/dev/null || true
+find "${PREFIX}/bin" -maxdepth 1 -type f \( -name 'pyside*' -o -name 'shiboken*' -o -name 'qmake*' \) -delete 2>/dev/null || true
+
+# QUAST ships large optional test/reference blobs we do not need in the image.
+rm -rf \
+    "${PREFIX}/lib/python3.11/site-packages/quast_libs/test_data" \
+    "${PREFIX}/lib/python3.11/site-packages/quast_libs/site_packages" \
+    "${PREFIX}/lib/python3.11/site-packages/quast_libs/blast/DB" 2>/dev/null || true
+
+# TensorFlow / Torch often ship GPU stubs, tests, and TensorBoard unused at runtime.
+# geNomad / Medaka only need the inference libs — keep those.
+rm -rf \
+    "${PREFIX}/lib/python3.11/site-packages/torch/test" \
+    "${PREFIX}/lib/python3.11/site-packages/torch/include" \
+    "${PREFIX}/lib/python3.11/site-packages/tensorflow/include" \
+    "${PREFIX}/lib/python3.11/site-packages/tensorflow/lite" \
+    "${PREFIX}/lib/python3.11/site-packages/tensorflow/tools" \
+    "${PREFIX}/lib/python3.11/site-packages/tensorboard" \
+    "${PREFIX}/lib/python3.11/site-packages/tensorboard_data_server" \
+    "${PREFIX}/lib/python3.11/site-packages/sympy/testing" \
+    "${PREFIX}/share/jupyter" \
+    "${PREFIX}/share/terminfo" \
+    "${PREFIX}/share/zoneinfo" \
+    "${PREFIX}/share/xkeyboard-config-2" \
+    "${PREFIX}/share/openmpi" \
+    "${PREFIX}/lib/openmpi" 2>/dev/null || true
+
 if command -v strip >/dev/null 2>&1; then
+    # Do not strip TensorFlow / Torch / mmseqs — they are large but strip can break them.
     find "${PREFIX}" -type f \( -name '*.so' -o -name '*.so.*' \) \
-        ! -name 'libperl.so*' ! -name 'libtorch*' ! -name 'libgomp*' -print0 \
+        ! -name 'libperl.so*' ! -name 'libtorch*' ! -name 'libtensorflow*' \
+        ! -name 'libgomp*' ! -name 'libmmseqs*' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
     find "${PREFIX}/bin" -type f ! -name 'perl' ! -name 'perl5*' ! -name 'nextflow' \
         ! -name 'guppy' ! -name 'pplacer' ! -name 'rppr' \
-        ! -name 'mlst' ! -name 'any2fasta' -print0 \
+        ! -name 'mlst' ! -name 'any2fasta' ! -name 'mmseqs' -print0 \
         | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
 fi
 
