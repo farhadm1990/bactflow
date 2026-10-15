@@ -364,13 +364,15 @@ document.addEventListener("DOMContentLoaded", function () {
     return document.getElementById("stop-bt")?.disabled ? "stopped" : "running";
   }
 
-  restoreFormData(); //from local storage
+  restoreFormData();
   bindStrainFinderFields();
 
-  postForm.addEventListener("input", () => {
+  const persist = () => {
     saveFormData();
     updateStrainFinderFromFields();
-  });
+  };
+  postForm.addEventListener("input", persist);
+  postForm.addEventListener("change", persist);
 
   const outDirInput = document.getElementById("out_dir");
   if (outDirInput) {
@@ -388,55 +390,107 @@ document.addEventListener("DOMContentLoaded", function () {
   bindGeneTypeDropdown();
   bindVizLayout();
   bindLinearPickers();
+  // Re-fire selects so show/hide panels match restored values.
+  postForm.querySelectorAll("select").forEach((sel) => {
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 });
 
-function restoreFormData(){
-  let savedData = localStorage.getItem("bactflowFormData");
-  if(savedData){
-    let formData = JSON.parse(savedData);
-    let form = document.getElementById("postForm");
-    if (!form) {
+const FORM_STORAGE_KEY = "bactflowFormData_post";
+
+function collectFormData(form) {
+  const formData = {};
+  Array.from(form.elements).forEach((el) => {
+    const key = el.name || el.id;
+    if (!key || el.type === "file" || el.type === "button" || el.type === "submit") {
       return;
     }
-
-    Array.from(form.elements).forEach(function (element){
-      if (element.name === "heatmap-mode") {
-        element.checked = element.value === "abundance";
-        return;
+    if (el.type === "radio") {
+      if (el.checked) {
+        formData[key] = el.value;
       }
-      if (element.name === "gene_type") {
-        return;
-      }
-      if (element.name && formData[element.name] !== undefined ) {
-        if (element.type === "checkbox" || element.type === "radio"){
-          element.checked = formData[element.name];
-        } else {
-          element.value = formData[element.name];
+      return;
+    }
+    if (el.type === "checkbox") {
+      const group = el.name
+        ? form.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(el.name)}"]`)
+        : null;
+      if (group && group.length > 1) {
+        if (!Array.isArray(formData[el.name])) {
+          formData[el.name] = [];
         }
+        if (el.checked) {
+          formData[el.name].push(el.value);
+        }
+      } else {
+        formData[key] = !!el.checked;
       }
-    });
+      return;
+    }
+    formData[key] = el.value;
+  });
+  return formData;
+}
+
+function applyFormData(form, formData) {
+  Array.from(form.elements).forEach((el) => {
+    const key = el.name || el.id;
+    if (!key) {
+      return;
+    }
+    if (el.type === "checkbox" && el.name && Array.isArray(formData[el.name])) {
+      el.checked = formData[el.name].includes(el.value);
+      return;
+    }
+    if (formData[key] === undefined) {
+      return;
+    }
+    if (el.type === "radio") {
+      el.checked = String(el.value) === String(formData[key]);
+    } else if (el.type === "checkbox") {
+      el.checked = !!formData[key];
+    } else {
+      el.value = formData[key];
+    }
+  });
+}
+
+function restoreFormData() {
+  const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
+  let savedData = localStorage.getItem(FORM_STORAGE_KEY);
+  if (!savedData) {
+    const legacy = localStorage.getItem("bactflowFormData");
+    if (legacy && (legacy.includes("run_mlst") || legacy.includes("bakta_annot"))) {
+      savedData = legacy;
+    }
+  }
+  if (!savedData) {
+    return;
+  }
+  try {
+    applyFormData(form, JSON.parse(savedData));
+  } catch (_err) {
+    /* ignore corrupt storage */
   }
 }
 
-function saveFormData(){
-  let form = document.getElementById("postForm");
-  let formData = {};
-
-  Array.from(form.elements).forEach(function (element){
-    if (!element.name || element.name === "heatmap-mode" || element.name === "gene_type") {
-      return;
-    }
-    if (element.type === "checkbox" || element.type === "radio"){
-      formData[element.name] = element.checked;
-    } else {
-      formData[element.name] = element.value;
-    }
-  });
-  localStorage.setItem("bactflowFormData", JSON.stringify(formData));
+function saveFormData() {
+  const form = document.getElementById("postForm");
+  if (!form) {
+    return;
+  }
+  try {
+    localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(collectFormData(form)));
+  } catch (_err) {
+    /* quota / private mode */
+  }
 }
 
-function clearFormData(){
-  localStorage.removeItem("bactflowFormData");
+function clearFormData() {
+  localStorage.removeItem(FORM_STORAGE_KEY);
 }
 
 function showChildPanel(childId, visible) {

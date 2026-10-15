@@ -505,57 +505,119 @@ document.getElementById("runForm").addEventListener("submit", (e) => {
   run_wf(action);
 });
 
-// saving inputs in the local storage to prevent refereshing
-function restoreFormData(){
-  let savedData = localStorage.getItem("bactflowFormData");
-  if(savedData){
-    let formData = JSON.parse(savedData);
-    let form = document.getElementById("runForm");
-    
-    Array.from(form.elemnts).forEach(function (element){
-      if (element.name && formData[element.name] !== undefined ) {
-        if (elemnt.type === "checkbox" || elemnt.type === "radio"){
-          elemnt.checked = formData[element.name];
-        } else {
-          element.value = formData[element.name];
-        }
+// Persist settings across refresh (per-module key so hub apps don't clobber each other).
+const FORM_STORAGE_KEY = "bactflowFormData_assem";
+
+function collectFormData(form) {
+  const formData = {};
+  Array.from(form.elements).forEach((el) => {
+    const key = el.name || el.id;
+    if (!key || el.type === "file" || el.type === "button" || el.type === "submit") {
+      return;
+    }
+    if (el.type === "radio") {
+      if (el.checked) {
+        formData[key] = el.value;
       }
-    });
+      return;
+    }
+    if (el.type === "checkbox") {
+      const group = el.name
+        ? form.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(el.name)}"]`)
+        : null;
+      if (group && group.length > 1) {
+        if (!Array.isArray(formData[el.name])) {
+          formData[el.name] = [];
+        }
+        if (el.checked) {
+          formData[el.name].push(el.value);
+        }
+      } else {
+        formData[key] = !!el.checked;
+      }
+      return;
+    }
+    formData[key] = el.value;
+  });
+  return formData;
+}
+
+function applyFormData(form, formData) {
+  Array.from(form.elements).forEach((el) => {
+    const key = el.name || el.id;
+    if (!key) {
+      return;
+    }
+    if (el.type === "checkbox" && el.name && Array.isArray(formData[el.name])) {
+      el.checked = formData[el.name].includes(el.value);
+      return;
+    }
+    if (formData[key] === undefined) {
+      return;
+    }
+    if (el.type === "radio") {
+      el.checked = String(el.value) === String(formData[key]);
+    } else if (el.type === "checkbox") {
+      el.checked = !!formData[key];
+    } else {
+      el.value = formData[key];
+    }
+  });
+}
+
+function restoreFormData() {
+  const form = document.getElementById("runForm");
+  if (!form) {
+    return;
+  }
+  let savedData = localStorage.getItem(FORM_STORAGE_KEY);
+  if (!savedData) {
+    // One-time migrate from the old shared key if it looks like assembly fields.
+    const legacy = localStorage.getItem("bactflowFormData");
+    if (legacy && legacy.includes("assemblerDropdown")) {
+      savedData = legacy;
+    }
+  }
+  if (!savedData) {
+    return;
+  }
+  try {
+    applyFormData(form, JSON.parse(savedData));
+  } catch (_err) {
+    /* ignore corrupt storage */
   }
 }
 
-
-
-function saveFormData(){
-  let form = document.getElementById("runForm");
-  let formData = {};
-
-  Array.from(form.elemnts).forEach(function (element){
-    if (element.name) {
-      if(element.name === "checkbox" || element.type === "radio"){
-        formData[element.name] = element.checked;
-      } else {
-        formData[element.name] = element.value;
-      }
-    }
-  });
-  localStorage.setItem("bactflowFormData", JSON.stringify(formData));
+function saveFormData() {
+  const form = document.getElementById("runForm");
+  if (!form) {
+    return;
+  }
+  try {
+    localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(collectFormData(form)));
+  } catch (_err) {
+    /* quota / private mode */
+  }
 }
 
-function clearFormData(){
-  localStorage.removeItem("bactflowFormData");
+function clearFormData() {
+  localStorage.removeItem(FORM_STORAGE_KEY);
 }
 
-
-
-
-document.addEventListener("DOMContentLoaded", function(){
-  restoreFormData(); //from local storage
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("runForm");
+  if (!form) {
+    return;
+  }
+  restoreFormData();
   updateAssemblerUI();
-
-  document.getElementById("runForm").addEventListener("input", () =>{
-    saveFormData();
+  // Re-fire selects so show/hide panels match restored values.
+  form.querySelectorAll("select").forEach((sel) => {
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  const persist = () => saveFormData();
+  form.addEventListener("input", persist);
+  form.addEventListener("change", persist);
 });
 
 // Silent report lookup: never surface an error if a report is not ready yet.

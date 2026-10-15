@@ -5,6 +5,7 @@ set -euo pipefail
 
 CONDA_BASE="/opt/conda"
 CONDA_ENV="${CONDA_BASE}/envs/bactflow"
+CONDA_MLST_ENV="${CONDA_BASE}/envs/bactflow_mlst"
 
 cmd="${1:-}"
 shift || true
@@ -18,6 +19,8 @@ case "${cmd}" in
         printf 'conda stub (docker)\nbase env: %s\n' "${CONDA_ENV}"
         ;;
     activate|deactivate)
+        # In-shell activate lives in conda.sh (sourced). This binary is a
+        # no-op when invoked as a subprocess; scripts should source conda.sh.
         exit 0
         ;;
     config)
@@ -28,10 +31,17 @@ case "${cmd}" in
         shift || true
         if [ "${sub}" = "list" ]; then
             if [ "${1:-}" = "--json" ] || [ "${2:-}" = "--json" ]; then
-                printf '{"envs":["%s"]}\n' "${CONDA_ENV}"
+                if [ -d "${CONDA_MLST_ENV}" ]; then
+                    printf '{"envs":["%s","%s"]}\n' "${CONDA_ENV}" "${CONDA_MLST_ENV}"
+                else
+                    printf '{"envs":["%s"]}\n' "${CONDA_ENV}"
+                fi
             else
                 printf '# conda environments:\n'
                 printf 'bactflow              *  %s\n' "${CONDA_ENV}"
+                if [ -d "${CONDA_MLST_ENV}" ]; then
+                    printf 'bactflow_mlst            %s\n' "${CONDA_MLST_ENV}"
+                fi
             fi
             exit 0
         fi

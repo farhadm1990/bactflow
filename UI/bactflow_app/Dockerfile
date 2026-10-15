@@ -131,7 +131,9 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && command -v gtdbtk \
     && test -x /opt/conda/envs/bactflow_mlst/bin/mlst \
     && test -x /opt/conda/envs/bactflow_mlst/bin/any2fasta \
-    && /opt/conda/envs/bactflow_mlst/bin/mlst --version \
+    && env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT -u CONDA_PREFIX \
+        PATH=/opt/conda/envs/bactflow_mlst/bin:/usr/bin:/bin \
+        /opt/conda/envs/bactflow_mlst/bin/mlst --version \
     && checkm -h >/dev/null \
     && quast.py --help >/dev/null \
     && /usr/lib/jvm/bactflow-java/bin/java -version \

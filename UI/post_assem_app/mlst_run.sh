@@ -31,33 +31,45 @@ then
     display_help
 fi
 
-source "$(conda info --base)/etc/profile.d/conda.sh"
-_conda_base="$(conda info --base)"
+_conda_base="$(conda info --base 2>/dev/null || echo /opt/conda)"
+if [ -f "${_conda_base}/etc/profile.d/conda.sh" ]
+then
+    # shellcheck source=/dev/null
+    source "${_conda_base}/etc/profile.d/conda.sh"
+fi
+
+_mlst_prefix=""
 # Prefer bactflow_mlst sidecar (Docker + host): mlst's perl-bioperl stack
 # cannot share an env with infernal/samtools/spades pins in bactflow.
 if [ -x "${_conda_base}/envs/bactflow_mlst/bin/mlst" ]
 then
-    conda activate bactflow_mlst
+    _mlst_prefix="${_conda_base}/envs/bactflow_mlst"
 elif [ -x "${_conda_base}/envs/bactflow/bin/mlst" ]
 then
-    conda activate bactflow
-elif conda env list | awk '{print $1}' | grep -qx 'bactflow_mlst'
+    _mlst_prefix="${_conda_base}/envs/bactflow"
+fi
+
+if [ -z "${_mlst_prefix}" ]
 then
-    conda activate bactflow_mlst
-elif conda env list | awk '{print $1}' | grep -qx 'bactflow'
-then
-    conda activate bactflow
-else
-    echo "ERROR: neither bactflow_mlst nor bactflow conda env found." >&2
+    echo "ERROR: neither bactflow_mlst nor bactflow conda env with mlst found." >&2
+    echo "       conda create -n bactflow_mlst -c bioconda -c conda-forge mlst=2.23.0" >&2
     exit 1
 fi
-export PATH="${CONDA_PREFIX:-}/bin:${PATH}"
+
+# Bind PATH to the env that owns mlst. Clear Perl vars so the main Docker
+# env's PERL5LIB/@INC (bactflow) cannot shadow sidecar modules (Moo, etc.).
+unset PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT 2>/dev/null || true
+export CONDA_PREFIX="${_mlst_prefix}"
+export CONDA_DEFAULT_ENV="$(basename "${_mlst_prefix}")"
+export PATH="${_mlst_prefix}/bin:${PATH}"
+if [ -d "${_mlst_prefix}/lib" ]
+then
+    export LD_LIBRARY_PATH="${_mlst_prefix}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 if ! command -v mlst >/dev/null 2>&1
 then
-    echo "ERROR: mlst is not on PATH. Install the bioconda package 'mlst'." >&2
-    echo "       conda create -n bactflow_mlst -c bioconda -c conda-forge mlst=2.23.0" >&2
-    echo "       (or: conda install -n bactflow -c bioconda -c conda-forge mlst=2.23.0)" >&2
+    echo "ERROR: mlst is not on PATH under ${_mlst_prefix}." >&2
     exit 1
 fi
 
