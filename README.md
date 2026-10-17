@@ -115,7 +115,7 @@ Wait until the terminal prints **UI is ready**. A browser tab should open. If it
 
 **Path rule (Docker and Apptainer):** the container only sees files **under** `WORK_DIR`. Put FASTQs, genomes, databases (or symlinks to them), and the output folder inside that directory. In the form, use absolute paths such as `${WORK_DIR}/test_reads/ont` and `${WORK_DIR}/bactflow_out`.
 
-First run downloads images from Docker Hub. That can take several minutes.
+First run downloads the monolithic image (`farhadm1990/bactflow:v1.0`) from Docker Hub. That can take several minutes.
 
 ---
 
@@ -123,7 +123,7 @@ First run downloads images from Docker Hub. That can take several minutes.
 
 Use this on HPC or a locked-down Linux box where you **cannot** join the Docker group. You still start BactFlow with `./bactflow.sh run … --service apptainer`. Do not call `singularity` / `apptainer` yourself.
 
-Apptainer (or Singularity) does **not** need sudo or the Docker group. It uses the **same** Hub images as Docker (`farhadm1990/bactflow_*`). `bactflow.sh` converts each image once under `~/.bactflow/sif/` (a `.sif` file, or a sandbox directory if your Singularity cannot mount squashfs) and reuses it. If you want no containers at all, use [Conda](#3-conda).
+Apptainer (or Singularity) does **not** need sudo or the Docker group. It uses the **same** monolithic Hub image as Docker (`farhadm1990/bactflow:v1.0`). `bactflow.sh` converts that image once under `~/.bactflow/sif/` (a `.sif` file, or a sandbox directory if your Singularity cannot mount squashfs) and reuses it. If you want no containers at all, use [Conda](#3-conda).
 
 You need `apptainer` **or** `singularity` on your PATH (`apptainer --version` or `singularity --version`). If both are missing, ask IT to install Apptainer, or use [Conda](#3-conda) instead.
 
