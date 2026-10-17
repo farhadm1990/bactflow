@@ -193,6 +193,21 @@ const BactflowProcessEta = {
     }
   },
 
+  /* Time-based estimate: climb to ~90% at the hint duration, then asymptote
+     toward 99% while still running. Never sit at a hard 99% the moment the
+     hint expires (that looked like a stuck bar during long SPAdes/Flye jobs). */
+  timeBasedPercent(elapsed, expected) {
+    // Approach ~85% at the expected duration, then crawl toward 95%.
+    // Never slam to 99% and freeze — that looked like a stuck pipeline.
+    const exp = Math.max(30, expected || 180);
+    const t = Math.max(0, elapsed) / exp;
+    if (t <= 1) {
+      return 85 * t;
+    }
+    const over = t - 1;
+    return 85 + 10 * (1 - Math.exp(-over * 0.45));
+  },
+
   displayPercent(proc) {
     if (!proc || proc.id === "_executor") {
       return 0;
@@ -205,10 +220,15 @@ const BactflowProcessEta = {
     }
     const elapsed = this.elapsedSeconds(proc);
     const expected = Math.max(30, this.hintFor(proc.name) || 180);
-    const timePct = (100 * elapsed) / expected;
-    const taskPct = proc.total > 0 ? (Math.max(0, proc.completed) / proc.total) * 100 : 0;
+    const timePct = this.timeBasedPercent(elapsed, expected);
+    // Nextflow "1 of 1" while running must not read as 100%.
+    let taskPct = 0;
+    if (proc.total > 0 && proc.completed < proc.total) {
+      taskPct = (Math.max(0, proc.completed) / proc.total) * 100;
+    }
     const nfPct = proc.percent > 0 && proc.percent < 100 ? proc.percent : 0;
-    return Math.max(1, Math.min(99, Math.round(Math.max(timePct, taskPct, nfPct))));
+    const raw = Math.max(timePct, taskPct, nfPct);
+    return Math.max(1, Math.min(95, Math.round(raw)));
   },
 
   remainingSeconds(proc) {
@@ -264,14 +284,21 @@ const BactflowProcessEta = {
       return false;
     }
 
+    if (/BactFlow:\s*Nextflow finished successfully|Nextflow finished successfully/i.test(t)) {
+      this.finalizeAll(terminal, "completed");
+      return true;
+    }
+
     let matched = false;
-    const hashMatches = t.matchAll(/\[([0-9a-f/]+)\]/gi);
+    const hashMatches = t.matchAll(/\[([0-9a-f]{2}\/[0-9a-f]+)\]/gi);
     for (const hm of hashMatches) {
       const hash = hm[1];
+      // "1 of 1" alone is NOT done — Nextflow prints that while the task runs.
+      // Require an explicit completion marker.
       if (
-        /✔|COMPLETED|Task completed/i.test(t) ||
-        /\[\s*100%\]/i.test(t) ||
-        (/process\s+>/i.test(t) && /\[\s*\d+%\]/i.test(t) && /\b1\s+of\s+1\b/i.test(t))
+        /✔/.test(t) ||
+        /\bCOMPLETED\b|Task completed|Process completed/i.test(t) ||
+        /\[\s*100%\s*\]/.test(t)
       ) {
         if (this.markHashDone(hash, terminal)) {
           matched = true;
@@ -338,7 +365,13 @@ const BactflowProcessEta = {
   },
 
   parseWorkflow(line) {
-    const m = line.match(/\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
+    const t = String(line || "").trim();
+    // Ignore per-process lines — they also look like "[  0%] 0 of 1" and used
+    // to overwrite the real workflow counters.
+    if (!t || /process\s*>/i.test(t) || /^\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t)) {
+      return false;
+    }
+    const m = t.match(/^\[\s*(\d+)%\]\s+(\d+)\s+of\s+(\d+)/i);
     if (!m) {
       return false;
     }
@@ -348,6 +381,13 @@ const BactflowProcessEta = {
     this.workflow.percent = Number(m[1]);
     this.workflow.completed = Number(m[2]);
     this.workflow.total = Number(m[3]);
+    if (this.workflow.percent >= 100 || (this.workflow.total > 0 && this.workflow.completed >= this.workflow.total)) {
+      this.processes.forEach((proc) => {
+        if (!proc.done && proc.id !== "_executor") {
+          this.markDone(proc);
+        }
+      });
+    }
     return true;
   },
 
@@ -367,7 +407,7 @@ const BactflowProcessEta = {
   },
 
   computeEta(proc) {
-    if (proc.done || proc.percent >= 100 || (proc.total > 0 && proc.completed >= proc.total)) {
+    if (proc.done) {
       return { label: "done", seconds: 0 };
     }
 
@@ -388,8 +428,10 @@ const BactflowProcessEta = {
       return { label: "hint", seconds: hint - elapsed, elapsed };
     }
     if (hint && elapsed >= hint) {
-      const extra = Math.max(20, elapsed * 0.2);
-      return { label: "overrun", seconds: extra, elapsed };
+      // Past the estimate: keep a decaying remaining window (never "1s left" forever).
+      const over = elapsed - hint;
+      const rem = Math.max(45, hint * 0.3 * Math.exp(-over / Math.max(120, hint)));
+      return { label: "overrun", seconds: rem, elapsed };
     }
 
     const wfEta = this.workflowEtaSeconds();
@@ -452,7 +494,8 @@ const BactflowProcessEta = {
         percent,
         completed,
         total,
-        done: percent >= 100 || (total > 0 && completed >= total) || /✔/.test(t),
+        // "1 of 1" alone is not done — Nextflow prints that while the task runs.
+        done: percent >= 100 || /✔/.test(t) || /\bCOMPLETED\b|Task completed|Process completed/i.test(t),
         cached: /cached/i.test(t)
       };
     };
@@ -495,8 +538,11 @@ const BactflowProcessEta = {
       }
       const completed = Number(m[3]);
       const total = Number(m[4]);
-      const done = /✔/.test(t) || (total > 0 && completed >= total);
-      return progress(m[1], name, "", done ? 100 : Math.floor(100 * completed / Math.max(1, total)), completed, total);
+      const done = /✔/.test(t);
+      const midPct = total > 0
+        ? (completed >= total ? 95 : Math.floor(100 * completed / total))
+        : 0;
+      return progress(m[1], name, "", done ? 100 : midPct, completed, total);
     }
 
     m = t.match(/\[([0-9a-f/]+)\]\s+(Submitted|Cached)\s+process\s+>\s+(\S+)\s*(?:\(([^)]*)\))?/i);
