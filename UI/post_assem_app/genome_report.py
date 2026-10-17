@@ -15,6 +15,36 @@ WIDE_COL_THRESHOLD = 8
 ROWS_PER_PAGE = 28
 
 
+def _find_logo() -> Path | None:
+    """Resolve bactflow logo from UI static paths (host or Docker image layout)."""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "static" / "images" / "logo.png",
+        here.parent / "bactflow_app" / "static" / "images" / "logo.png",
+        here.parent / "assem_app" / "static" / "images" / "logo.png",
+        Path("/app/UI/bactflow_app/static/images/logo.png"),
+        Path("/app/UI/post_assem_app/static/images/logo.png"),
+    ]
+    for path in candidates:
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
+
+def _stage_logo(assets_dir: Path) -> dict:
+    """Copy logo into report assets/; return rel/abs paths or empty dict."""
+    src = _find_logo()
+    if not src:
+        return {}
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    dest = assets_dir / "bactflow_logo.png"
+    shutil.copy2(src, dest)
+    return {
+        "logo_abs": str(dest),
+        "logo_rel": "assets/bactflow_logo.png",
+    }
+
+
 def _read_tsv(path: Path) -> list[dict]:
     if not path.is_file() or path.stat().st_size == 0:
         return []
@@ -340,6 +370,7 @@ def collect_report(out_dir: str | Path, assets_dir: Path | None = None) -> dict:
     if assets_dir is None:
         assets_dir = root / "bactflow_report" / "assets"
     figures = _collect_figures(root, assets_dir)
+    logo = _stage_logo(assets_dir)
     genomes = set()
     for rows, key in (
         (quast, None),
@@ -367,6 +398,7 @@ def collect_report(out_dir: str | Path, assets_dir: Path | None = None) -> dict:
         "bakta_ran": bakta_ran,
         "genomad_ran": genomad_ran,
         "figures": figures,
+        **logo,
     }
     bundle["narrative"] = _narrative(bundle)
     return bundle
@@ -414,9 +446,19 @@ def _table_html(title: str, rows: list[dict], limit: int = 200) -> str:
 
 def write_html_report(bundle: dict, path: Path) -> Path:
     paras = "".join(f"<p>{html.escape(p)}</p>" for p in bundle.get("narrative") or [])
+    logo_rel = bundle.get("logo_rel") or ""
+    logo_html = ""
+    if logo_rel:
+        logo_html = (
+            f"<img class='cover-logo' src='{html.escape(logo_rel)}' "
+            f"alt='' width='48' height='48'>"
+        )
     cover = f"""
 <section class="cover">
-  <p class="cover-kicker">BactFlow</p>
+  <div class="cover-brand">
+    {logo_html}
+    <p class="cover-kicker">BactFlow</p>
+  </div>
   <h1>Genome report</h1>
   <p class="meta">{html.escape(bundle.get('generated_at', ''))}<br>
   {html.escape(bundle.get('out_dir', ''))}</p>
@@ -442,14 +484,17 @@ def write_html_report(bundle: dict, path: Path) -> Path:
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
 <style>
-body{{font-family:"Source Serif 4",Georgia,"Iowan Old Style",serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#1f2937;line-height:1.45;background:#fafafa}}
+body{{font-family:"Source Serif 4",Georgia,"Iowan Old Style",serif;max-width:1100px;margin:2rem auto;padding:0;color:#1f2937;line-height:1.45;background:#fafafa}}
 h1{{color:#0f3d2e;font-size:1.9rem;margin:.2rem 0 .8rem}} h2{{color:#14532d;border-bottom:1px solid #d1d5db;padding-bottom:.3rem;margin-top:2rem}}
 h3{{color:#166534;font-size:1.05rem}}
 .meta,.muted{{color:#6b7280;font-size:.95rem}}
-.cover{{padding:2rem 0 1.5rem;border-bottom:1px solid #d1d5db;margin-bottom:1.5rem;
+.cover{{padding:2rem 10px 1.5rem;border-bottom:1px solid #d1d5db;margin:0 0 1.5rem;
 background:radial-gradient(120% 80% at 10% 0%,#ecfdf5 0%,transparent 55%),radial-gradient(90% 60% at 100% 20%,#f0fdf4 0%,transparent 50%),#fafafa}}
-.cover-kicker{{letter-spacing:.28em;text-transform:uppercase;font-size:.78rem;color:#166534;margin:0 0 .6rem;font-weight:600}}
-.cover h1{{font-size:clamp(2.2rem,5vw,3.2rem);font-weight:600;letter-spacing:-.02em}}
+.cover-brand{{display:flex;align-items:center;justify-content:flex-start;gap:5px;margin:0 0 .6rem;padding:0}}
+.cover-logo{{flex:0 0 auto;width:48px;height:48px;object-fit:contain;border:0;background:transparent;display:block}}
+.cover-kicker{{letter-spacing:.28em;text-transform:uppercase;font-size:.78rem;color:#166534;margin:0;font-weight:600;line-height:1}}
+.cover h1{{font-size:clamp(2.2rem,5vw,3.2rem);font-weight:600;letter-spacing:-.02em;margin:0.2rem 0 0.8rem;text-align:center}}
+section:not(.cover),footer{{padding-left:1rem;padding-right:1rem}}
 .table-wrap{{overflow-x:auto;margin:1rem 0;-webkit-overflow-scrolling:touch}}
 .table-wrap.wide table{{min-width:960px}}
 table{{border-collapse:collapse;width:100%;font-size:.82rem}}
@@ -461,7 +506,8 @@ img{{max-width:100%;height:auto;border:1px solid #e5e7eb;background:#fff}}
 footer{{margin:2.5rem 0 1rem;padding-top:1rem;border-top:1px solid #e5e7eb}}
 @media print{{
   body{{margin:0;background:#fff;max-width:none}}
-  .cover{{page-break-after:avoid;background:#fff}}
+  .cover{{page-break-after:avoid;background:#fff;padding-left:10px;padding-right:10px}}
+  .cover-logo{{border:0;background:transparent}}
   .table-wrap{{overflow:visible}}
   figure{{page-break-inside:avoid}}
 }}
@@ -500,6 +546,9 @@ def write_pdf_report(bundle: dict, path: Path) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # CSS px → PDF points (96 CSS px per inch).
+    px = 72.0 / 96.0
+    left_brand = 10 * px  # logo + BactFlow sit 10px from the page edge
     left = right = top = bottom = 1.4 * cm
     portrait_w, portrait_h = A4
     land_w, land_h = landscape(A4)
@@ -509,13 +558,24 @@ def write_pdf_report(bundle: dict, path: Path) -> Path:
     doc = BaseDocTemplate(
         str(path),
         pagesize=A4,
-        leftMargin=left,
+        leftMargin=left_brand,
         rightMargin=right,
         topMargin=top,
         bottomMargin=bottom,
         title="BactFlow genome report",
     )
-    frame_p = Frame(left, bottom, portrait_w - left - right, portrait_h - top - bottom, id="portrait")
+    # Portrait uses a tight left margin so the brand hugs the page edge.
+    frame_p = Frame(
+        left_brand,
+        bottom,
+        portrait_w - left_brand - right,
+        portrait_h - top - bottom,
+        id="portrait",
+        leftPadding=0,
+        rightPadding=0,
+        topPadding=0,
+        bottomPadding=0,
+    )
     frame_l = Frame(left, bottom, page_w, page_h, id="landscape")
     doc.addPageTemplates([
         PageTemplate(id="portrait", frames=[frame_p], pagesize=A4),
@@ -523,17 +583,64 @@ def write_pdf_report(bundle: dict, path: Path) -> Path:
     ])
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="BFTitle", parent=styles["Title"], textColor=colors.HexColor("#0f3d2e"), fontSize=26, spaceAfter=6))
-    styles.add(ParagraphStyle(name="BFKicker", parent=styles["Normal"], textColor=colors.HexColor("#166534"), fontSize=9, letterSpacing=2, spaceAfter=10))
-    styles.add(ParagraphStyle(name="BFH2", parent=styles["Heading2"], textColor=colors.HexColor("#14532d"), spaceBefore=8, spaceAfter=6))
+    styles.add(ParagraphStyle(
+        name="BFTitle",
+        parent=styles["Title"],
+        textColor=colors.HexColor("#0f3d2e"),
+        fontSize=26,
+        spaceAfter=6,
+        alignment=1,  # CENTER
+        leftIndent=0,
+    ))
+    styles.add(ParagraphStyle(
+        name="BFKicker",
+        parent=styles["Normal"],
+        textColor=colors.HexColor("#166534"),
+        fontSize=9,
+        letterSpacing=2,
+        spaceAfter=10,
+        alignment=0,
+        leftIndent=0,
+    ))
+    styles.add(ParagraphStyle(name="BFH2", parent=styles["Heading2"], textColor=colors.HexColor("#14532d"), spaceBefore=8, spaceAfter=6, alignment=0))
     styles.add(ParagraphStyle(name="BFH3", parent=styles["Heading3"], textColor=colors.HexColor("#166534"), fontSize=11, spaceBefore=4, spaceAfter=4))
     styles.add(ParagraphStyle(name="BFBody", parent=styles["BodyText"], leading=14, spaceAfter=8))
-    styles.add(ParagraphStyle(name="BFMuted", parent=styles["BodyText"], textColor=colors.grey, fontSize=9))
+    styles.add(ParagraphStyle(name="BFMuted", parent=styles["BodyText"], textColor=colors.grey, fontSize=9, alignment=0))
     styles.add(ParagraphStyle(name="BFCell", parent=styles["BodyText"], fontSize=7, leading=9))
 
     # Portrait: title + summary only. Everything after switches to landscape.
-    story: list = [
-        Paragraph("BACTFLOW", styles["BFKicker"]),
+    # Logo immediately left of "BACTFLOW" (5px gap), brand flush left (10px page margin).
+    brand_row: list = []
+    logo_abs = bundle.get("logo_abs") or ""
+    if logo_abs and Path(logo_abs).is_file():
+        logo_img = Image(logo_abs)
+        max_logo = 1.15 * cm
+        iw, ih = float(logo_img.imageWidth or 1), float(logo_img.imageHeight or 1)
+        scale = min(max_logo / iw, max_logo / ih, 1.0)
+        logo_img.drawWidth = iw * scale
+        logo_img.drawHeight = ih * scale
+        gap = 5 * px
+        brand = Table(
+            [[logo_img, Paragraph("BACTFLOW", styles["BFKicker"])]],
+            colWidths=[logo_img.drawWidth, portrait_w - left_brand - right - logo_img.drawWidth - gap],
+            hAlign="LEFT",
+        )
+        brand.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (1, 0), (1, 0), "LEFT"),
+            ("LEFTPADDING", (0, 0), (0, 0), 0),
+            ("RIGHTPADDING", (0, 0), (0, 0), gap),
+            ("LEFTPADDING", (1, 0), (1, 0), 0),
+            ("RIGHTPADDING", (1, 0), (1, 0), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        brand_row = [brand]
+    else:
+        brand_row = [Paragraph("BACTFLOW", styles["BFKicker"])]
+
+    story: list = brand_row + [
         Paragraph("Genome report", styles["BFTitle"]),
         Paragraph(
             f"{html.escape(bundle.get('generated_at', ''))}<br/>{html.escape(bundle.get('out_dir', ''))}",

@@ -95,19 +95,18 @@ rm -rf \
 find "${PREFIX}/bin" -maxdepth 1 -type f \( -name 'pyside*' -o -name 'shiboken*' -o -name 'qmake*' \) -delete 2>/dev/null || true
 
 # QUAST ships large optional test/reference blobs we do not need in the image.
+# Keep quast_libs/site_packages — runtime imports jsontemplate from there.
 rm -rf \
     "${PREFIX}/lib/python3.11/site-packages/quast_libs/test_data" \
-    "${PREFIX}/lib/python3.11/site-packages/quast_libs/site_packages" \
     "${PREFIX}/lib/python3.11/site-packages/quast_libs/blast/DB" 2>/dev/null || true
 
 # TensorFlow / Torch often ship GPU stubs, tests, and TensorBoard unused at runtime.
-# geNomad / Medaka only need the inference libs — keep those.
+# Do not strip tensorflow/{tools,lite,...} package tree — TF import walks them.
+# Safe cuts: C++ headers, TensorBoard UI, Torch test/include only.
 rm -rf \
     "${PREFIX}/lib/python3.11/site-packages/torch/test" \
     "${PREFIX}/lib/python3.11/site-packages/torch/include" \
     "${PREFIX}/lib/python3.11/site-packages/tensorflow/include" \
-    "${PREFIX}/lib/python3.11/site-packages/tensorflow/lite" \
-    "${PREFIX}/lib/python3.11/site-packages/tensorflow/tools" \
     "${PREFIX}/lib/python3.11/site-packages/tensorboard" \
     "${PREFIX}/lib/python3.11/site-packages/tensorboard_data_server" \
     "${PREFIX}/lib/python3.11/site-packages/sympy/testing" \

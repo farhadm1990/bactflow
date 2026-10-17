@@ -9,6 +9,7 @@ from pathlib import Path
 
 def find_mlst_tsv(out_dir: str | Path) -> Path | None:
     root = Path(out_dir)
+    # Prefer full allele table; summary has only genome/scheme/ST.
     candidates = [
         root / "mlst_out" / "mlst.tsv",
         root / "mlst_out" / "mlst_summary.tsv",
@@ -84,7 +85,10 @@ def load_mlst_rows(out_dir: str | Path) -> list[dict]:
                     "alleles": alleles,
                 })
             return _dedupe_genomes(rows)
-        allele_keys = [k for k in fieldnames if k not in (file_key, scheme_key, st_key)]
+        allele_keys = [
+            k for k in fieldnames
+            if k and k not in (file_key, scheme_key, st_key)
+        ]
         for raw in reader:
             alleles = {k: (raw.get(k) or "-") for k in allele_keys}
             rows.append({
@@ -127,25 +131,40 @@ def mlst_chart_payload(rows: list[dict] | None = None, out_dir: str | Path | Non
                 allele_genes.append(gene)
     genomes = [r["genome"] for r in rows]
     z = []
+    z_text = []
     for r in rows:
         alleles = r.get("alleles") or {}
         row_vals = []
+        row_text = []
         for gene in allele_genes:
-            raw = str(alleles.get(gene) or "-")
-            # Numeric alleles for colour; non-numeric → 0.
+            raw = str(alleles.get(gene) or "-").strip() or "-"
+            row_text.append(raw)
+            # Numeric alleles for colour; non-numeric → 0 (still drawable).
             try:
                 row_vals.append(float(raw.split("~")[0].lstrip("~")))
             except ValueError:
                 row_vals.append(0.0)
         z.append(row_vals)
+        z_text.append(row_text)
+    # Stable ST order: typed numeric ascending, then untyped.
+    def _st_key(st: str):
+        if st in ("-", "", "0", None):
+            return (1, 0, str(st))
+        try:
+            return (0, int(str(st)), str(st))
+        except ValueError:
+            return (0, 10**9, str(st))
+
+    st_labels = sorted(st_counts.keys(), key=_st_key)
     return {
-        "st_labels": list(st_counts.keys()),
-        "st_counts": [st_counts[k] for k in st_counts],
+        "st_labels": st_labels,
+        "st_counts": [st_counts[k] for k in st_labels],
         "scheme_labels": list(scheme_counts.keys()),
         "scheme_counts": [scheme_counts[k] for k in scheme_counts],
         "genomes": genomes,
         "allele_genes": allele_genes,
         "allele_matrix": z,
+        "allele_text": z_text,
         "n_typed": sum(1 for r in rows if (r.get("ST") or "-") not in ("-", "", "0", "-")),
         "n_genomes": len(rows),
     }

@@ -1223,6 +1223,19 @@ function bindReportDownloadButtons(outDir) {
   }
 }
 
+function setReportLoading(on) {
+  const spin = document.getElementById("spin-report");
+  const status = document.getElementById("report-status");
+  if (spin) {
+    spin.style.display = on ? "flex" : "none";
+    spin.setAttribute("aria-busy", on ? "true" : "false");
+  }
+  if (on && status) {
+    // Keep the status line for errors/success; hide while the bubble is up.
+    status.style.display = "none";
+  }
+}
+
 function generateGenomeReport() {
   const form = document.getElementById("postForm");
   if (!form) {
@@ -1237,6 +1250,7 @@ function generateGenomeReport() {
   const dlHtml = document.getElementById("report-dl-html");
   const btn = document.getElementById("report-bt");
   if (!outDir) {
+    setReportLoading(false);
     if (status) {
       status.style.display = "block";
       status.className = "alert alert-warning";
@@ -1247,13 +1261,17 @@ function generateGenomeReport() {
     }
     return;
   }
+  // Show the report pane + loading bubble immediately on click.
   if (reportDiv) {
     reportDiv.style.display = "block";
   }
-  if (status) {
-    status.style.display = "block";
-    status.className = "alert alert-info";
-    status.textContent = "Building HTML and PDF report from existing results…";
+  if (typeof setResultsOpen === "function") {
+    setResultsOpen(true);
+  }
+  if (typeof jumpToSection === "function") {
+    jumpToSection("reportDiv");
+  } else if (reportDiv) {
+    reportDiv.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (narrative) {
     narrative.innerHTML = "";
@@ -1267,9 +1285,7 @@ function generateGenomeReport() {
   if (btn) {
     btn.disabled = true;
   }
-  if (typeof setResultsOpen === "function") {
-    setResultsOpen(true);
-  }
+  setReportLoading(true);
   fetch("/generate-report", { method: "POST", body: formData })
     .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
     .then(({ ok, data }) => {
@@ -1278,6 +1294,7 @@ function generateGenomeReport() {
       }
       if (status) {
         const sec = data.sections || {};
+        status.style.display = "block";
         status.className = "alert alert-success";
         status.textContent =
           `HTML + PDF ready for ${data.n_genomes || 0} genome(s). ` +
@@ -1289,19 +1306,16 @@ function generateGenomeReport() {
         narrative.innerHTML = data.narrative.map((p) => `<p>${p}</p>`).join("");
       }
       bindReportDownloadButtons(outDir);
-      if (typeof jumpToSection === "function") {
-        jumpToSection("reportDiv");
-      } else {
-        reportDiv.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
     })
     .catch((err) => {
       if (status) {
+        status.style.display = "block";
         status.className = "alert alert-danger";
         status.textContent = err.message || String(err);
       }
     })
     .finally(() => {
+      setReportLoading(false);
       if (btn) {
         btn.disabled = false;
       }

@@ -870,17 +870,18 @@
                 <span>px</span>
               </div>
             </label>
-            <label class="bf-heatmap-res-wrap" title="PNG download resolution">Resolution
-              <div class="bf-linear-res bf-heatmap-res">
+            <label class="bf-mlst-res-wrap" title="PNG download resolution">
+              <span class="bf-mlst-res-heading">Resolution</span>
+              <div class="bf-mlst-res">
                 <input type="range" class="form-range" id="mlst-png-res" min="0" max="4" step="1" value="1" aria-valuetext="Medium">
                 <div class="bf-linear-res-ticks" id="mlst-png-res-ticks">
                   <span data-level="0">Basic</span>
-                  <span data-level="1">Medium</span>
-                  <span data-level="2">·</span>
-                  <span data-level="3">·</span>
+                  <span data-level="1">Med</span>
+                  <span data-level="2">High</span>
+                  <span data-level="3">Higher</span>
                   <span data-level="4">Max</span>
                 </div>
-                <span id="mlst-png-res-label" class="bf-heatmap-res-label">Medium</span>
+                <span class="bf-mlst-res-current">Current: <strong id="mlst-png-res-label">Medium</strong></span>
               </div>
             </label>
             <div class="bf-plot-bar-actions">
@@ -891,15 +892,15 @@
           </div>
         </div>
         <p class="text-muted small" id="mlst-charts-hint" style="margin: 4px 20px 8px; display: none;">
-          Two charts on purpose: sequence-type counts (left/top) and per-genome allele heatmap (right/bottom).
+          Left: genomes per sequence type. Right: allele ID at each PubMLST locus (printed in each cell).
         </p>
         <div class="plasmid-charts mlst-charts" id="mlst-charts" style="display: none;">
           <div class="mlst-chart-panel">
-            <h6 class="mlst-chart-label">Sequence types</h6>
+            <h6 class="mlst-chart-label">Genomes per ST</h6>
             <div id="mlst-chart-st" class="plasmid-chart"></div>
           </div>
           <div class="mlst-chart-panel">
-            <h6 class="mlst-chart-label">Allele profiles</h6>
+            <h6 class="mlst-chart-label">Allele IDs by locus</h6>
             <div id="mlst-chart-alleles" class="plasmid-chart"></div>
           </div>
         </div>
@@ -1136,6 +1137,12 @@
         <p class="text-muted small" id="report-hint" style="margin: 10px 20px;">
           Builds HTML and PDF reports (tables + embedded plots) from QUAST, CheckM, GTDB-Tk, MLST, Bakta/AMR, and geNomad outputs. PDF summary is portrait; figures and tables are landscape.
         </p>
+        <div id="spin-report" style="display: none; flex-direction: column; text-align: center; padding: 40px; align-items: center; margin: 10px 20px;" aria-live="polite" aria-busy="false">
+          <div class="spinner-grow" role="status" style="width: 80px; height: 80px; color: #547c67;">
+            <span class="visually-hidden">Building report…</span>
+          </div>
+          <p class="text-muted mt-3 mb-0" id="spin-report-label">Building HTML and PDF report…</p>
+        </div>
         <div id="report-status" class="alert alert-info" role="status" style="display: none; margin: 10px 20px;"></div>
         <div class="bf-plot-bar-actions" style="margin: 10px 20px; display: flex; gap: 8px; flex-wrap: wrap;">
           <button type="button" class="btn btn-sm bf-dl-png" id="report-dl-pdf" style="display: none;">Download PDF</button>
@@ -1214,7 +1221,7 @@
 <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd42"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-<script src="{{ url_for('static', filename='js/mlst-viz.js') }}?v=mlst2"></script>
+<script src="{{ url_for('static', filename='js/mlst-viz.js') }}?v=mlst4"></script>
 <script src="{{ url_for('static', filename = 'js/post-assem.js') }}?v=ui-fix90"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>

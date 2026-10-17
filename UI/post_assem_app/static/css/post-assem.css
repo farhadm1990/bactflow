@@ -690,7 +690,7 @@ table.dataTable thead th {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 10px 14px;
+    gap: 10px 16px;
     margin-left: auto;
 }
 
@@ -702,6 +702,80 @@ table.dataTable thead th {
 
 #mlst-chart-bar .bf-linear-png-dims input {
     width: 4.5rem;
+}
+
+/* Resolution: slider on top, tick labels underneath (not beside). */
+#mlst-chart-bar .bf-mlst-res-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    min-width: 11.5rem;
+    max-width: 14rem;
+    font-size: 0.76rem;
+    color: var(--rd-muted, #9ca3af);
+}
+
+#mlst-chart-bar .bf-mlst-res-heading {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+#mlst-chart-bar .bf-mlst-res {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    width: 100%;
+}
+
+#mlst-chart-bar .bf-mlst-res input[type="range"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+}
+
+#mlst-chart-bar .bf-mlst-res .bf-linear-res-ticks {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: 100%;
+    margin-top: 2px;
+    font-size: 0.62rem;
+    line-height: 1.2;
+}
+
+#mlst-chart-bar .bf-mlst-res .bf-linear-res-ticks span {
+    text-align: center;
+    cursor: pointer;
+    color: var(--rd-muted, #9ca3af);
+}
+
+#mlst-chart-bar .bf-mlst-res .bf-linear-res-ticks span:first-child {
+    text-align: left;
+}
+
+#mlst-chart-bar .bf-mlst-res .bf-linear-res-ticks span:last-child {
+    text-align: right;
+}
+
+#mlst-chart-bar .bf-mlst-res .bf-linear-res-ticks span.is-active {
+    color: var(--hx-accent, #2dd4bf);
+    font-weight: 700;
+}
+
+#mlst-chart-bar .bf-mlst-res-current {
+    display: block;
+    margin-top: 2px;
+    text-align: center;
+    font-size: 0.68rem;
+    color: var(--rd-muted, #9ca3af);
+}
+
+#mlst-chart-bar .bf-mlst-res-current strong {
+    color: var(--hx-accent, #2dd4bf);
+    font-weight: 650;
 }
 
 @media (max-width: 900px) {

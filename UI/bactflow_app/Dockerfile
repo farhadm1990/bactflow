@@ -97,8 +97,9 @@ RUN apt-get update \
 
 # ─── NCBI BLAST+ only (no full toolkit tree in the final image) ────────────────
 FROM debian:bookworm-slim AS blast
+# libgomp1: NCBI blastn is linked against libgomp.so.1 (OpenMP).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY UI/post_assem_app/docker/install-blast.sh /tmp/install-blast.sh
 RUN bash /tmp/install-blast.sh 2.17.0 /opt/blast/bin \

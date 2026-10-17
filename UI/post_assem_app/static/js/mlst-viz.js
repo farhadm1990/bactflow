@@ -1,6 +1,6 @@
 /* MLST table + Plotly ST / allele charts for Post-assembly */
 (function () {
-  const CHART_HEIGHT = 320;
+  const CHART_HEIGHT = 340;
   const PNG_RES_KEY = "bactflow_mlst_png_res";
   const PNG_DIMS_KEY = "bactflow_mlst_png_dims";
   const PNG_LEVELS = [
@@ -14,8 +14,22 @@
   function plotColors() {
     const light = document.documentElement.getAttribute("data-theme") === "light";
     return light
-      ? { font: "#1f2937", grid: "#e5e7eb", paper: "#ffffff", bar: "#7c3aed" }
-      : { font: "#e5e7eb", grid: "#334155", paper: "rgba(0,0,0,0)", bar: "#a78bfa" };
+      ? {
+          font: "#1f2937",
+          grid: "#e5e7eb",
+          paper: "#ffffff",
+          bar: "#0d9488",
+          barLine: "#0f766e",
+          muted: "#6b7280",
+        }
+      : {
+          font: "#e5e7eb",
+          grid: "#334155",
+          paper: "rgba(0,0,0,0)",
+          bar: "#2dd4bf",
+          barLine: "#14b8a6",
+          muted: "#9aa8b5",
+        };
   }
 
   function purge(el) {
@@ -173,6 +187,209 @@
     }
   }
 
+  function stLabel(st) {
+    if (st === "-" || st === "" || st === "0" || st == null) {
+      return "Untyped";
+    }
+    return "ST-" + st;
+  }
+
+  function renderStChart(stEl, charts, colors) {
+    const labels = (charts.st_labels || []).map(stLabel);
+    const counts = charts.st_counts || [];
+    if (!labels.length) {
+      return;
+    }
+    const maxCount = Math.max(1, ...counts);
+    const few = labels.length <= 2;
+
+    Plotly.newPlot(
+      stEl,
+      [
+        {
+          type: "bar",
+          x: labels,
+          y: counts,
+          text: counts.map((c) => String(c) + (c === 1 ? " genome" : " genomes")),
+          textposition: "outside",
+          cliponaxis: false,
+          hovertemplate: "<b>%{x}</b><br>%{y} genome%{customdata}<extra></extra>",
+          customdata: counts.map((c) => (c === 1 ? "" : "s")),
+          width: few ? Math.min(0.42, 0.85 / Math.max(1, labels.length)) : undefined,
+          marker: {
+            color: colors.bar,
+            line: { color: colors.barLine, width: 1 },
+            opacity: 0.92,
+          },
+        },
+      ],
+      {
+        autosize: true,
+        height: CHART_HEIGHT,
+        paper_bgcolor: colors.paper,
+        plot_bgcolor: colors.paper,
+        font: { color: colors.font, size: 11 },
+        title: {
+          text: "How many genomes share each sequence type",
+          font: { size: 13, color: colors.font },
+          x: 0.02,
+          xanchor: "left",
+        },
+        margin: { t: 48, r: 20, b: 56, l: 56 },
+        bargap: few ? 0.55 : 0.28,
+        xaxis: {
+          title: { text: "Sequence type (PubMLST)", font: { size: 11, color: colors.muted } },
+          type: "category",
+          gridcolor: colors.grid,
+          zeroline: false,
+          tickangle: labels.length > 6 ? -30 : 0,
+        },
+        yaxis: {
+          title: { text: "Genomes", font: { size: 11, color: colors.muted } },
+          gridcolor: colors.grid,
+          zerolinecolor: colors.grid,
+          rangemode: "tozero",
+          range: [0, maxCount + Math.max(1, maxCount * 0.35)],
+          dtick: maxCount <= 8 ? 1 : undefined,
+          tick0: 0,
+        },
+      },
+      { responsive: false, displayModeBar: false, staticPlot: false }
+    );
+  }
+
+  function showAlleleEmpty(alEl, colors, message) {
+    if (!alEl) {
+      return;
+    }
+    alEl.innerHTML =
+      "<div class='mlst-allele-empty' style='display:flex;align-items:center;justify-content:center;" +
+      "height:100%;min-height:280px;color:" +
+      (colors.muted || "#9aa8b5") +
+      ";padding:1.25rem;text-align:center;font-size:0.9rem;'>" +
+      message +
+      "</div>";
+  }
+
+  function renderAlleleChart(alEl, charts, colors) {
+    const genes = charts.allele_genes || [];
+    const genomes = charts.genomes || [];
+    let z = charts.allele_matrix || [];
+    let text = charts.allele_text || [];
+    if (!genomes.length) {
+      showAlleleEmpty(alEl, colors, "No MLST genomes to plot.");
+      return;
+    }
+    if (!genes.length) {
+      showAlleleEmpty(
+        alEl,
+        colors,
+        "Allele columns were not found in mlst.tsv (only scheme/ST). Re-run MLST so the full allele table is written."
+      );
+      return;
+    }
+
+    // Coerce null/undefined cells so Plotly always has a drawable matrix.
+    z = z.map((row, ri) =>
+      genes.map((_, ci) => {
+        const v = row && row[ci];
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      })
+    );
+    const srcText = text;
+    text = z.map((row, ri) =>
+      genes.map((_, ci) => {
+        const t = srcText[ri] && srcText[ri][ci];
+        return t == null || t === "" ? String(row[ci] ?? "-") : String(t);
+      })
+    );
+
+    const nRows = genomes.length;
+    // Pad a single-genome heatmap with blank spacer rows so the real row
+    // stays a readable band (Plotly otherwise draws a hairline / empty cell).
+    let yLabels = genomes.slice();
+    let zPlot = z.map((row) => row.slice());
+    let textPlot = text.map((row) => row.slice());
+    if (nRows === 1) {
+      const blank = genes.map(() => null);
+      const blankTxt = genes.map(() => "");
+      yLabels = ["", genomes[0], ""];
+      zPlot = [blank, z[0], blank];
+      textPlot = [blankTxt, text[0], blankTxt];
+    }
+
+    Plotly.newPlot(
+      alEl,
+      [
+        {
+          type: "heatmap",
+          z: zPlot,
+          x: genes,
+          y: yLabels,
+          text: textPlot,
+          texttemplate: "%{text}",
+          textfont: {
+            size: genes.length > 10 ? 9 : 12,
+            color: "#f8fafc",
+          },
+          colorscale: [
+            [0, "#0f172a"],
+            [0.35, "#134e4a"],
+            [0.65, "#14b8a6"],
+            [1, "#fde68a"],
+          ],
+          showscale: true,
+          colorbar: {
+            title: { text: "Allele #", side: "right" },
+            thickness: 12,
+            len: 0.75,
+            tickfont: { size: 10 },
+          },
+          hoverongaps: false,
+          hovertemplate:
+            "<b>%{y}</b><br>Locus: %{x}<br>Allele: %{text}<extra></extra>",
+          xgap: 3,
+          ygap: 3,
+        },
+      ],
+      {
+        autosize: true,
+        height: CHART_HEIGHT,
+        paper_bgcolor: colors.paper,
+        plot_bgcolor: colors.paper,
+        font: { color: colors.font, size: 11 },
+        title: {
+          text: "PubMLST allele IDs at each locus (printed in cells)",
+          font: { size: 13, color: colors.font },
+          x: 0.02,
+          xanchor: "left",
+        },
+        margin: { t: 48, r: 72, b: 80, l: 120 },
+        xaxis: {
+          title: { text: "Locus", font: { size: 11, color: colors.muted } },
+          type: "category",
+          side: "bottom",
+          tickangle: genes.length > 8 ? -35 : 0,
+          gridcolor: colors.grid,
+        },
+        yaxis: {
+          title: {
+            text: nRows === 1 ? "Genome" : "Genomes",
+            font: { size: 11, color: colors.muted },
+          },
+          type: "category",
+          categoryorder: "array",
+          categoryarray: yLabels,
+          autorange: "reversed",
+          gridcolor: colors.grid,
+          tickfont: { size: 11 },
+        },
+      },
+      { responsive: false, displayModeBar: false, staticPlot: false }
+    );
+  }
+
   function renderCharts(charts) {
     const wrap = document.getElementById("mlst-charts");
     const bar = document.getElementById("mlst-chart-bar");
@@ -185,6 +402,16 @@
     wrap.style.display = "grid";
     if (hint) {
       hint.style.display = "block";
+      const n = charts.n_genomes || 0;
+      const typed = charts.n_typed || 0;
+      hint.textContent =
+        "Left: count of genomes per sequence type (ST). Right: PubMLST allele numbers at each locus — " +
+        n +
+        " genome" +
+        (n === 1 ? "" : "s") +
+        ", " +
+        typed +
+        " typed.";
     }
     if (bar) {
       bar.style.display = "flex";
@@ -192,64 +419,24 @@
       if (titleEl) {
         const n = charts.n_genomes || 0;
         titleEl.textContent =
-          "ST distribution (" + n + " genome" + (n === 1 ? "" : "s") + ") and allele profiles";
+          "MLST charts — " + n + " genome" + (n === 1 ? "" : "s");
       }
     }
     bindDownloadControls();
 
     const colors = plotColors();
-    const layoutBase = {
-      autosize: true,
-      height: CHART_HEIGHT,
-      paper_bgcolor: colors.paper,
-      plot_bgcolor: colors.paper,
-      font: { color: colors.font, size: 11 },
-      margin: { t: 40, r: 16, b: 48, l: 48 },
-      xaxis: { gridcolor: colors.grid, zerolinecolor: colors.grid },
-      yaxis: { gridcolor: colors.grid, zerolinecolor: colors.grid, rangemode: "tozero" },
-    };
-    const config = { responsive: false, displayModeBar: false, staticPlot: false };
-
     purge(stEl);
     purge(alEl);
     stEl.dataset.bfNoAutoResize = "1";
     alEl.dataset.bfNoAutoResize = "1";
 
     if ((charts.st_labels || []).length) {
-      const n = charts.n_genomes || 0;
-      Plotly.newPlot(
-        stEl,
-        [{
-          type: "bar",
-          x: charts.st_labels.map((s) => (s === "-" ? "untyped" : "ST" + s)),
-          y: charts.st_counts,
-          marker: { color: colors.bar },
-        }],
-        Object.assign({}, layoutBase, {
-          title: "Sequence types (" + n + " genomes)",
-        }),
-        config
-      );
+      renderStChart(stEl, charts, colors);
+    } else {
+      stEl.innerHTML = "";
     }
-
-    if ((charts.allele_genes || []).length && (charts.genomes || []).length) {
-      Plotly.newPlot(
-        alEl,
-        [{
-          type: "heatmap",
-          z: charts.allele_matrix,
-          x: charts.allele_genes,
-          y: charts.genomes,
-          colorscale: "Viridis",
-          hoverongaps: false,
-        }],
-        Object.assign({}, layoutBase, {
-          title: "Allele profiles",
-          margin: { t: 40, r: 16, b: 80, l: 100 },
-        }),
-        config
-      );
-    }
+    // Always attempt allele panel (shows a clear empty-state if no loci).
+    renderAlleleChart(alEl, charts, colors);
   }
 
   function render(data) {
