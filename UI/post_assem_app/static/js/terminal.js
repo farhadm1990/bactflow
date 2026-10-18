@@ -63,16 +63,18 @@ const BactflowProcessEta = {
     assembly_spades: 2100,
     assembly_unicycler: 2700,
     circulator: 300,
-    quast: 240,
-    quastcheck: 240,
-    bakta: 2400,
-    baktaannot: 2400,
-    gtdbtk: 600,
-    checkm: 600,
-    genomad: 900,
-    plasmiddetect: 900,
-    mlst: 300,
-    mlsttyping: 300
+    quast: 600,
+    quastcheck: 600,
+    bakta: 3600,
+    baktaannot: 3600,
+    gtdbtk: 5400,
+    taxonomygtdbtk: 5400,
+    checkm: 2400,
+    checkmlineage: 2400,
+    genomad: 2400,
+    plasmiddetect: 2400,
+    mlst: 600,
+    mlsttyping: 600
   },
 
   reset() {
@@ -209,12 +211,23 @@ const BactflowProcessEta = {
     return 85 + 10 * (1 - Math.exp(-over * 0.45));
   },
 
+  isDoneMark(text) {
+    // Require an explicit completion signal. Bare "[100%]" is too noisy —
+    // Nextflow prints it on workflow lines and sometimes mid-task.
+    return /✔|√|\u2713|\u2714|\bCOMPLETED\b|Task completed|Process completed/i.test(
+      String(text || "")
+    );
+  },
+
   displayPercent(proc) {
     if (!proc || proc.id === "_executor") {
       return 0;
     }
     if (proc.done || proc.cached) {
       return 100;
+    }
+    if (proc.aborted && proc.frozenPercent != null) {
+      return proc.frozenPercent;
     }
     if (this.isWaiting(proc)) {
       return 0;
@@ -240,10 +253,11 @@ const BactflowProcessEta = {
       return null;
     }
     const eta = this.computeEta(proc);
-    if (eta && eta.seconds != null && Number.isFinite(eta.seconds)) {
-      return Math.max(1, eta.seconds);
+    // Overrun / unknown: no fake countdown (that showed "45s left" forever).
+    if (!eta || eta.label === "overrun" || eta.seconds == null || !Number.isFinite(eta.seconds)) {
+      return null;
     }
-    return null;
+    return Math.max(1, eta.seconds);
   },
 
   stopTick() {
@@ -254,13 +268,14 @@ const BactflowProcessEta = {
   },
 
   markDone(proc) {
-    if (!proc || proc.done) {
+    if (!proc || proc.done || proc.aborted) {
       return;
     }
     proc.done = true;
     proc.finishedAt = Date.now();
-    proc.frozenElapsed = (proc.finishedAt - proc.startedAt) / 1000;
+    proc.frozenElapsed = (proc.finishedAt - (proc.runningAt || proc.startedAt || proc.finishedAt)) / 1000;
     proc.percent = 100;
+    proc.frozenPercent = 100;
     if (!proc.cached && proc.frozenElapsed >= 45) {
       this.durations.set(this.normalizeName(proc.name), proc.frozenElapsed);
       this.saveLearnedDurations();
@@ -268,15 +283,47 @@ const BactflowProcessEta = {
   },
 
   markHashDone(hash, terminal) {
-    const proc = this.hashToProc.get(hash);
+    let proc = this.hashToProc.get(hash);
+    if (!proc) {
+      const name = this.hashToName.get(hash);
+      if (name) {
+        proc = this.processes.get(this.normalizeName(name));
+      }
+    }
     if (proc) {
       this.markDone(proc);
       if (proc.row && terminal) {
         this.renderRow(proc, terminal.classify(proc.lastLine));
       }
+      this.notifyProcessesDone();
       return proc;
     }
     return null;
+  },
+
+  runningProcs() {
+    return [...this.processes.values()].filter(
+      (p) => !p.done && !p.aborted && p.id !== "_executor" && !this.isWaiting(p)
+    );
+  },
+
+  /* Only seal when exactly one process is live. With parallel side branches
+     (CheckM + geNomad + Bakta…), "oldest running" guesses the wrong task and
+     jumps a 20% bar straight to Done. */
+  sealOldestRunning(count, terminal) {
+    const n = Math.max(0, Number(count) || 0);
+    if (!n) {
+      return;
+    }
+    const running = this.runningProcs().sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+    if (running.length !== 1) {
+      return;
+    }
+    this.markDone(running[0]);
+    if (running[0].row && terminal) {
+      this.renderRow(running[0], "log-ok");
+    }
+    this.notifyProcessesDone();
   },
 
   scanLineForCompletion(line, terminal) {
@@ -291,17 +338,35 @@ const BactflowProcessEta = {
     }
 
     let matched = false;
-    const hashMatches = t.matchAll(/\[([0-9a-f]{2}\/[0-9a-f]+)\]/gi);
-    for (const hm of hashMatches) {
-      const hash = hm[1];
-      // "1 of 1" alone is NOT done — require ✔ / 100% / COMPLETED.
-      if (
-        /✔/.test(t) ||
-        /\bCOMPLETED\b|Task completed|Process completed/i.test(t) ||
-        /\[\s*100%\s*\]/.test(t)
-      ) {
-        if (this.markHashDone(hash, terminal)) {
+    if (this.isDoneMark(t)) {
+      const hashMatches = t.matchAll(/\[([0-9a-f]{2}\/[0-9a-f]+)\]/gi);
+      for (const hm of hashMatches) {
+        if (this.markHashDone(hm[1], terminal)) {
           matched = true;
+        }
+      }
+      const nameHit = t.match(/process\s*>\s*([A-Za-z_]\w*)/i) || t.match(/\]\s+([A-Za-z_]\w*)\s*(?:\(|\||\[)/);
+      if (nameHit) {
+        const proc = this.processes.get(this.normalizeName(nameHit[1]));
+        if (proc && !proc.done) {
+          this.markDone(proc);
+          if (proc.row && terminal) {
+            this.renderRow(proc, "log-ok");
+          }
+          matched = true;
+          this.notifyProcessesDone();
+        }
+      }
+      // ✔ with no hash/name: only safe if a single process is running.
+      if (!matched) {
+        const running = this.runningProcs();
+        if (running.length === 1) {
+          this.markDone(running[0]);
+          if (running[0].row && terminal) {
+            this.renderRow(running[0], "log-ok");
+          }
+          matched = true;
+          this.notifyProcessesDone();
         }
       }
     }
@@ -322,30 +387,42 @@ const BactflowProcessEta = {
   },
 
   finalizeAll(terminal, reason) {
-    const dashFailed = !!(window.BactflowRunDashboard && window.BactflowRunDashboard.failed);
+    const dash = window.BactflowRunDashboard;
+    const dashFailed = !!(dash && dash.failed);
+    const userStopped =
+      reason === "stopped" ||
+      !!(window.__bactflowUserStopped) ||
+      !!(dash && (dash.stopping || dash.frozenRows));
     const failed = reason === "failed" || dashFailed;
     const now = Date.now();
-    if (failed) {
-      // Stop timers but do not paint unfinished steps as successful checkmarks.
+    if (failed || userStopped) {
+      // Stop timers; do not paint unfinished steps as successful checkmarks.
       this.processes.forEach((proc) => {
-        if (!proc.done) {
+        if (!proc.done && !proc.aborted) {
+          // Snapshot percent/elapsed before abort so bars cannot keep climbing.
+          proc.frozenPercent = this.displayPercent(proc);
           proc.aborted = true;
+          proc.failed = failed;
           proc.finishedAt = now;
-          proc.frozenElapsed = (now - (proc.startedAt || now)) / 1000;
+          proc.frozenElapsed = (now - (proc.runningAt || proc.startedAt || now)) / 1000;
           if (proc.row) {
-            this.renderRow(proc, "log-error");
+            this.renderRow(proc, failed ? "log-error" : "log-warn");
           }
         }
       });
       this.stopTick();
-      terminal.setStatus("Pipeline failed — check the log", "error");
+      if (failed) {
+        terminal.setStatus("Pipeline failed — check the log", "error");
+      } else {
+        terminal.setStatus("Bactflow has been stopped by the user!", "warn");
+      }
       return;
     }
     this.processes.forEach((proc) => {
       if (!proc.done) {
-        proc.done = true;
+        this.markDone(proc);
         proc.finishedAt = now;
-        proc.frozenElapsed = (now - proc.startedAt) / 1000;
+        proc.frozenElapsed = (now - (proc.runningAt || proc.startedAt || now)) / 1000;
         if (proc.row) {
           this.renderRow(proc, terminal.classify(proc.lastLine));
         }
@@ -354,6 +431,13 @@ const BactflowProcessEta = {
     this.stopTick();
     if (reason === "completed") {
       terminal.setStatus("All processes completed", "ok");
+    }
+    if (dash && !userStopped && !failed) {
+      dash.nfFinished = true;
+      dash.serverRunning = false;
+      if (!dash.endedAt) {
+        dash.endedAt = now;
+      }
     }
     this.notifyProcessesDone();
   },
@@ -364,7 +448,10 @@ const BactflowProcessEta = {
   },
 
   notifyProcessesDone() {
-    if (window.BactflowRunDashboard && window.BactflowRunDashboard.failed) {
+    if (window.__bactflowUserStopped) {
+      return;
+    }
+    if (window.BactflowRunDashboard && (window.BactflowRunDashboard.failed || window.BactflowRunDashboard.stopping || window.BactflowRunDashboard.frozenRows)) {
       this._notifiedDone = true;
       return;
     }
@@ -399,7 +486,7 @@ const BactflowProcessEta = {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   },
 
-  parseWorkflow(line) {
+  parseWorkflow(line, terminal) {
     const t = String(line || "").trim();
     if (!t || /process\s*>/i.test(t) || /^\[[0-9a-f]{2}\/[0-9a-f]+\]/i.test(t)) {
       return false;
@@ -411,16 +498,16 @@ const BactflowProcessEta = {
     if (!this.workflow.startedAt) {
       this.workflow.startedAt = Date.now();
     }
+    const prevCompleted = Number(this.workflow.completed) || 0;
     this.workflow.percent = Number(m[1]);
     this.workflow.completed = Number(m[2]);
     this.workflow.total = Number(m[3]);
-    if (this.workflow.percent >= 100 || (this.workflow.total > 0 && this.workflow.completed >= this.workflow.total)) {
-      this.processes.forEach((proc) => {
-        if (!proc.done && proc.id !== "_executor") {
-          this.markDone(proc);
-        }
-      });
+    // Advance may mean one sequential task finished — never guess among parallels.
+    if (this.workflow.completed > prevCompleted) {
+      this.sealOldestRunning(this.workflow.completed - prevCompleted, terminal);
     }
+    // Do NOT mark every process done on workflow [100%]. Parallel side jobs can
+    // still be running; wait for ✔ / hash / "Nextflow finished successfully".
     return true;
   },
 
@@ -445,39 +532,46 @@ const BactflowProcessEta = {
     }
 
     const elapsed = this.elapsedSeconds(proc);
+    const hint = this.hintFor(proc.name);
 
-    if (proc.percent > 0 && proc.percent < 100) {
-      return { label: "eta", seconds: elapsed * (100 - proc.percent) / proc.percent };
+    // Only trust Nextflow mid-run % away from the edges (0%/100% are noisy).
+    if (proc.percent >= 5 && proc.percent <= 95) {
+      return {
+        label: "eta",
+        seconds: elapsed * (100 - proc.percent) / proc.percent,
+        elapsed,
+        hint
+      };
     }
     if (proc.completed > 0 && proc.total > proc.completed) {
       return {
         label: "eta",
-        seconds: (elapsed / proc.completed) * (proc.total - proc.completed)
+        seconds: (elapsed / proc.completed) * (proc.total - proc.completed),
+        elapsed,
+        hint
       };
     }
 
-    const hint = this.hintFor(proc.name);
     if (hint && elapsed < hint) {
-      return { label: "hint", seconds: hint - elapsed, elapsed };
+      return { label: "hint", seconds: hint - elapsed, elapsed, hint };
     }
     if (hint && elapsed >= hint) {
-      // Past the estimate: keep a decaying remaining window (never "1s left" forever).
-      const over = elapsed - hint;
-      const rem = Math.max(45, hint * 0.3 * Math.exp(-over / Math.max(120, hint)));
-      return { label: "overrun", seconds: rem, elapsed };
+      // Past the prior estimate: do NOT invent a shrinking "Xs left" — that froze
+      // at ~45s forever for long GTDB-Tk / Bakta / CheckM jobs.
+      return { label: "overrun", seconds: null, elapsed, hint };
     }
 
     const wfEta = this.workflowEtaSeconds();
     if (wfEta != null && wfEta > 0) {
       const active = [...this.processes.values()].filter((p) => !p.done && p.id !== "_executor").length || 1;
-      return { label: "wf", seconds: wfEta / active, elapsed };
+      return { label: "wf", seconds: wfEta / active, elapsed, hint };
     }
 
-    return { label: "running", seconds: null, elapsed };
+    return { label: "running", seconds: null, elapsed, hint };
   },
 
   elapsedSeconds(proc) {
-    if (proc.done && proc.frozenElapsed != null) {
+    if (proc.frozenElapsed != null && (proc.done || proc.aborted)) {
       return proc.frozenElapsed;
     }
     const start = proc.runningAt || proc.startedAt;
@@ -496,12 +590,16 @@ const BactflowProcessEta = {
     if (this.isWaiting(proc)) {
       return `waiting · ${runFor}`;
     }
-    const rem = this.remainingSeconds(proc);
     const pct = this.displayPercent(proc);
+    const eta = this.computeEta(proc);
+    if (eta && eta.label === "overrun" && eta.hint) {
+      return `${pct}% · ${runFor} · still running (typical ~${this.formatDuration(eta.hint)})`;
+    }
+    const rem = this.remainingSeconds(proc);
     if (rem != null && rem > 0) {
       return `${pct}% · ${runFor} · ETA ${this.formatDuration(rem)} (~${this.formatClockEta(rem)})`;
     }
-    return `${pct}% · ${runFor}`;
+    return `${pct}% · ${runFor} · running`;
   },
 
   parse(line) {
@@ -510,7 +608,7 @@ const BactflowProcessEta = {
       return null;
     }
 
-    this.parseWorkflow(t);
+    this.parseWorkflow(t, typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null);
 
     const progress = (hash, name, tag, percent, completed, total) => {
       const resolved = (!this.isHashId(name) && name)
@@ -527,8 +625,9 @@ const BactflowProcessEta = {
         percent,
         completed,
         total,
-        // "1 of 1" alone is not done — Nextflow prints that while the task runs.
-        done: percent >= 100 || /✔/.test(t) || /\bCOMPLETED\b|Task completed|Process completed/i.test(t),
+        // Never treat bare "[100%] 1 of 1" as done — that appears while tasks
+        // still run. Require ✔ / COMPLETED (or Cached process lines below).
+        done: this.isDoneMark(t),
         cached: /cached/i.test(t)
       };
     };
@@ -550,7 +649,7 @@ const BactflowProcessEta = {
     }
 
     // Nextflow's live (ANSI) view: "[ec/570f4f] testify | 1 of 1 ✔"; long names are shortened with "…".
-    m = t.match(/^\[([0-9a-f]{2}\/[0-9a-f]{6})\]\s+(.+?)\s+\|\s+(\d+)\s+of\s+(\d+)/i);
+    m = t.match(/^\[([0-9a-f]{2}\/[0-9a-f]+)\]\s+(.+?)\s+\|\s+(\d+)\s+of\s+(\d+)/i);
     if (m) {
       let name = this.hashToName.get(m[1]);
       if (!name && !m[2].includes("\u2026")) {
@@ -571,7 +670,7 @@ const BactflowProcessEta = {
       }
       const completed = Number(m[3]);
       const total = Number(m[4]);
-      const done = /✔/.test(t);
+      const done = this.isDoneMark(t);
       const midPct = total > 0
         ? (completed >= total ? 95 : Math.floor(100 * completed / total))
         : 0;
@@ -806,7 +905,13 @@ const BactflowProcessEta = {
     }
     const pct = this.displayPercent(proc);
     const waiting = this.isWaiting(proc);
-    const state = proc.done ? (proc.cached ? "cached" : "done") : waiting ? "wait" : "run";
+    const state = proc.aborted
+      ? (proc.failed ? "fail" : "stop")
+      : proc.done
+        ? (proc.cached ? "cached" : "done")
+        : waiting
+          ? "wait"
+          : "run";
     if (!proc.row || !proc.row.isConnected) {
       proc.row = document.createElement("div");
       proc.row.dataset.bfProcess = proc.id;
@@ -824,25 +929,55 @@ const BactflowProcessEta = {
       list.appendChild(proc.row);
     }
 
-    const cardClass = "bf-proc-card" + (state === "done" || state === "cached" ? " is-done" : state === "run" ? " is-run" : "");
+    const cardClass =
+      "bf-proc-card" +
+      (state === "done" || state === "cached"
+        ? " is-done"
+        : state === "run"
+          ? " is-run"
+          : state === "stop"
+            ? " is-stop"
+            : state === "fail"
+              ? " is-fail"
+              : "");
     if (proc.row.className !== cardClass) {
       proc.row.className = cardClass;
     }
 
     const tag = proc.tag ? ` (${proc.tag})` : "";
     const title = this.prettyName(proc.name) + tag;
-    const badgeLabel = state === "cached" ? "cached" : state === "done" ? "done" : state === "wait" ? "queued" : "running";
+    const badgeLabel =
+      state === "cached"
+        ? "cached"
+        : state === "done"
+          ? "done"
+          : state === "stop"
+            ? "stopped"
+            : state === "fail"
+              ? "failed"
+              : state === "wait"
+                ? "queued"
+                : "running";
     let meta = "";
-    if (proc.done) {
+    if (proc.aborted) {
+      meta = proc.failed
+        ? `failed after ${this.formatDuration(proc.frozenElapsed || 0)}`
+        : `stopped at ${pct}% · ${this.formatDuration(proc.frozenElapsed || 0)}`;
+    } else if (proc.done) {
       meta = `finished in ${this.formatDuration(proc.frozenElapsed || 0)}`;
     } else if (waiting) {
       meta = `queued · ${this.formatDuration(this.elapsedSeconds(proc))}`;
     } else {
-      const rem = this.remainingSeconds(proc);
       const runFor = this.formatDuration(this.elapsedSeconds(proc));
-      meta = rem != null
-        ? `elapsed ${runFor} · ETA ${this.formatDuration(rem)} (~${this.formatClockEta(rem)})`
-        : `elapsed ${runFor}`;
+      const eta = this.computeEta(proc);
+      if (eta && eta.label === "overrun" && eta.hint) {
+        meta = `elapsed ${runFor} · still running (typical ~${this.formatDuration(eta.hint)})`;
+      } else {
+        const rem = this.remainingSeconds(proc);
+        meta = rem != null
+          ? `elapsed ${runFor} · ETA ${this.formatDuration(rem)} (~${this.formatClockEta(rem)})`
+          : `elapsed ${runFor} · running`;
+      }
       if (proc.total > 0) {
         meta = `${proc.completed}/${proc.total} · ` + meta;
       }
@@ -912,21 +1047,43 @@ const BactflowProcessEta = {
   },
 
   refreshAll(terminal) {
+    const dash = window.BactflowRunDashboard;
+    const stopped = !!(
+      window.__bactflowUserStopped ||
+      (dash && (dash.stopping || dash.frozenRows))
+    );
+    const failed = !!(dash && dash.failed);
+    // Never treat a user stop as "completed" — that flipped status/menus every tick.
+    if (stopped || failed) {
+      this.stopTick();
+      if (terminal) {
+        terminal.setStatus(
+          failed ? "Pipeline failed — check the log" : "Bactflow has been stopped by the user!",
+          failed ? "error" : "warn"
+        );
+      }
+      return;
+    }
     this.processes.forEach((proc) => {
       if (proc.row && proc.id !== "_executor") {
         this.renderRow(proc, terminal ? terminal.classify(proc.lastLine) : "log-process");
       }
     });
     this.renderWorkflowBar(terminal);
+    const settled = !!(dash && (dash.nfFinished || (dash.endedAt && !dash.failed)));
     if (terminal) {
-      const running = [...this.processes.values()].find(
-        (p) => !p.done && p.id !== "_executor" && !this.isWaiting(p)
-      );
-      if (running) {
-        terminal.setStatus(`${this.prettyName(running.name)} · ${this.displayPercent(running)}%`, "run");
+      if (settled || this.allDone()) {
+        terminal.setStatus("All processes completed", "ok");
+      } else {
+        const running = [...this.processes.values()].find(
+          (p) => !p.done && !p.aborted && p.id !== "_executor" && !this.isWaiting(p)
+        );
+        if (running) {
+          terminal.setStatus(`${this.prettyName(running.name)} · ${this.displayPercent(running)}%`, "run");
+        }
       }
     }
-    if (this.allDone()) {
+    if (this.allDone() || settled) {
       this.stopTick();
       this.notifyProcessesDone();
     }
@@ -1032,7 +1189,7 @@ const BactflowProcessEta = {
 
     const parsed = this.parse(line);
     if (!parsed) {
-      if (this.parseWorkflow(line)) {
+      if (this.parseWorkflow(line, terminal)) {
         this.ensureTick(terminal);
         this.refreshAll(terminal);
       }
@@ -1318,7 +1475,11 @@ const BactflowTerminal = {
         }
         return;
       }
+      if (window.BactflowRunDashboard && typeof window.BactflowRunDashboard.markCompleted === "function") {
+        window.BactflowRunDashboard.markCompleted();
+      }
       BactflowProcessEta.finalizeAll(this, "completed");
+      this.setStatus("All processes completed", "ok");
       if (typeof window.revealResultsOnSuccess === "function") {
         window.revealResultsOnSuccess(true);
       } else if (typeof window.showReport === "function") {
@@ -1341,7 +1502,7 @@ const BactflowTerminal = {
     }
 
     if (!force && !this.isInteresting(line)) {
-      BactflowProcessEta.parseWorkflow(line);
+      BactflowProcessEta.parseWorkflow(line, this);
       return;
     }
 

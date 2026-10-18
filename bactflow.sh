@@ -634,6 +634,38 @@ follow_until_exit() {
     echo -e "\n${GREEN}=== BactFlow stopped ===${NC}"
 }
 
+# Normalize --memory values: 20 → 20g, 20G/20gb → 20g (Docker treats bare
+# integers as bytes, which is never what users mean).
+normalize_memory_value() {
+    local raw="${1:-}"
+    raw="$(echo "${raw}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+    if [[ -z "${raw}" || "${raw}" == auto* ]]; then
+        echo "${raw}"
+        return 0
+    fi
+    if [[ "${raw}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "${raw%%.*}g"
+        return 0
+    fi
+    raw="${raw/%gi/g}"
+    raw="${raw/%gb/g}"
+    raw="${raw/%mi/m}"
+    raw="${raw/%mb/m}"
+    echo "${raw}"
+}
+
+memory_gb_number() {
+    local raw
+    raw="$(normalize_memory_value "${1:-}")"
+    raw="${raw/%g/}"
+    raw="${raw/%m/}"
+    if [[ "${raw}" =~ ^[0-9]+$ ]]; then
+        echo "${raw}"
+    else
+        echo ""
+    fi
+}
+
 export_runtime_env() {
     export BACTFLOW_MODULE="${MODULE}"
     export BACTFLOW_HOST_PORT="${HOST_PORT}"
@@ -642,6 +674,15 @@ export_runtime_env() {
     export BACTFLOW_SERVICE="${SERVICE}"
     export HOME="${WORK_DIR}"
     export NXF_HOME="${WORK_DIR}/.nextflow"
+    if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
+        export BACTFLOW_MEMORY="${MEM_VALUE}"
+        export BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}"
+        local mem_gb
+        mem_gb="$(memory_gb_number "${MEM_VALUE}")"
+        if [[ -n "${mem_gb}" ]]; then
+            export BACTFLOW_MEMORY_GB="${mem_gb}"
+        fi
+    fi
     if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         export BACTFLOW_CPUS="${CPU_VALUE}"
         export NXF_OPTS="${NXF_OPTS:-}"
@@ -685,11 +726,19 @@ run_docker() {
         extra_host=(--add-host=host.docker.internal:host-gateway)
     fi
 
+    # --memory-swap equal to --memory disables extra swap so RAM cannot
+    # quietly grow past the requested cap (Docker default is often 2x).
+    local MEMORY_SWAP=()
+    if [[ -n "${MEMORY}" ]]; then
+        MEMORY_SWAP=(--memory-swap="${MEM_VALUE}")
+    fi
+
     docker run --rm \
         --name "${CONTAINER_NAME}" \
         --init \
         ${CPUS} \
         ${MEMORY} \
+        "${MEMORY_SWAP[@]}" \
         "${extra_host[@]}" \
         -p "${HOST_PORT}:${CONTAINER_PORT}" \
         -v "${WORK_DIR}:${WORK_DIR}" \
@@ -700,6 +749,8 @@ run_docker() {
         -e BACTFLOW_HOST_PORT="${CONTAINER_PORT}" \
         -e BACTFLOW_PUBLIC_URL="http://127.0.0.1:${HOST_PORT}/" \
         -e BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}" \
+        -e BACTFLOW_MEMORY="${MEM_VALUE}" \
+        -e BACTFLOW_MEMORY_GB="$(memory_gb_number "${MEM_VALUE}")" \
         -e BACTFLOW_SERVICE=docker \
         -e HOME="${WORK_DIR}" \
         -e NXF_HOME="${WORK_DIR}/.nextflow" \
@@ -754,6 +805,11 @@ run_apptainer() {
     apptainer_export BACTFLOW_SERVICE apptainer
     apptainer_export HOME "${WORK_DIR}"
     apptainer_export NXF_HOME "${WORK_DIR}/.nextflow"
+    if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
+        apptainer_export BACTFLOW_MEMORY "${MEM_VALUE}"
+        apptainer_export BACTFLOW_DOCKER_MEMORY "${MEM_VALUE}"
+        apptainer_export BACTFLOW_MEMORY_GB "$(memory_gb_number "${MEM_VALUE}")"
+    fi
     # Only new Apptainer/Singularity accept --env KEY=VAL (3.0 prints Usage and exits).
     if apptainer_help_has --env; then
         extra+=(--env "BACTFLOW_IN_DOCKER=1")
@@ -764,6 +820,11 @@ run_apptainer() {
         extra+=(--env "BACTFLOW_SERVICE=apptainer")
         extra+=(--env "HOME=${WORK_DIR}")
         extra+=(--env "NXF_HOME=${WORK_DIR}/.nextflow")
+        if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
+            extra+=(--env "BACTFLOW_MEMORY=${MEM_VALUE}")
+            extra+=(--env "BACTFLOW_DOCKER_MEMORY=${MEM_VALUE}")
+            extra+=(--env "BACTFLOW_MEMORY_GB=$(memory_gb_number "${MEM_VALUE}")")
+        fi
     fi
 
     cleanup() {
@@ -819,6 +880,7 @@ run_conda() {
     echo "Work directory: ${WORK_DIR}"
     echo "Env: ${CONDA_PREFIX:-bactflow}"
     echo "App: ${APP_PY}"
+    echo "Resources: CPU=${CPU_VALUE}, Memory=${MEM_VALUE}"
     echo -e "${CYAN}Access URL: http://127.0.0.1:${HOST_PORT}${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
 
@@ -835,9 +897,28 @@ run_conda() {
     }
     trap cleanup INT TERM EXIT
 
+    # Prefer a hard MemoryMax scope for the whole UI+pipeline tree when systemd
+    # user sessions are available. Pipeline code also wraps Nextflow the same way.
+    local run_cmd=(python "${APP_PY}")
+    local mem_gb
+    mem_gb="$(memory_gb_number "${MEM_VALUE}")"
+    if [[ -n "${mem_gb}" ]] && command -v systemd-run >/dev/null 2>&1; then
+        if systemd-run --user --quiet --collect --scope -p MemoryMax=64M -p MemorySwapMax=0 -- true >/dev/null 2>&1; then
+            echo -e "${BLUE}Hard RAM cap: ${mem_gb}g (systemd MemoryMax)${NC}"
+            run_cmd=(
+                systemd-run --user --quiet --collect --scope
+                -p "MemoryMax=${mem_gb}G"
+                -p MemorySwapMax=0
+                -- python "${APP_PY}"
+            )
+        else
+            echo -e "${YELLOW}WARNING: systemd user MemoryMax unavailable; pipeline will try a per-run scope. Prefer --service docker --memory ${mem_gb}g for a hard OS cap.${NC}"
+        fi
+    fi
+
     (
         cd "${WORK_DIR}"
-        python "${APP_PY}"
+        "${run_cmd[@]}"
     ) > "${LOG_FILE}" 2>&1 &
     APP_PID=$!
     wait_for_ui "${APP_PID}"
@@ -995,15 +1076,15 @@ else
 fi
 
 if [[ -n "${USER_MEMORY}" ]]; then
-    MEM_VALUE="${USER_MEMORY}"
+    MEM_VALUE="$(normalize_memory_value "${USER_MEMORY}")"
 elif [[ -n "${DEFAULT_MEMORY}" ]]; then
-    MEM_VALUE="${DEFAULT_MEMORY}"
+    MEM_VALUE="$(normalize_memory_value "${DEFAULT_MEMORY}")"
 else
     MEM_VALUE=""
 fi
 
 if [[ -n "${MEM_VALUE}" ]]; then
-    REQ_G="$(echo "${MEM_VALUE}" | sed -E 's/[Gg]$//')"
+    REQ_G="$(echo "${MEM_VALUE}" | sed -E 's/[GgMmBb]+$//')"
     if [[ "${REQ_G}" =~ ^[0-9]+$ ]] && [[ "${AVAILABLE_MEM_G}" =~ ^[0-9]+$ ]] && (( REQ_G > AVAILABLE_MEM_G )); then
         CAPPED="$(( AVAILABLE_MEM_G > 2 ? AVAILABLE_MEM_G - 1 : AVAILABLE_MEM_G ))"
         echo -e "${YELLOW}Requested ${MEM_VALUE} RAM but this host has ${AVAILABLE_MEM_G}g. Using ${CAPPED}g.${NC}"

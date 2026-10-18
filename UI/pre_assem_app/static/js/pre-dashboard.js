@@ -7,6 +7,8 @@
       '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5L20 18M8.5 16.5L20 6"/></svg>',
     filter:
       '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>',
+    cov:
+      '<svg viewBox="0 0 24 24"><path d="M4 18V8M9 18V4M14 18v-7M19 18V10"/><path d="M3 20h18"/></svg>',
     stats:
       '<svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 10h16M10 10v9"/></svg>',
     plots:
@@ -16,10 +18,12 @@
   };
 
   const STEPS = {
-    pool: { name: "Initiate read cat", icon: "pool", desc: "Lists FASTQ files and pools barcode or sample folders when Concat Reads is on" },
+    pool: { name: "Initiate read cat", icon: "pool", desc: "Lists FASTQ files in the input directory" },
+    concat: { name: "Concat reads", icon: "pool", desc: "Pools barcode or sample folder FASTQs into one file per sample" },
     trim: { name: "Size filter", icon: "trim", desc: "Removes FASTQ files below the size threshold", optional: true },
     ilfilter: { name: "Quality filter", icon: "filter", desc: "Filters Illumina reads by length and quality" },
     lrfilter: { name: "Read filter", icon: "filter", desc: "Filters ONT or PacBio reads by length and quality" },
+    covfilt: { name: "Coverage filter", icon: "cov", desc: "Downsamples long reads to the target coverage with rasusa" },
     stats: { name: "Read statistics", icon: "stats", desc: "Read counts and lengths with SeqKit" },
     plots: { name: "Quality plots", icon: "plots", desc: "Read quality and length plots" },
     install: { name: "BactFlow install", icon: "pool", desc: "Creates the BactFlow conda environment" },
@@ -27,9 +31,11 @@
 
   const STEP_TARGETS = {
     pool: ["fastq-ls-div", "rd-results"],
+    concat: ["fastq-ls-div", "rd-results"],
     trim: ["fastq-ls-div", "rd-results"],
     ilfilter: ["vis-error", "rd-results"],
     lrfilter: ["vis-error", "rd-results"],
+    covfilt: ["vis-error", "rd-results"],
     stats: ["seq-div", "rd-results"],
     plots: ["bar-qual-plot", "qual-plot", "rd-results"],
   };
@@ -80,7 +86,6 @@
       this.hookPlotly();
       this.bindPlotResize();
       this.bindEmptyState();
-      this.bindChrome();
       this.bindStickyPipeline();
       this.bindStepJumps();
       const platform = document.getElementById("read_platform");
@@ -94,6 +99,10 @@
       const readFilter = document.getElementById("read_filter");
       if (readFilter) {
         readFilter.addEventListener("change", () => this.resetSteps());
+      }
+      const coverageFilter = document.getElementById("coverage_filter");
+      if (coverageFilter) {
+        coverageFilter.addEventListener("change", () => this.resetSteps());
       }
       this.render();
     },
@@ -225,19 +234,6 @@
       }
     },
 
-    /* —— Header chips and Help —— */
-    bindChrome() {
-      const view = document.getElementById("rd-view-logs-btn");
-      if (view) {
-        view.addEventListener("click", () => {
-          const el = document.getElementById("rd-results");
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
-      }
-    },
-
     bindPlotResize() {
       const pane = document.getElementById("pre-results-pane");
       if (!pane) {
@@ -329,6 +325,71 @@
         if (!id) {
           return req;
         }
+        // List FASTQ; when Concat Reads is on, pooling runs in the same request.
+        if (path === "/ls-fastq") {
+          const concatOn =
+            this.formVal("read_platform") !== "illumina" &&
+            this.formVal("concat_reads") === "true";
+          this.start("pool");
+          if (concatOn) {
+            this.start("concat");
+          }
+          req
+            .then((res) =>
+              res
+                .clone()
+                .text()
+                .then((text) => {
+                  let data = {};
+                  try {
+                    data = text ? JSON.parse(text) : {};
+                  } catch (e) {
+                    return this.finishListFastq("Unexpected server response");
+                  }
+                  return this.finishListFastq(failureOf("pool", res.ok, data));
+                })
+            )
+            .catch((err) => this.finishListFastq((err && err.message) || "Request failed"));
+          return req;
+        }
+        // Long-read filter can run quality and/or coverage in one request.
+        if (path === "/filter-long-reads") {
+          const qualOn = this.formVal("read_filter") === "true";
+          const covOn = this.formVal("coverage_filter") === "true";
+          if (qualOn) {
+            this.start("lrfilter");
+          }
+          if (covOn && !qualOn) {
+            this.start("covfilt");
+          } else if (covOn && qualOn) {
+            this.steps.covfilt = {
+              state: "wait",
+              startedAt: null,
+              endedAt: null,
+              error: "",
+              done: 0,
+              total: 0,
+            };
+            this.render();
+          }
+          req
+            .then((res) =>
+              res
+                .clone()
+                .text()
+                .then((text) => {
+                  let data = {};
+                  try {
+                    data = text ? JSON.parse(text) : {};
+                  } catch (e) {
+                    return this.finishLongReadFilter("Unexpected server response");
+                  }
+                  return this.finishLongReadFilter(failureOf("lrfilter", res.ok, data));
+                })
+            )
+            .catch((err) => this.finishLongReadFilter((err && err.message) || "Request failed"));
+          return req;
+        }
         this.start(id);
         req
           .then((res) =>
@@ -351,6 +412,48 @@
           .catch((err) => this.finish(id, (err && err.message) || "Request failed"));
         return req;
       };
+    },
+
+    finishListFastq(error) {
+      const err = error || "";
+      if (this.steps.pool && this.steps.pool.state === "run") {
+        this.finish("pool", err);
+      }
+      if (this.steps.concat && this.steps.concat.state === "run") {
+        this.finish("concat", err);
+      }
+    },
+
+    finishLongReadFilter(error) {
+      const err = error || "";
+      if (this.steps.lrfilter && this.steps.lrfilter.state === "run") {
+        this.finish("lrfilter", err);
+      }
+      const cov = this.steps.covfilt;
+      if (!cov) {
+        return;
+      }
+      if (err) {
+        if (cov.state === "run") {
+          this.finish("covfilt", err);
+        } else if (cov.state === "wait") {
+          cov.state = "fail";
+          cov.error = err;
+          cov.endedAt = Date.now();
+          this.render();
+        }
+        return;
+      }
+      if (cov.state === "run") {
+        this.finish("covfilt", "");
+      } else if (cov.state === "wait") {
+        cov.state = "done";
+        cov.error = "";
+        cov.endedAt = Date.now();
+        cov.done = cov.total || 1;
+        cov.total = cov.total || 1;
+        this.render();
+      }
     },
 
     onInstallCheck(data) {
@@ -461,7 +564,16 @@
         fetch("/pre_progress")
           .then((res) => res.json())
           .then((data) => {
-            const st = data && data.job ? this.steps[data.job] : null;
+            const job = data && data.job;
+            if (job === "covfilt") {
+              if (this.steps.lrfilter && this.steps.lrfilter.state === "run") {
+                this.commitFinish("lrfilter", "");
+              }
+              if (!this.steps.covfilt || this.steps.covfilt.state === "wait") {
+                this.start("covfilt");
+              }
+            }
+            const st = job ? this.steps[job] : null;
             if (st && st.state === "run") {
               st.done = Number(data.done) || 0;
               st.total = Number(data.total) || 0;
@@ -508,12 +620,21 @@
 
     plannedIds() {
       const platform = this.formVal("read_platform") || "auto";
+      const illumina = platform === "illumina";
+      const concatOn = !illumina && this.formVal("concat_reads") === "true";
       const filterOn = this.formVal("read_filter") === "true";
+      const covOn = !illumina && this.formVal("coverage_filter") === "true";
       const ids = ["pool"];
-      if (filterOn) {
-        ids.push(platform === "illumina" ? "ilfilter" : "lrfilter");
+      if (concatOn) {
+        ids.push("concat");
       }
-      if (platform !== "illumina" && this.steps.trim) {
+      if (filterOn) {
+        ids.push(illumina ? "ilfilter" : "lrfilter");
+      }
+      if (covOn) {
+        ids.push("covfilt");
+      }
+      if (!illumina && this.steps.trim) {
         ids.push("trim");
       }
       ids.push("stats", "plots");

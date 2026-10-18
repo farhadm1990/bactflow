@@ -200,9 +200,13 @@ def force_reset() -> dict:
 
 
 def snapshot() -> dict:
-    from memory_cap import default_memory_gb, host_mem_gb
+    from memory_cap import default_memory_gb, env_launch_cap_gb, host_mem_gb
 
     host = host_mem_gb()
+    launch = env_launch_cap_gb()
+    max_gb = max(2, host - (1 if host > 3 else 0))
+    if launch:
+        max_gb = min(max_gb, launch)
     data = current()
     return {
         "running": bool(data),
@@ -212,6 +216,7 @@ def snapshot() -> dict:
         "kind": (data or {}).get("kind"),
         "lock_path": LOCK_PATH,
         "host_mem_gb": host,
-        "max_memory_gb": max(2, host - (1 if host > 3 else 0)),
+        "launch_memory_gb": launch,
+        "max_memory_gb": max_gb,
         "default_memory_gb": default_memory_gb(host),
     }

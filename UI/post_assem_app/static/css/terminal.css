@@ -312,6 +312,15 @@
   transition: width 0.25s ease;
 }
 
+.bf-process-fill.is-stop {
+  background: linear-gradient(90deg, #b45309, #f59e0b);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
+.bf-process-fill.is-fail {
+  background: linear-gradient(90deg, #991b1b, #ef4444);
+}
+
 .bf-process-fill.is-cached {
   background: linear-gradient(90deg, #6a9955, #b5cea8);
 }
@@ -337,6 +346,14 @@
   border-color: #0e639c;
 }
 
+.bf-proc-card.is-stop {
+  border-color: #f59e0b;
+}
+
+.bf-proc-card.is-fail {
+  border-color: #ef4444;
+}
+
 .bf-proc-name {
   color: #4fc1ff;
   font-family: Consolas, "Cascadia Code", "Courier New", monospace;
@@ -346,6 +363,14 @@
 
 .bf-proc-card.is-done .bf-proc-name {
   color: #89d185;
+}
+
+.bf-proc-card.is-stop .bf-proc-name {
+  color: #fbbf24;
+}
+
+.bf-proc-card.is-fail .bf-proc-name {
+  color: #f87171;
 }
 
 .bf-proc-badge {
@@ -372,6 +397,16 @@
 
 .bf-proc-badge.is-done {
   background: #3a7d44;
+  color: #fff;
+}
+
+.bf-proc-badge.is-stop {
+  background: #b45309;
+  color: #fff;
+}
+
+.bf-proc-badge.is-fail {
+  background: #991b1b;
   color: #fff;
 }
 

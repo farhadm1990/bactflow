@@ -722,6 +722,7 @@ function hideQuastUi() {
   if (quastDiv) {
     quastDiv.style.display = "none";
   }
+  quastShown = false;
 }
 
 function formEl() {
@@ -774,6 +775,14 @@ function renderCircFastaList(data, opts) {
 let resultsOpen = false;
 let resultsAutoShown = false;
 let runFinishedSuccess = false;
+let quastShown = false;
+let baktaShown = false;
+let taxShown = false;
+let checkmShown = false;
+let checkmTreeShown = false;
+let gtdbTreeShown = false;
+let plasmidShown = false;
+let reportCheckInterval = null;
 
 function isSetupOnlyName(name) {
   const n = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -998,20 +1007,21 @@ function showReport() {
   if (!form) {
     return Promise.resolve(false);
   }
-  const formData = new FormData(form);
-  const outDir = String(formData.get("out_dir") || "").trim();
+  const outDir = String(new FormData(form).get("out_dir") || "").trim();
   if (!outDir) {
     return Promise.resolve(false);
   }
+  // Fresh FormData per request — reusing one body across parallel fetches can drop fields.
+  const fd = () => new FormData(form);
 
   return Promise.all([
-    fetchJsonSafe("/check-quast", formData),
-    fetchJsonSafe("/check-bakta-ready", formData),
-    fetchJsonSafe("/taxa-report", formData),
-    fetchJsonSafe("/check-circ", formData),
-    fetchJsonSafe("/check-checkm", formData),
-    fetchJsonSafe("/check-plasmids", formData),
-  ]).then(([quastData, baktaReady, taxData, circFasta, checkmData, plasmidData]) => {
+    fetchJsonSafe("/check-quast", fd()),
+    fetchJsonSafe("/check-bakta-ready", fd()),
+    fetchJsonSafe("/taxa-report", fd()),
+    fetchJsonSafe("/check-circ", fd()),
+    fetchJsonSafe("/check-checkm", fd()),
+    fetchJsonSafe("/check-plasmids", fd()),
+  ]).then(async ([quastData, baktaReady, taxData, circFasta, checkmData, plasmidData]) => {
     const quastDiv = document.getElementById("quastDiv");
     const baktaDiv = document.getElementById("baktaDiv");
     const taxDiv = document.getElementById("taxa_class");
@@ -1020,12 +1030,15 @@ function showReport() {
     const checkmTreeDiv = document.getElementById("checkmTreeDiv");
     const plasmidDiv = document.getElementById("plasmidDiv");
 
+    const formData = fd();
     const circleOn = String(formData.get("circle_genome") || "") === "true";
     const quastOn = String(formData.get("run_quast") || "") === "true";
     const baktaOn = String(formData.get("bakta_annot") || "") === "true";
     const checkmOn = String(formData.get("run_checkm") || "") === "true";
     const runDone = typeof BactflowProcessEta !== "undefined" && BactflowProcessEta.allDone();
-    renderCircFastaList(circFasta || {}, { circleOn, runDone });
+    if (circFasta && typeof circFasta.exists === "boolean") {
+      renderCircFastaList(circFasta, { circleOn, runDone });
+    }
 
     const statusEl = document.getElementById("results-status-text");
     const statusWrap = document.getElementById("resultsStatusDiv");
@@ -1054,16 +1067,26 @@ function showReport() {
       }
     }
 
-    if (quastData.exists) {
+    if (quastData.exists === true) {
       if (quastDiv) {
         quastDiv.style.display = "block";
       }
-      if (!quastShown) {
-        quastShown = true;
-        quastReport();
+      const quastOut = document.getElementById("output-quast");
+      const frame = quastOut && quastOut.querySelector("iframe");
+      const wantSrc = quastData.report_url || "";
+      const hasFrame = !!(frame && frame.getAttribute("src"));
+      const stale = !!(frame && wantSrc && frame.getAttribute("src") !== wantSrc);
+      if (!hasFrame || stale) {
+        await quastReport(quastData);
       }
-    } else if (quastDiv) {
-      quastDiv.style.display = "none";
+      quastShown = !!(quastOut && quastOut.querySelector("iframe") && quastOut.querySelector("iframe").getAttribute("src"));
+      if (quastDiv) {
+        quastDiv.style.display = "block";
+      }
+    } else if (quastData.exists === false && !quastShown) {
+      if (quastDiv) {
+        quastDiv.style.display = "none";
+      }
     }
 
     const baktaPlotReady = baktaReady.plot_ready === true || baktaReady.ready === true;
@@ -1075,11 +1098,13 @@ function showReport() {
         baktaShown = true;
         baktaReport();
       }
-    } else if (baktaDiv) {
-      baktaDiv.style.display = "none";
+    } else if (baktaReady.plot_ready === false && baktaReady.ready === false && !baktaShown) {
+      if (baktaDiv) {
+        baktaDiv.style.display = "none";
+      }
     }
 
-    if (taxData.exists) {
+    if (taxData.exists === true) {
       if (taxDiv) {
         taxDiv.style.display = "block";
       }
@@ -1095,19 +1120,17 @@ function showReport() {
           gtdbTreeShown = true;
           renderGtdbTree(taxData);
         }
-      } else if (gtdbTreeDiv) {
-        gtdbTreeDiv.style.display = "none";
       }
-    } else {
+    } else if (taxData.exists === false && !taxShown) {
       if (taxDiv) {
         taxDiv.style.display = "none";
       }
-      if (gtdbTreeDiv) {
+      if (gtdbTreeDiv && !gtdbTreeShown) {
         gtdbTreeDiv.style.display = "none";
       }
     }
 
-    if (checkmData && checkmData.exists) {
+    if (checkmData && checkmData.exists === true) {
       if (checkmDiv) {
         checkmDiv.style.display = "block";
       }
@@ -1123,19 +1146,17 @@ function showReport() {
           checkmTreeShown = true;
           renderCheckmTree(checkmData);
         }
-      } else if (checkmTreeDiv) {
-        checkmTreeDiv.style.display = "none";
       }
-    } else {
+    } else if (checkmData && checkmData.exists === false && !checkmShown) {
       if (checkmDiv) {
         checkmDiv.style.display = "none";
       }
-      if (checkmTreeDiv) {
+      if (checkmTreeDiv && !checkmTreeShown) {
         checkmTreeDiv.style.display = "none";
       }
     }
 
-    if (plasmidData && plasmidData.exists) {
+    if (plasmidData && plasmidData.exists === true) {
       if (plasmidDiv) {
         plasmidDiv.style.display = "block";
       }
@@ -1143,10 +1164,15 @@ function showReport() {
         plasmidShown = true;
         renderPlasmidTable(plasmidData);
       }
-    } else if (plasmidDiv) {
-      plasmidDiv.style.display = "none";
+    } else if (plasmidData && plasmidData.exists === false && !plasmidShown) {
+      if (plasmidDiv) {
+        plasmidDiv.style.display = "none";
+      }
     }
-    revealResultsOnSuccess();
+    // Only auto-reveal once while a run is finishing — never on idle polls (that blinks the page).
+    if (!resultsAutoShown && isPipelineRunning()) {
+      revealResultsOnSuccess();
+    }
     return anyResultVisible();
   }).catch((error) => {
     console.error("Error checking assembly reports:", error);
@@ -1158,67 +1184,79 @@ function checkForQuastReport() {
   showReport();
 }
 
-async function quastReport() {
+function setQuastIframe(hostId, url) {
+  const host = document.getElementById(hostId);
+  if (!host || !url) {
+    return false;
+  }
+  host.innerHTML = `<iframe src="${url}" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>`;
+  return true;
+}
+
+async function quastReport(urls) {
   const form = document.getElementById("runForm");
   const quastDiv = document.getElementById("quastDiv");
   if (!form || !quastDiv) {
     return false;
   }
   const formData = new FormData(form);
+  const outDir = String(formData.get("out_dir") || "").trim();
+  if (!outDir) {
+    return false;
+  }
 
   try {
-    const quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok || quastResponse.status === 204) {
-      hideQuastUi();
-      return false;
+    let reportUrl = urls && urls.report_url;
+    let contigUrl = urls && urls.contig_url;
+    if (!reportUrl) {
+      const probe = new FormData(form);
+      const check = await fetchJsonSafe("/check-quast", probe);
+      if (!check.exists) {
+        return false;
+      }
+      reportUrl = check.report_url;
+      contigUrl = check.contig_url;
     }
-    const quastBlob = await quastResponse.blob();
-    if (!quastBlob || quastBlob.size === 0) {
-      hideQuastUi();
+    if (!reportUrl) {
       return false;
-    }
-    const quastUrl = URL.createObjectURL(quastBlob);
-    const quastOutputDiv = document.getElementById("output-quast");
-    if (quastOutputDiv) {
-      quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
     }
 
     quastDiv.style.display = "block";
+    setQuastIframe("output-quast", reportUrl);
 
     const contigOutputDiv = document.getElementById("contig-quast");
     const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
-    try {
-      const contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-      if (contigResponse.ok && contigResponse.status !== 204) {
-        const contigBlob = await contigResponse.blob();
-        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
-          const contigUrl = URL.createObjectURL(contigBlob);
+    if (contigUrl) {
+      // Confirm the contig viewer file exists before embedding.
+      try {
+        const head = await fetch(contigUrl, { method: "GET" });
+        if (head.ok && contigOutputDiv) {
           contigOutputDiv.style.display = "";
           if (contigHeading && contigHeading.tagName === "H4") {
             contigHeading.style.display = "";
           }
-          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+          setQuastIframe("contig-quast", contigUrl);
         } else if (contigOutputDiv) {
           contigOutputDiv.style.display = "none";
           if (contigHeading && contigHeading.tagName === "H4") {
             contigHeading.style.display = "none";
           }
         }
-      } else if (contigOutputDiv) {
-        contigOutputDiv.style.display = "none";
-        if (contigHeading && contigHeading.tagName === "H4") {
-          contigHeading.style.display = "none";
+      } catch (_err) {
+        if (contigOutputDiv) {
+          contigOutputDiv.style.display = "none";
         }
       }
-    } catch (err) {
-      if (contigOutputDiv) {
-        contigOutputDiv.style.display = "none";
+    } else if (contigOutputDiv) {
+      contigOutputDiv.style.display = "none";
+      if (contigHeading && contigHeading.tagName === "H4") {
+        contigHeading.style.display = "none";
       }
     }
 
     return true;
   } catch (err) {
-    hideQuastUi();
+    console.error("quastReport failed:", err);
     return false;
   }
 }
@@ -1555,14 +1593,13 @@ function updateBaktaUI() {
   }
 }
 
-let reportCheckInterval = setInterval(showReport, 5000);
-let quastShown = false;
-let baktaShown = false;
-let taxShown = false;
-let checkmShown = false;
-let checkmTreeShown = false;
-let gtdbTreeShown = false;
-let plasmidShown = false;
+// Poll reports only while BactFlow is running — idle polling rewrote the DOM and blinked the page.
+reportCheckInterval = setInterval(() => {
+  const runBt = document.getElementById("run-bt");
+  if (runBt && runBt.disabled && isPipelineRunning()) {
+    showReport();
+  }
+}, 8000);
 
 
 

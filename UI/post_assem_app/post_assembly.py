@@ -2,7 +2,8 @@
 import sys, subprocess, importlib, os, shlex
 import pty
 import select
-from flask import Flask, render_template, request, redirect, Response, send_from_directory, stream_with_context, jsonify, render_template_string
+import hashlib
+from flask import Flask, render_template, request, redirect, Response, send_from_directory, stream_with_context, jsonify, render_template_string, abort, url_for
 import json
 from datetime import datetime, timezone
 import pandas as pd
@@ -1067,14 +1068,53 @@ def progress():
 
     return jsonify(prog) 
 
-# quast
+# quast — report.html needs sibling JS/CSS; serve the folder under a stable URL.
+_QUAST_FS = {}
+
+
+def _find_quast_dir(out_dir):
+    if not out_dir:
+        return None
+    path = os.path.join(out_dir, "quast_stat")
+    if os.path.isdir(path) and os.path.isfile(os.path.join(path, "report.html")):
+        return os.path.abspath(path)
+    return None
+
+
+def _quast_mount(out_dir):
+    quast_path = _find_quast_dir(out_dir)
+    if not quast_path:
+        return None, None
+    key = hashlib.sha1(quast_path.encode("utf-8")).hexdigest()[:16]
+    _QUAST_FS[key] = quast_path
+    return key, quast_path
+
+
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():
     out_dir = request.form.get("out_dir")
-    if not out_dir:
+    key, quast_path = _quast_mount(out_dir)
+    if not quast_path:
         return jsonify({"exists": False})
-    report = os.path.join(out_dir, "quast_stat", "report.html")
-    return jsonify({"exists": os.path.isfile(report)})
+    return jsonify({
+        "exists": True,
+        "report_url": url_for("quast_fs", key=key, filename="report.html"),
+        "contig_url": url_for("quast_fs", key=key, filename="icarus_viewers/contig_size_viewer.html"),
+    })
+
+
+@app.route("/quast-fs/<key>/<path:filename>")
+def quast_fs(key, filename):
+    root = _QUAST_FS.get(key)
+    if not root or not os.path.isdir(root):
+        abort(404)
+    root = os.path.abspath(root)
+    target = os.path.abspath(os.path.join(root, filename))
+    if not (target == root or target.startswith(root + os.sep)):
+        abort(403)
+    if not os.path.isfile(target):
+        abort(404)
+    return send_from_directory(root, filename)
 
 
 @app.route("/check-circ", methods=["POST"])
@@ -1100,21 +1140,20 @@ def check_circ():
 @app.route("/quast-report", methods = ["POST"])
 def quast_report():
     out_dir = request.form.get("out_dir")
-    quast_path = os.path.join(out_dir, "quast_stat")
-
-    if os.path.exists(quast_path):
-        return send_from_directory(quast_path, "report.html")
-    else:
+    key, quast_path = _quast_mount(out_dir)
+    if not quast_path:
         return jsonify({"error": "QUAST report does not exist"}), 404
+    return send_from_directory(quast_path, "report.html")
 
 @app.route("/contig-report", methods = ["POST"])
 def contig_report():
     out_dir = request.form.get("out_dir")
-    quast_path = os.path.join(out_dir, "quast_stat")
-    if os.path.exists(quast_path):
-        return send_from_directory(quast_path,"icarus_viewers/contig_size_viewer.html")
-    else:
-        return jsonify({"error": "Contig size report does not exist"}), 404
+    key, quast_path = _quast_mount(out_dir)
+    if quast_path:
+        contig = os.path.join(quast_path, "icarus_viewers/contig_size_viewer.html")
+        if os.path.isfile(contig):
+            return send_from_directory(quast_path,"icarus_viewers/contig_size_viewer.html")
+    return jsonify({"error": "Contig size report does not exist"}), 404
 
 # Bakta
 @app.route("/check-bakta", methods = ["POST"])  

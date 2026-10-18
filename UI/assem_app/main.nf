@@ -1285,7 +1285,7 @@ process taxonomyGTDBTK {
     set -euo pipefail
     if ! command -v gtdbtk >/dev/null 2>&1
     then
-        echo "ERROR: gtdbtk is not in this environment. Use the post-assembly app, or a full conda env (gtdbtk=2.6.1 for R226)." >&2
+        echo "ERROR: gtdbtk is not in this environment. Use the post-assembly app, or a full conda env (gtdbtk=2.8.0 for R232)." >&2
         exit 1
     fi
     mkdir -p '${publish}'
@@ -1310,28 +1310,52 @@ process taxonomyGTDBTK {
 
     bash ${projectDir}/gtdbtk.sh -g "\$src" -c ${cpus} -e '${genome_extension}' -d '${gtdbtk_data_path}' -o gtdbtk_out
 
+    # gtdbtk.sh materializes ./*.summary.tsv into GTDBTK_PUBLISH_DIR; safety net below.
     shopt -s nullglob
+    _mat() {
+        local src="\$1" dest="\$2" real tmp
+        real="\$(readlink -f "\$src" 2>/dev/null || true)"
+        [ -n "\$real" ] && [ -f "\$real" ] || return 1
+        mkdir -p "\$(dirname "\$dest")"
+        tmp="\${dest}.tmp.\$\$"
+        cp -fL "\$real" "\$tmp"
+        mv -f "\$tmp" "\$dest"
+    }
     copied=0
-    for f in gtdbtk_out/classify/*.summary.tsv *.summary.tsv
+    for f in ./*.summary.tsv
     do
-        [ -f "\$f" ] || continue
-        case "\$f" in
-            *markers*) continue ;;
-        esac
+        [ -e "\$f" ] || continue
+        case "\$f" in *markers*) continue ;; esac
         base="\$(basename "\$f")"
-        cp -f "\$f" "./\$base"
-        cp -f "\$f" '${publish}/'"\$base"
+        _mat "\$f" "./\$base" || continue
+        _mat "\$f" '${publish}/'"\$base" || true
         copied=1
     done
-    for f in gtdbtk_out/classify/*.classify.tree gtdbtk_out/classify/*.decorated.tree
+    if [ "\$copied" -eq 0 ]
+    then
+        while IFS= read -r -d '' f
+        do
+            base="\$(basename "\$f")"
+            case "\$base" in *markers*) continue ;; esac
+            real="\$(readlink -f "\$f" 2>/dev/null || true)"
+            [ -n "\$real" ] && [ -f "\$real" ] || continue
+            _mat "\$real" "./\$base" || continue
+            _mat "\$real" '${publish}/'"\$base" || true
+            copied=1
+        done < <(find gtdbtk_out/classify \\( -type f -o -type l \\) -name '*.summary.tsv' -print0 2>/dev/null)
+    fi
+    for f in gtdbtk_out/classify/*.classify.tree gtdbtk_out/classify/*.decorated.tree \\
+             gtdbtk_out/classify/classify/*.classify.tree gtdbtk_out/classify/classify/*.decorated.tree
     do
-        [ -f "\$f" ] || continue
-        cp -f "\$f" '${publish}/'"\$(basename "\$f")"
+        [ -e "\$f" ] || continue
+        real="\$(readlink -f "\$f" 2>/dev/null || true)"
+        [ -n "\$real" ] && [ -f "\$real" ] || continue
+        _mat "\$real" '${publish}/'"\$(basename "\$real")" || true
     done
     if [ "\$copied" -eq 0 ]
     then
         echo "ERROR: GTDB-Tk produced no summary TSV to publish into ${publish}" >&2
-        ls -la . gtdbtk_out gtdbtk_out/classify 2>/dev/null >&2 || true
+        ls -la . gtdbtk_out gtdbtk_out/classify gtdbtk_out/classify/classify 2>/dev/null >&2 || true
         exit 1
     fi
     echo "taxonomyGTDBTK published summaries to ${publish}"
@@ -1393,13 +1417,70 @@ process checkm_lineage {
         exit 1
     fi
     checkm data setRoot '${checkm_db}'
-    checkm lineage_wf -t ${cpus} --pplacer_threads ${cpus} -x "\$ext" "\$src" checkm_lineage
-    checkm qa -t ${cpus} checkm_lineage/lineage.ms checkm_lineage/ > checkm_lineage.txt
+
+    # Use the user-selected CPU count for pplacer. When OOM-killed, CheckM may
+    # sys.exit(35072) which Python truncates to exit code 0 — always verify outputs.
+    pp_threads=${cpus}
+    if [ "\$pp_threads" -lt 1 ]
+    then
+        pp_threads=1
+    fi
+
+    checkm_lineage_ok=0
+    run_lineage_wf() {
+        local extra=("\$@")
+        rm -rf checkm_lineage
+        set +e
+        checkm lineage_wf "\${extra[@]}" -t ${cpus} --pplacer_threads "\$pp_threads" -x "\$ext" "\$src" checkm_lineage
+        local rc=\$?
+        set -e
+        if [ -f checkm_lineage/storage/checkm_hmm_info.pkl.gz ] && [ -f checkm_lineage/lineage.ms ]
+        then
+            return 0
+        fi
+        echo "WARN: CheckM lineage_wf incomplete (reported exit \$rc). Missing checkm_hmm_info.pkl.gz / lineage.ms." >&2
+        echo "      This usually means pplacer was OOM-killed (CheckM can still exit 0)." >&2
+        return 1
+    }
+
+    if run_lineage_wf
+    then
+        checkm_lineage_ok=1
+    else
+        echo "BactFlow: retrying CheckM with --reduced_tree (much lower RAM)..."
+        if run_lineage_wf --reduced_tree
+        then
+            checkm_lineage_ok=1
+        fi
+    fi
+
+    if [ "\$checkm_lineage_ok" -ne 1 ]
+    then
+        echo "ERROR: CheckM lineage failed after reduced-tree retry." >&2
+        echo "       Raise BactFlow --memory (pplacer often needs 32g+ for many genomes)," >&2
+        echo "       or lower CPUs / genome count. Other post-assembly steps will continue." >&2
+        echo "CheckM lineage unavailable (pplacer OOM or incomplete run)." > checkm_lineage.txt
+        : > taxon_tree.newick
+        : > genome_tree.newick
+        : > genome_tree.tree
+        exit 0
+    fi
+
+    checkm qa -t ${cpus} -o 2 --tab_table -f checkm_lineage.txt checkm_lineage/lineage.ms checkm_lineage/
 
     set +e
-    checkm tree -r --nt -t ${cpus} -x "\$ext" --pplacer_threads ${cpus} "\$src" checkm_tree \\
+    checkm tree -r --nt -t ${cpus} --pplacer_threads "\$pp_threads" -x "\$ext" "\$src" checkm_tree \\
         && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree \\
         && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    tree_ok=\$?
+    if [ "\$tree_ok" -ne 0 ]
+    then
+        echo "BactFlow: CheckM tree retry with --reduced_tree..."
+        rm -rf checkm_tree
+        checkm tree -r --reduced_tree --nt -t ${cpus} --pplacer_threads "\$pp_threads" -x "\$ext" "\$src" checkm_tree \\
+            && checkm tree_qa -o 4 --tab_table -f taxon_tree.newick checkm_tree \\
+            && checkm tree_qa -o 3 --tab_table -f genome_tree.newick checkm_tree
+    fi
     [ -f taxon_tree.newick ] || : > taxon_tree.newick
     [ -f genome_tree.newick ] || : > genome_tree.newick
     [ -f genome_tree.tree ] || : > genome_tree.tree

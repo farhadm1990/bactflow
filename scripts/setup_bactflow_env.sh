@@ -41,6 +41,21 @@ set -u
 
 bash "${ROOT_DIR}/scripts/install_bactflow_hooks.sh" "${ENV_NAME}"
 
+# PubMLST (mlst) cannot share the main env (perl-bioperl vs blast/samtools).
+MLST_ENV_FILE="${ROOT_DIR}/UI/bactflow_app/environment.mlst.yml"
+MLST_ENV_NAME="bactflow_mlst"
+if [[ -f "${MLST_ENV_FILE}" ]]; then
+    echo "Creating/updating sidecar Conda env '${MLST_ENV_NAME}' from ${MLST_ENV_FILE}"
+    set +u
+    if command -v mamba >/dev/null 2>&1; then
+        mamba env create -f "${MLST_ENV_FILE}" -y || mamba env update -n "${MLST_ENV_NAME}" -f "${MLST_ENV_FILE}" -y
+    else
+        conda env create -f "${MLST_ENV_FILE}" -y || conda env update -n "${MLST_ENV_NAME}" -f "${MLST_ENV_FILE}" -y
+    fi
+    set -u
+fi
+
 echo ""
 echo "Done. Use: conda activate ${ENV_NAME}"
+echo "MLST runs from sidecar env '${MLST_ENV_NAME}' (see mlst_run.sh)."
 echo "No reference databases were downloaded. Set them in the UI when you run a module that needs them."

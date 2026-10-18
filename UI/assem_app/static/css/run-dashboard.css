@@ -208,7 +208,8 @@ html[data-theme="light"] .rd-plasma svg {
 
 @media (prefers-reduced-motion: reduce) {
   .rd-plasma i,
-  .rd-plasma svg {
+  .rd-plasma svg,
+  #rd-focus-bt {
     animation: none;
   }
 }
@@ -546,6 +547,42 @@ html[data-theme="light"] .rd-plasma svg {
 
 .rd-chip-btn:hover {
   border-color: rgba(34, 211, 238, 0.45);
+}
+
+/* Focus control — persistent cyan glow so operators notice it */
+#rd-focus-bt {
+  color: #e0f7ff;
+  border-color: rgba(34, 211, 238, 0.75);
+  background: rgba(6, 78, 99, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.35),
+    0 0 14px rgba(34, 211, 238, 0.55),
+    0 0 28px rgba(6, 182, 212, 0.35);
+  animation: rd-focus-glow 2.2s ease-in-out infinite;
+}
+
+#rd-focus-bt:hover {
+  border-color: rgba(103, 232, 249, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(103, 232, 249, 0.5),
+    0 0 18px rgba(34, 211, 238, 0.75),
+    0 0 36px rgba(6, 182, 212, 0.45);
+}
+
+@keyframes rd-focus-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.35),
+      0 0 12px rgba(34, 211, 238, 0.45),
+      0 0 24px rgba(6, 182, 212, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(103, 232, 249, 0.55),
+      0 0 20px rgba(34, 211, 238, 0.8),
+      0 0 40px rgba(6, 182, 212, 0.5);
+  }
 }
 
 /* —— Body grid —— */

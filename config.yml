@@ -32,6 +32,12 @@ dependencies:
   - matplotlib-base
   - libraqm>=0.10.1
   - h5py=3.16.0
+  # hdf5 2.x (via h5py/medaka) links ROS3/AWS; without these medaka dies with:
+  # ImportError: libaws-c-s3.so.0unstable: cannot open shared object file
+  - aws-c-s3
+  - aws-c-auth
+  - aws-c-http
+  - aws-c-io
 
   # --- pre-assembly (seqkit stats, pooling, plots) ---
   - seqkit=2.13.0
@@ -79,14 +85,16 @@ dependencies:
   - hmmer=3.4
 
   # --- post-assembly: taxonomy / completeness / MGEs ---
-  - gtdbtk=2.6.1
+  # R232 reference package (folder often named release32) needs GTDB-Tk >= 2.7
+  - gtdbtk=2.8.0
   - checkm-genome=1.2.4
   - pplacer=1.1.alpha19
   - fastani=1.34
   - skani=0.3.2
   # geNomad plasmid / MGE detection (pulls mmseqs2, tensorflow, etc.)
   - genomad=1.11.1
-  - mlst=2.23.0
+  # mlst is NOT here — perl-bioperl conflicts with blast/samtools/infernal.
+  # Use the sidecar env: UI/bactflow_app/environment.mlst.yml (bactflow_mlst).
 
   # --- post-assembly: R plots and CheckM MSA tree ---
   - r-base=4.4.3
@@ -111,6 +119,9 @@ dependencies:
 
   - pip:
     - bakta==1.12.0
+    # Bakta runtime deps (must live in the env; user-site installs are invisible to Nextflow)
+    - xopen>=1.0
+    - alive-progress>=3.0
     - pyrodigal>=3.5.0
     - pyhmmer>=0.10.15
     - pyCirclize==1.10.1

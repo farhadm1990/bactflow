@@ -118,7 +118,10 @@
       else if (maxGb && cur > maxGb) mem.value = String(maxGb);
       const hint = document.getElementById("memory-hint");
       if (hint && maxGb) {
-        hint.textContent = `Hard cap for this run. This machine has ${info.host_mem_gb} GB; values above ${maxGb} GB are reduced so the host is not exhausted.`;
+        const launch = Number(info.launch_memory_gb || 0);
+        hint.textContent = launch
+          ? `Hard cap for this run (launcher --memory ${launch}g). Host has ${info.host_mem_gb} GB; the form cannot exceed ${maxGb} GB.`
+          : `Hard cap for this run. This machine has ${info.host_mem_gb} GB; values above ${maxGb} GB are reduced so the host is not exhausted.`;
       }
     }
   }
@@ -272,17 +275,29 @@
     const status = document.getElementById("bf-run-status");
     const resetBtn = document.getElementById("bf-run-reset");
     const busy = Boolean(info && info.running && info.module);
+    const nextStatus = busy
+      ? `${info.label || "A module"} is running`
+      : "Ready";
     if (status) {
-      status.classList.toggle("is-busy", busy);
-      status.textContent = busy
-        ? `${info.label || "A module"} is running`
-        : "Ready";
+      const wasBusy = status.classList.contains("is-busy");
+      if (wasBusy !== busy) {
+        status.classList.toggle("is-busy", busy);
+      }
+      if (status.textContent !== nextStatus) {
+        status.textContent = nextStatus;
+      }
     }
     if (resetBtn) {
-      resetBtn.classList.toggle("is-needed", busy);
-      resetBtn.title = busy
+      const need = busy;
+      if (resetBtn.classList.contains("is-needed") !== need) {
+        resetBtn.classList.toggle("is-needed", need);
+      }
+      const nextTitle = busy
         ? `Clear stalled ${info.label || "job"} lock and free the workspace`
         : "Clear stalled run locks and free the workspace";
+      if (resetBtn.title !== nextTitle) {
+        resetBtn.title = nextTitle;
+      }
     }
     applyLockButtons(info, thisModule);
     document.querySelectorAll("iframe[data-bf-view]").forEach((frame) => {

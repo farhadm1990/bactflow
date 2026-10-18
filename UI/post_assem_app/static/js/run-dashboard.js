@@ -91,6 +91,7 @@
     doneAtFail: null,
     stopping: false,
     frozenRows: null,
+    frozenPainted: false,
     serverRunning: false,
     lastStats: null,
     plannedKey: null,
@@ -116,10 +117,6 @@
       if (form) {
         form.addEventListener("change", () => this.render());
         form.addEventListener("input", () => this.render());
-      }
-      const viewLogs = $("#rd-view-logs-btn");
-      if (viewLogs) {
-        viewLogs.addEventListener("click", () => this.scrollTo(".rd-logs"));
       }
       setInterval(() => this.render(), 1000);
       this.render();
@@ -450,10 +447,7 @@
       const stopBt = document.getElementById("stop-bt");
       if (stopBt) {
         stopBt.addEventListener("click", () => {
-          if (this.runState(this.procs()) === "running") {
-            this.freeze();
-          }
-          this.stopping = true;
+          this.markStopped();
         });
       }
       const logs = document.querySelector(".rd-center .rd-logs");
@@ -489,13 +483,12 @@
           this.setText("rd-nf-ver", m[1]);
         }
       }
-      if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
-        this.nfFinished = true;
-      }
-      if (/^Process completed$|Nextflow finished successfully/i.test(line)) {
-        if (!this.failed && !this.endedAt && this.startedAt) {
-          this.endedAt = Date.now();
-        }
+      if (
+        /BactFlow:\s*Nextflow finished successfully/i.test(line) ||
+        /^Process completed$/i.test(line) ||
+        /Nextflow finished successfully/i.test(line)
+      ) {
+        this.markCompleted();
       }
       if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
         this.failMessage = String(line || "").replace(/\s+/g, " ").slice(0, 180);
@@ -527,11 +520,39 @@
         }
       }
       this.failed = true;
+      this.nfFinished = false;
       if (procName && !this.failedProc) {
         this.failedProc = norm(procName);
       }
       if (!this.endedAt) {
         this.endedAt = Date.now();
+      }
+      this.serverRunning = false;
+    },
+
+    markCompleted() {
+      if (this.failed || this.stopping) {
+        return;
+      }
+      this.nfFinished = true;
+      if (!this.endedAt) {
+        this.endedAt = Date.now();
+      }
+      // Ignore lagging /stats "running" so the badge cannot blink Running↔Idle.
+      this.serverRunning = false;
+      const eta = tracker();
+      if (eta) {
+        eta.processes.forEach((p) => {
+          if (!p.done && p.id !== "_executor" && typeof eta.markDone === "function") {
+            eta.markDone(p);
+          }
+        });
+        if (typeof eta.stopTick === "function") {
+          eta.stopTick();
+        }
+      }
+      if (window.BactflowTerminal && typeof BactflowTerminal.setStatus === "function") {
+        BactflowTerminal.setStatus("All processes completed", "ok");
       }
     },
 
@@ -544,8 +565,16 @@
       const orig = meters.apply.bind(meters);
       meters.apply = (s) => {
         if (s && (s.cpu_percent != null || s.ram_percent != null)) {
-          this.serverRunning = !!s.running;
-          this.renderGauges(s);
+          if (this.nfFinished || this.stopping || this.frozenRows || this.failed || (this.endedAt && !this.failed)) {
+            this.serverRunning = false;
+            // Keep last gauge snapshot after stop/fail — live stats were making rings flicker.
+            if (!this.frozenPainted) {
+              this.renderGauges(s);
+            }
+          } else {
+            this.serverRunning = !!s.running;
+            this.renderGauges(s);
+          }
         }
         return orig(s);
       };
@@ -664,7 +693,13 @@
           out.state = "run";
           out.pct = Math.round(procs.reduce((a, p) => a + (this.isDone(p) ? 100 : eta.displayPercent(p)), 0) / procs.length);
           const rem = live.map((p) => eta.remainingSeconds(p)).filter((v) => v != null);
-          out.remaining = rem.length ? Math.max(...rem) : expected;
+          // null remaining = overrun / unknown — do not fall back to the full
+          // hint (that looked like a stuck "Xs left" countdown).
+          out.remaining = rem.length ? Math.max(...rem) : null;
+          out.overrun = rem.length === 0 && live.some((p) => {
+            const e = eta.computeEta(p);
+            return e && e.label === "overrun";
+          });
         }
         return out;
       });
@@ -672,6 +707,7 @@
 
     /* If a later stage has started, earlier ones without a visible process were skipped or cached. */
     fillSkipped(rows) {
+      const eta = tracker();
       let lastStarted = -1;
       rows.forEach((r, i) => {
         if (r.procs.length) {
@@ -684,6 +720,31 @@
           r.pct = 100;
           r.remaining = 0;
           r.skipped = true;
+        }
+      });
+      // Later main-chain stage started ⇒ earlier main stages are finished (even if ✔ was missed).
+      let frontier = -1;
+      rows.forEach((r, i) => {
+        if (!r.stage.side && r.procs.length) {
+          frontier = i;
+        }
+      });
+      rows.forEach((r, i) => {
+        if (frontier < 0 || i >= frontier || r.stage.side || r.state === "fail") {
+          return;
+        }
+        r.procs.forEach((p) => {
+          if (!p.done && eta && typeof eta.markDone === "function") {
+            eta.markDone(p);
+          }
+        });
+        if (r.state === "run" || r.state === "wait") {
+          r.state = "done";
+          r.pct = 100;
+          r.remaining = 0;
+          if (!r.procs.length) {
+            r.skipped = true;
+          }
         }
       });
       if (this.failed && !rows.some((r) => r.state === "fail")) {
@@ -711,7 +772,9 @@
     applyGates(rows) {
       let chainDone = true;
       rows.forEach((r) => {
-        if (!chainDone && r.state === "run") {
+        // Never demote a stage Nextflow is actually executing (parallel sides).
+        const live = (r.procs || []).some((p) => p && !p.done && !p.aborted && p.phase === "running");
+        if (!chainDone && r.state === "run" && !live) {
           r.state = "wait";
           r.pct = 0;
           r.remaining = r.expected;
@@ -725,28 +788,67 @@
 
     freeze() {
       const rows = this.applyGates(this.fillSkipped(this.resolveStages(this.getPlannedStages(), this.procs())));
-      this.frozenRows = rows.map((r) => ({
+      let mapped = rows.map((r) => ({
         ...r,
         state: r.state === "run" ? "stop" : r.state,
         remaining: 0,
       }));
+      // If nothing was mid-run (gap between steps), mark the next pending step as stopped.
+      if (!mapped.some((r) => r.state === "stop")) {
+        const next = mapped.find((r) => r.state === "wait");
+        if (next) {
+          next.state = "stop";
+          next.pct = Math.max(0, Math.min(99, next.pct || 0));
+        }
+      }
+      this.frozenRows = mapped;
       this.frozenKey = rows.map((r) => r.stage.id).join("|");
       this.endedAt = Date.now();
+      this.serverRunning = false;
+      this.nfFinished = false;
+    },
+
+    markStopped() {
+      this.stopping = true;
+      this.nfFinished = false;
+      this.serverRunning = false;
+      this.frozenPainted = false;
+      if (!this.frozenRows) {
+        this.freeze();
+      } else {
+        this.endedAt = this.endedAt || Date.now();
+      }
+      try {
+        this.render();
+      } catch (e) { /* ignore */ }
     },
 
     runState(list) {
       if (this.failed) {
         return "failed";
       }
-      if (this.frozenRows) {
-        return "idle";
+      if (this.stopping || this.frozenRows) {
+        return "stopped";
+      }
+      // Success is sticky: never fall back to "running" because /stats lags.
+      if (this.nfFinished && !this.failed) {
+        return "completed";
+      }
+      if (this.endedAt && !this.failed) {
+        const unfinished = list.some((p) => !p.done && !p.aborted && p.id !== "_executor");
+        if (!unfinished) {
+          return "completed";
+        }
       }
       const runBt = document.getElementById("run-bt");
-      const localActive = list.some((p) => !p.done) && !this.endedAt;
+      const localActive = list.some((p) => !p.done && !p.aborted) && !this.endedAt;
       // The server takes a few seconds to report the run, so count the click itself as the start.
       const launching = this.launchAt && !this.endedAt && Date.now() - this.launchAt < 20000;
       if (this.serverRunning || localActive || launching || (runBt && runBt.disabled && this.startedAt && !this.endedAt)) {
         return "running";
+      }
+      if (this.endedAt && !this.failed) {
+        return "completed";
       }
       return "idle";
     },
@@ -756,10 +858,19 @@
       const list = this.procs();
       const planned = this.getPlannedStages();
       const state = this.runState(list);
+      // After Stop/Fail, paint once and stay put — the 1s timer was rewriting bars/menus.
+      if (
+        this.frozenPainted &&
+        ((state === "stopped" && (this.stopping || this.frozenRows)) ||
+          (state === "failed" && this.failed))
+      ) {
+        return;
+      }
       if (state === "running" && !this.startedAt) {
         const first = list.reduce((m, p) => Math.min(m, p.startedAt || Infinity), Infinity);
         this.startedAt = isFinite(first) ? first : Date.now();
         this.endedAt = null;
+        this.frozenPainted = false;
       }
       if (state === "idle" && this.startedAt && !this.endedAt) {
         if (list.length) {
@@ -771,16 +882,24 @@
       let rows;
       if (this.frozenRows && this.frozenKey === planned.map((st) => st.id).join("|")) {
         rows = this.frozenRows;
+      } else if (this.stopping || this.frozenRows) {
+        // Keep a stop snapshot even if the planned-stage key drifted slightly.
+        if (!this.frozenRows) {
+          this.freeze();
+        }
+        rows = this.frozenRows || this.applyGates(this.fillSkipped(this.resolveStages(planned, list)));
       } else {
         this.frozenRows = null;
         rows = this.applyGates(this.fillSkipped(this.resolveStages(planned, list)));
-        if (this.nfFinished && !this.failed) {
+        if ((this.nfFinished || state === "completed") && !this.failed && !this.stopping) {
           rows.forEach((r) => {
-            if (r.state === "wait") {
+            if (r.state === "wait" || r.state === "run") {
               r.state = "done";
               r.pct = 100;
               r.remaining = 0;
-              r.skipped = true;
+              if (!r.procs.length) {
+                r.skipped = true;
+              }
             }
           });
         } else if (this.failed) {
@@ -798,7 +917,12 @@
               culprit.remaining = 0;
             }
           }
-        } else if (state === "running" && !rows.some((r) => r.state === "run" || r.state === "fail")) {
+        } else if (
+          state === "running" &&
+          !this.endedAt &&
+          !this.nfFinished &&
+          !rows.some((r) => r.state === "run" || r.state === "fail")
+        ) {
           const next = rows.find((r) => r.state === "wait") || rows[0];
           if (next && next.state === "wait") {
             next.state = "run";
@@ -815,10 +939,19 @@
       this.renderTimes();
       this.renderGauges();
       this.maybeAutoscroll();
-      if (state === "idle" && this.endedAt && !this.failed && !this.stopping && !this.frozenRows) {
+      if (
+        (state === "completed" || state === "idle") &&
+        this.endedAt &&
+        !this.failed &&
+        !this.stopping &&
+        !this.frozenRows
+      ) {
         if (typeof window.revealResultsOnSuccess === "function") {
           window.revealResultsOnSuccess(true);
         }
+      }
+      if (state === "stopped" || state === "failed") {
+        this.frozenPainted = true;
       }
     },
 
@@ -871,10 +1004,24 @@
       if (!badge) {
         return;
       }
-      const label = state === "running" ? "Running" : state === "failed" ? "Failed" : "Idle";
-      const nextClass = "rd-status is-" + state;
-      if (badge.className !== nextClass) {
-        badge.className = nextClass;
+      const label =
+        state === "running"
+          ? "Running"
+          : state === "failed"
+            ? "Failed"
+            : state === "completed"
+              ? "Done"
+              : state === "stopped"
+                ? "Stopped"
+                : "Idle";
+      const cls =
+        state === "completed"
+          ? "rd-status is-completed"
+          : state === "stopped"
+            ? "rd-status is-stopped"
+            : "rd-status is-" + state;
+      if (badge.className !== cls) {
+        badge.className = cls;
       }
       if (badge.textContent !== label) {
         badge.textContent = label;
@@ -924,9 +1071,13 @@
         } else if (r.state === "stop") {
           meta = `Stopped at ${r.pct}%`;
         } else if (r.state === "run") {
-          meta = r.remaining
-            ? `${r.pct}% · ${this.formatDuration(r.elapsed)} · ETA ${this.formatDuration(r.remaining)}`
-            : `${r.pct}% · ${this.formatDuration(r.elapsed)}`;
+          if (r.remaining != null && r.remaining > 0) {
+            meta = `${r.pct}% · ${this.formatDuration(r.elapsed)} · ETA ${this.formatDuration(r.remaining)}`;
+          } else if (r.overrun) {
+            meta = `${r.pct}% · ${this.formatDuration(r.elapsed)} · still running`;
+          } else {
+            meta = `${r.pct}% · ${this.formatDuration(r.elapsed)} · running`;
+          }
         } else if (r.procs.length) {
           meta = "Queued";
         }
@@ -959,12 +1110,23 @@
         if (row.className !== rowClass) {
           row.className = rowClass;
         }
-        row.querySelector(".pct").textContent = r.state === "fail" ? "failed" : r.state === "stop" ? "stopped " + r.pct + "%" : r.pct + "%";
-        row.querySelector(".track > i").style.width = r.pct + "%";
+        const pctLabel = r.state === "fail" ? "failed" : r.state === "stop" ? "stopped " + r.pct + "%" : r.pct + "%";
+        const pctEl = row.querySelector(".pct");
+        if (pctEl && pctEl.textContent !== pctLabel) {
+          pctEl.textContent = pctLabel;
+        }
+        const fill = row.querySelector(".track > i");
+        const width = r.pct + "%";
+        if (fill && fill.style.width !== width) {
+          fill.style.width = width;
+        }
       });
     },
 
     overallPercent(rows) {
+      if (this.nfFinished && !this.failed && !this.stopping) {
+        return 100;
+      }
       const total = rows.reduce((a, r) => a + r.expected, 0);
       if (!total) {
         return 0;
@@ -976,24 +1138,37 @@
     pipelineRemaining(rows, running) {
       let seq = 0;
       let par = 0;
-      rows.forEach((r) => {
+      for (const r of rows) {
         if (r.state === "done" || r.state === "fail" || r.state === "stop") {
-          return;
+          continue;
         }
-        const rem = running && r.state === "run" ? (r.remaining || 0) : (r.expected || 0);
+        if (running && r.state === "run" && (r.remaining == null || r.overrun)) {
+          // Unknown remaining on an active step — skip it (do not invent 0s).
+          continue;
+        }
+        const rem = running && r.state === "run" ? Math.max(0, Number(r.remaining) || 0) : (r.expected || 0);
         if (r.stage && r.stage.side) {
           par = Math.max(par, rem);
         } else {
           seq += rem;
         }
-      });
-      return seq + par;
+      }
+      const total = seq + par;
+      // Active work with no known remainder must not surface as "0s".
+      if (running && rows.some((r) => r.state === "run") && total <= 0) {
+        return null;
+      }
+      return total;
     },
 
     renderOverview(rows, state) {
       const pct = this.overallPercent(rows);
       const doneN = rows.filter((r) => r.state === "done").length;
-      const current = rows.find((r) => r.state === "run") || rows.find((r) => r.state === "fail");
+      // Among parallel runners, highlight the furthest along — not list order
+      // (which made CheckM look "current" while geNomad was at 93%).
+      const runners = rows.filter((r) => r.state === "run").slice().sort((a, b) => (b.pct || 0) - (a.pct || 0));
+      const current = runners[0] || rows.find((r) => r.state === "fail");
+      const runCount = runners.length;
       const ring = document.getElementById("rd-task-ring");
       const bar = document.getElementById("rd-task-bar");
       if (ring) {
@@ -1002,6 +1177,7 @@
           ring.style.setProperty("--rd-pct", pct);
         }
         ring.classList.toggle("is-failed", state === "failed");
+        ring.classList.toggle("is-stopped", state === "stopped");
       }
       if (bar) {
         const width = pct + "%";
@@ -1009,25 +1185,43 @@
           bar.style.width = width;
         }
         bar.parentElement.classList.toggle("is-failed", state === "failed");
+        bar.parentElement.classList.toggle("is-stopped", state === "stopped");
       }
       this.setText("rd-task-ring-pct", pct + "%");
       this.setText("rd-task-ring-sub", `${doneN} of ${rows.length} steps`);
       if (state === "running" && current && window.BactflowTerminal) {
-        BactflowTerminal.setStatus(`${current.stage.name} · ${current.pct}%`, "run");
+        const extra = runCount > 1 ? ` (+${runCount - 1} parallel)` : "";
+        BactflowTerminal.setStatus(`${current.stage.name} · ${current.pct}%${extra}`, "run");
+      } else if (state === "stopped" && window.BactflowTerminal) {
+        // setStatus is idempotent; only needed on the first frozen paint.
+        if (!this.frozenPainted) {
+          BactflowTerminal.setStatus("Bactflow has been stopped by the user!", "warn");
+        }
+      } else if (state === "completed" && !this.stopping && window.BactflowTerminal) {
+        BactflowTerminal.setStatus("All processes completed", "ok");
       }
 
       let title = "Ready";
       let desc = "Pipeline: " + rows.map((r) => r.stage.name).join(" → ");
+      const stoppedAt = rows.find((r) => r.state === "stop");
       if (state === "running") {
         title = current ? current.stage.name : "Starting…";
-        desc = current ? `Step ${rows.indexOf(current) + 1} of ${rows.length} is running` : "Waiting for Nextflow to schedule the first step";
+        if (runCount > 1) {
+          desc = `${runCount} steps running in parallel · showing ${current.stage.name} (${current.pct}%)`;
+        } else {
+          desc = current
+            ? `Step ${rows.indexOf(current) + 1} of ${rows.length} is running`
+            : "Waiting for Nextflow to schedule the first step";
+        }
       } else if (state === "failed") {
         title = "Pipeline failed";
         desc = this.failMessage || (current ? `${current.stage.name} failed. Check the live log for details.` : "Check the live log for details.");
-      } else if (this.frozenRows) {
+      } else if (this.frozenRows || state === "stopped") {
         title = "Stopped";
-        desc = `Run stopped after ${doneN} of ${rows.length} steps.`;
-      } else if (this.endedAt && rows.length && doneN === rows.length) {
+        desc = stoppedAt
+          ? `Stopped during ${stoppedAt.stage.name} (${stoppedAt.pct}%). ${doneN} of ${rows.length} steps finished.`
+          : `Run stopped after ${doneN} of ${rows.length} steps.`;
+      } else if (state === "completed" || (this.endedAt && rows.length && doneN === rows.length)) {
         title = "Completed";
         desc = `All ${rows.length} steps finished.`;
       }
@@ -1038,10 +1232,21 @@
       if (state === "running" || (state === "idle" && !this.endedAt)) {
         remaining = this.pipelineRemaining(rows, state === "running");
       }
-      this.setText("rd-m-eta", remaining == null ? (this.endedAt ? "0s" : "—") : this.formatDuration(remaining));
+      // Never show "0s" while the pipeline is still running.
+      const etaLabel =
+        remaining == null || (state === "running" && remaining <= 0)
+          ? state === "running" || !this.endedAt
+            ? "—"
+            : "0s"
+          : this.formatDuration(remaining);
+      this.setText("rd-m-eta", etaLabel);
       this.setText(
         "rd-m-eta-sub",
-        remaining == null ? "" : state === "running" ? "done ~" + this.formatClockAt(Date.now() + remaining * 1000) : "estimated total"
+        remaining == null || remaining <= 0 || state !== "running"
+          ? state === "running" && remaining == null
+            ? "estimating…"
+            : ""
+          : "done ~" + this.formatClockAt(Date.now() + remaining * 1000)
       );
     },
 
@@ -1050,10 +1255,11 @@
       const runN = count("run");
       const doneN = count("done");
       const failN = count("fail");
+      const stopN = count("stop");
       this.setText("rd-sum-total", String(rows.length));
       this.setText("rd-sum-done", String(doneN));
-      this.setText("rd-sum-run", String(runN));
-      this.setText("rd-sum-wait", String(rows.length - doneN - runN - failN));
+      this.setText("rd-sum-run", String(runN || stopN));
+      this.setText("rd-sum-wait", String(rows.length - doneN - runN - failN - stopN));
       this.setText("rd-sum-fail", String(failN || (this.failed ? 1 : 0)));
     },
 

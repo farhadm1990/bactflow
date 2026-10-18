@@ -3,8 +3,9 @@
 import sys, subprocess, importlib, os
 import pty
 import select
+import hashlib
 
-from flask import Flask, send_from_directory, render_template, render_template_string, request, redirect, Response, stream_with_context, jsonify
+from flask import Flask, send_from_directory, render_template, render_template_string, request, redirect, Response, stream_with_context, jsonify, abort, url_for
 import json
 
 from datetime import datetime, timezone
@@ -1124,6 +1125,20 @@ def find_quast_dir(out_dir):
     return None
 
 
+# QUAST HTML pulls sibling JS/CSS via relative URLs. Blob iframes break those
+# links and the report looks blank — serve the folder under a stable URL instead.
+_QUAST_FS = {}
+
+
+def _quast_mount(out_dir):
+    quast_path = find_quast_dir(out_dir)
+    if not quast_path:
+        return None, None
+    key = hashlib.sha1(os.path.abspath(quast_path).encode("utf-8")).hexdigest()[:16]
+    _QUAST_FS[key] = os.path.abspath(quast_path)
+    return key, quast_path
+
+
 def _run_bash(script):
     return subprocess.run(
         ["bash", "-lc", script],
@@ -1156,24 +1171,50 @@ def _selected_gene_types():
 @app.route("/check-quast", methods = ["POST"])  
 def check_quast():
     out_dir = request.form.get("out_dir")
-    quast_path = find_quast_dir(out_dir)
+    key, quast_path = _quast_mount(out_dir)
     if quast_path:
-        return jsonify({"exists": True, "quast_dir": os.path.basename(quast_path)})
+        return jsonify({
+            "exists": True,
+            "quast_dir": os.path.basename(quast_path),
+            "report_url": url_for("quast_fs", key=key, filename="report.html"),
+            "contig_url": url_for("quast_fs", key=key, filename="icarus_viewers/contig_size_viewer.html"),
+        })
     return jsonify({"exists": False})
+
+
+@app.route("/quast-fs/<key>/<path:filename>")
+def quast_fs(key, filename):
+    root = _QUAST_FS.get(key)
+    if not root or not os.path.isdir(root):
+        abort(404)
+    root = os.path.abspath(root)
+    target = os.path.abspath(os.path.join(root, filename))
+    if not (target == root or target.startswith(root + os.sep)):
+        abort(403)
+    if not os.path.isfile(target):
+        abort(404)
+    return send_from_directory(root, filename)
 
 
 @app.route("/quast-report", methods = ["POST"])
 def quast_report():
     out_dir = request.form.get("out_dir")
-    quast_path = find_quast_dir(out_dir)
-    if quast_path:
-        return send_from_directory(quast_path, "report.html")
-    return ("", 204)
+    key, quast_path = _quast_mount(out_dir)
+    if not quast_path:
+        return ("", 204)
+    # Prefer JSON with a browsable URL so the iframe can load sibling assets.
+    if request.accept_mimetypes.best == "application/json" or request.args.get("json") == "1" or request.form.get("json") == "1":
+        return jsonify({
+            "ok": True,
+            "report_url": url_for("quast_fs", key=key, filename="report.html"),
+            "contig_url": url_for("quast_fs", key=key, filename="icarus_viewers/contig_size_viewer.html"),
+        })
+    return send_from_directory(quast_path, "report.html")
 
 @app.route("/contig-report", methods = ["POST"])
 def contig_report():
     out_dir = request.form.get("out_dir")
-    quast_path = find_quast_dir(out_dir)
+    key, quast_path = _quast_mount(out_dir)
     if quast_path:
         contig = os.path.join(quast_path, "icarus_viewers/contig_size_viewer.html")
         if os.path.isfile(contig):

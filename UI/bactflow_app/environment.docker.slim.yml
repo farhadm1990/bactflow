@@ -28,7 +28,7 @@ dependencies:
   - prodigal=2.6.3
   # Post-assembly (no geNomad — use BACTFLOW_PROFILE=full for plasmids)
   - checkm-genome=1.2.4
-  - gtdbtk=2.6.1
+  - gtdbtk=2.8.0
   - pplacer=1.1.alpha19
   - hmmer=3.4
   - samtools=1.23.1

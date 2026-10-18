@@ -50,8 +50,8 @@ echo "Checking GTDB-Tk installations ..."
 
 if ! command -v gtdbtk >/dev/null 2>&1; then
     echo "ERROR: gtdbtk is not on PATH." >&2
-    echo "       conda activate bactflow && conda install -c bioconda 'gtdbtk=2.6.1'" >&2
-    echo "       (2.6.1 matches GTDB R226. 2.7+ requires R232.)" >&2
+    echo "       conda activate bactflow && conda install -c bioconda 'gtdbtk=2.8.0'" >&2
+    echo "       (2.8.0 matches GTDB R232 / release32. Use 2.6.1 only with R226.)" >&2
     exit 1
 fi
 
@@ -97,31 +97,31 @@ echo "GTDB-Tk database: ${db_dir}"
 
 db_rel=""
 if [ -f "${db_dir}/metadata/metadata.txt" ]; then
-    db_rel="$(grep -Eo '[Rr]?[0-9]{3}' "${db_dir}/metadata/metadata.txt" | head -1 | tr -d 'Rr' || true)"
+    # Prefer VERSION_DATA=r232 (do not scrape RED_DIST floats for random 3-digit hits).
+    db_rel="$(grep -E '^VERSION_DATA=' "${db_dir}/metadata/metadata.txt" | head -1 | grep -Eo '[0-9]{3}' | head -1 || true)"
 fi
 if [ -z "${db_rel}" ]; then
-    db_rel="$(basename "${db_dir}" | grep -Eo '[0-9]{3}' | head -1 || true)"
+    # release232 / release226 folder names (not "release32")
+    db_rel="$(basename "${db_dir}" | grep -Eo '2[0-9]{2}' | head -1 || true)"
 fi
 if [ -n "${db_rel}" ]; then
     echo "Detected reference data release: R${db_rel}"
 fi
 
-# Official compatibility (https://ecogenomics.github.io/GTDBTk/installing/index.html):
+# Official compatibility (https://ecogenomics.github.io/GTDBTk/announcements.html):
 #   R232: 2.7.0+
-#   R226: 2.4.1 – 2.6.1
-#   R220: 2.4.0 – 2.6.1
+#   R226: 2.4.1 – 2.6.x
+#   R220: 2.4.0 – 2.6.x
 if [ -n "${tk_ver}" ] && [ -n "${db_rel}" ]; then
     tk_minor="${tk_ver#*.}"
     tk_minor="${tk_minor%%.*}"
     if [ "${tk_ver%%.*}" -ge 2 ] && [ "${tk_minor}" -ge 7 ] && [ "${db_rel}" != "232" ]; then
         echo "ERROR: GTDB-Tk ${tk_ver} requires reference data R232, but this database is R${db_rel}." >&2
-        echo "       That is why classify started failing after the 2.7 upgrade." >&2
-        echo "       Keep R226:  conda install -c bioconda 'gtdbtk=2.6.1'" >&2
-        echo "       Or download R232 and point --gtdbtk_data_path at it." >&2
+        echo "       Download R232 (gtdbtk_r232_data.tar.gz) or install gtdbtk=2.6.1 for R226." >&2
         exit 1
     fi
     if [ "${tk_ver%%.*}" -eq 2 ] && [ "${tk_minor}" -le 6 ] && [ "${db_rel}" = "232" ]; then
-        echo "ERROR: GTDB-Tk ${tk_ver} cannot use R232. Install gtdbtk>=2.7.0 or use R226." >&2
+        echo "ERROR: GTDB-Tk ${tk_ver} cannot use R232. Install gtdbtk>=2.7.0 (BactFlow pins 2.8.0)." >&2
         exit 1
     fi
 fi
@@ -185,34 +185,63 @@ echo "Using a pplacer scratch file so the ~80 GB reference-tree cache is not hel
 gtdbtk classify --genome_dir "${genomes}" --align_dir "${out_dir}/align" --out_dir "${out_dir}/classify" -x "${extension}" --cpus "${cpus}" "${classify_extra[@]}"
 
 shopt -s nullglob
-summaries=("${out_dir}"/classify/*.summary.tsv)
+# GTDB-Tk 2.8+ often leaves classify/*.summary.tsv as a symlink into classify/classify/.
+# Resolve to real files, then materialize via temp+mv (avoids "cp: same file" on symlinks).
+_materialize_file() {
+    local src="$1" dest="$2" real tmp
+    real="$(readlink -f "${src}" 2>/dev/null || true)"
+    [ -n "${real}" ] && [ -f "${real}" ] || return 1
+    mkdir -p "$(dirname "${dest}")"
+    tmp="${dest}.tmp.$$"
+    cp -fL "${real}" "${tmp}"
+    mv -f "${tmp}" "${dest}"
+}
+
+summaries=()
+seen_reals=""
+while IFS= read -r -d '' f; do
+    case "$(basename "$f")" in *markers*) continue ;; esac
+    real="$(readlink -f "$f" 2>/dev/null || true)"
+    [ -n "${real}" ] && [ -f "${real}" ] || continue
+    case " ${seen_reals} " in *" ${real} "*) continue ;; esac
+    seen_reals="${seen_reals} ${real}"
+    summaries+=("${real}")
+done < <(find "${out_dir}/classify" \( -type f -o -type l \) -name '*.summary.tsv' -print0 2>/dev/null)
+
 if [ "${#summaries[@]}" -eq 0 ]; then
     echo "ERROR: GTDB-Tk classify finished without a summary TSV in ${out_dir}/classify" >&2
-    ls -la "${out_dir}" "${out_dir}/classify" >&2 || true
+    ls -la "${out_dir}" "${out_dir}/classify" "${out_dir}/classify/classify" 2>/dev/null >&2 || true
     exit 1
 fi
 echo "GTDB-Tk summaries ready:"
-    ls -l "${summaries[@]}"
-# Copy summaries next to the process (Nextflow output glob) and into GTDBTK_PUBLISH_DIR
-# (the mounted results folder). Do not rely on publishDir of the huge identify/align tree.
+ls -l "${summaries[@]}"
+
+copied=0
 for f in "${summaries[@]}"
 do
     base="$(basename "$f")"
-    case "${base}" in
-        *markers*) continue ;;
-    esac
-    cp -f "$f" "${out_dir}/classify/${base}"
-    cp -f "$f" "./${base}"
-    if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]
-    then
-        mkdir -p "${GTDBTK_PUBLISH_DIR}"
-        cp -f "$f" "${GTDBTK_PUBLISH_DIR}/${base}"
+    case "${base}" in *markers*) continue ;; esac
+    _materialize_file "$f" "./${base}" || continue
+    copied=1
+    if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]; then
+        _materialize_file "$f" "${GTDBTK_PUBLISH_DIR}/${base}" || true
     fi
 done
-if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]
-then
+if [ "${copied}" -eq 0 ]; then
+    echo "ERROR: No non-marker summary TSV to publish" >&2
+    exit 1
+fi
+if [ -n "${GTDBTK_PUBLISH_DIR:-}" ]; then
     echo "Published GTDB-Tk summaries to ${GTDBTK_PUBLISH_DIR}"
     ls -l "${GTDBTK_PUBLISH_DIR}"/*.summary.tsv
+    for tree in "${out_dir}"/classify/*.classify.tree "${out_dir}"/classify/*.decorated.tree \
+                "${out_dir}"/classify/classify/*.classify.tree "${out_dir}"/classify/classify/*.decorated.tree
+    do
+        [ -e "${tree}" ] || continue
+        real="$(readlink -f "${tree}" 2>/dev/null || true)"
+        [ -n "${real}" ] && [ -f "${real}" ] || continue
+        _materialize_file "${real}" "${GTDBTK_PUBLISH_DIR}/$(basename "${real}")" || true
+    done
 fi
 echo "GTDB-Tk output directory: $(pwd)/${out_dir}"
 ls -l ./*.summary.tsv

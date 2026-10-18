@@ -440,8 +440,11 @@ function updatePlatformUI() {
   const filterGroup = document.getElementById("readFilterGroup");
   const filterParams = document.getElementById("readFilterParams");
   const filterSel = document.getElementById("read_filter");
+  const coverageSel = document.getElementById("coverage_filter");
+  const coverageParams = document.getElementById("coverageFilterParams");
   const pacbioKindGroup = document.getElementById("pacbioKindGroup");
   const filterOn = (filterSel || {}).value === "true";
+  const coverageOn = (coverageSel || {}).value === "true";
   const title = document.getElementById("readFilterTitle");
   const label = document.getElementById("readFilterLabel");
   const hint = document.getElementById("readFilterHint");
@@ -487,8 +490,16 @@ function updatePlatformUI() {
   if (filterParams) {
     filterParams.style.display = filterOn ? "" : "none";
   }
+  const coverageGroup = document.getElementById("coverageFilterGroup");
+  if (coverageGroup) {
+    coverageGroup.style.display = illumina ? "none" : "";
+  }
+  if (coverageParams) {
+    coverageParams.style.display = !illumina && coverageOn ? "" : "none";
+  }
   if (filterBtn) {
-    filterBtn.style.display = filterOn ? "" : "none";
+    // Coverage filter is long-read only; show Filter when either step is on.
+    filterBtn.style.display = filterOn || (!illumina && coverageOn) ? "" : "none";
   }
   if (title) {
     title.textContent = illumina ? "Illumina length & quality filter" : "Read filter";
@@ -534,7 +545,11 @@ function filterIllumina() {
 function filterReads() {
   const btn = document.getElementById("illumina-filter-bt");
   const filterSel = document.getElementById("read_filter");
-  if (!filterSel || filterSel.value !== "true") {
+  const coverageSel = document.getElementById("coverage_filter");
+  const platform = selectedPlatform();
+  const filterOn = !!(filterSel && filterSel.value === "true");
+  const covOn = platform !== "illumina" && !!(coverageSel && coverageSel.value === "true");
+  if (!filterOn && !covOn) {
     return;
   }
   updatePlatformUI();
@@ -542,7 +557,7 @@ function filterReads() {
     btn.disabled = true;
     btn.textContent = "Filtering…";
   }
-  const path = selectedPlatform() === "illumina" ? "/filter-illumina" : "/filter-long-reads";
+  const path = platform === "illumina" ? "/filter-illumina" : "/filter-long-reads";
   fetch(path, {
     method: "POST",
     body: preFormData()
@@ -1005,6 +1020,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
   if (readFilter) {
     readFilter.addEventListener("change", updatePlatformUI);
+  }
+  const coverageFilter = document.getElementById("coverage_filter");
+  if (coverageFilter) {
+    coverageFilter.addEventListener("change", updatePlatformUI);
   }
   const concatReads = document.getElementById("concat_reads");
   if (concatReads) {

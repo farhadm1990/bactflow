@@ -67,11 +67,17 @@ function connectToStream(action){
       return;
     }
     flushLog();
+    eventSource.close();
+    eventSource = null;
+    if (window.__bactflowUserStopped) {
+      BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+      BactflowTerminal.setStatus(STOP_USER_MSG, "warn");
+      updateButtonStates("stopped");
+      return;
+    }
     BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
     BactflowTerminal.append("Stream disconnected.", true);
     BactflowTerminal.setStatus("Stream disconnected", "warn");
-    eventSource.close();
-    eventSource = null;
     updateButtonStates("stopped");
   };
 }
@@ -95,9 +101,20 @@ function disconnectStream(){
 function applyUserStopUI() {
   window.__bactflowUserStopped = true;
   disconnectStream();
+  if (window.BactflowRunDashboard && typeof BactflowRunDashboard.markStopped === "function") {
+    BactflowRunDashboard.markStopped();
+  } else if (window.BactflowRunDashboard) {
+    BactflowRunDashboard.stopping = true;
+    if (typeof BactflowRunDashboard.freeze === "function") {
+      BactflowRunDashboard.freeze();
+    }
+  }
   BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
   updateButtonStates("stopped");
-  BactflowTerminal.clear();
+  // Keep process bars frozen at the stop point — only replace the log text.
+  if (BactflowTerminal.logEl) {
+    BactflowTerminal.logEl.replaceChildren();
+  }
   BactflowTerminal.append(STOP_USER_MSG, true);
   BactflowTerminal.setStatus(STOP_USER_MSG, "warn");
 }
@@ -194,6 +211,12 @@ function prepareFreshRunUI() {
   runFinishedSuccess = false;
   if (window.BactflowRunDashboard) {
     BactflowRunDashboard.nfFinished = false;
+    BactflowRunDashboard.stopping = false;
+    BactflowRunDashboard.frozenRows = null;
+    BactflowRunDashboard.frozenKey = null;
+    BactflowRunDashboard.frozenPainted = false;
+    BactflowRunDashboard.failed = false;
+    BactflowRunDashboard.endedAt = null;
   }
   setTerminalVisible(true);
   setResultsOpen(false);
@@ -820,7 +843,6 @@ function setResultsOpen(open, opts) {
   const dash = window.BactflowRunDashboard;
   const failed = !!(dash && (dash.failed || dash.stopping || dash.frozenRows));
   const ok = !failed && (runFinishedSuccess || runHasFinishedOk());
-  const hasResults = anyResultVisible() || !!(opts && opts.empty === false);
   document.documentElement.classList.toggle("rd-live-results", !!(resultsOpen && (running || failed)));
   if (card) {
     card.classList.toggle("is-shown", resultsOpen);
@@ -829,18 +851,18 @@ function setResultsOpen(open, opts) {
     btn.textContent = resultsOpen ? "Hide results" : "Display results";
   }
   setResultsEmptyVisible(!!(resultsOpen && opts && opts.empty));
-  // Keep the terminal for debugging on failure. Hide it only when the run
-  // succeeded and there are results to look at.
+  // While BactFlow is running (or failed), keep the terminal for live logs.
+  // When idle: Display results hides the terminal; Hide results restores it.
   if (running || failed) {
     setTerminalVisible(true);
     return;
   }
-  if (resultsOpen && ok && (hasResults || anyResultVisible())) {
+  if (resultsOpen) {
     setTerminalVisible(false);
     return;
   }
   setTerminalVisible(true);
-  if (!resultsOpen && ok) {
+  if (ok) {
     showEmptyTerminal();
   }
 }
@@ -917,6 +939,22 @@ window.setTerminalVisible = setTerminalVisible;
 window.toggleResults = toggleResults;
 window.revealResultsOnSuccess = revealResultsOnSuccess;
 window.onPipelineProcessesDone = function () {
+  if (
+    window.__bactflowUserStopped ||
+    (window.BactflowRunDashboard && (BactflowRunDashboard.stopping || BactflowRunDashboard.frozenRows || BactflowRunDashboard.failed))
+  ) {
+    return;
+  }
+  if (window.BactflowRunDashboard && typeof BactflowRunDashboard.markCompleted === "function") {
+    BactflowRunDashboard.markCompleted();
+  } else if (window.BactflowRunDashboard) {
+    BactflowRunDashboard.nfFinished = true;
+    BactflowRunDashboard.endedAt = BactflowRunDashboard.endedAt || Date.now();
+    BactflowRunDashboard.serverRunning = false;
+  }
+  if (window.BactflowTerminal) {
+    BactflowTerminal.setStatus("All processes completed", "ok");
+  }
   revealResultsOnSuccess(true);
   [1500, 4000, 8000].forEach((ms) => {
     setTimeout(() => {
@@ -1016,9 +1054,14 @@ function showReport(opts){
         if (quastDiv) {
           quastDiv.style.display = "block";
         }
-        if (!quastShown) {
+        const quastOut = document.getElementById("output-quast");
+        const frame = quastOut && quastOut.querySelector("iframe");
+        const wantSrc = quastData.report_url || "";
+        const hasFrame = !!(frame && frame.getAttribute("src"));
+        const stale = !!(frame && wantSrc && frame.getAttribute("src") !== wantSrc);
+        if (!quastShown || !hasFrame || stale) {
           quastShown = true;
-          quastReport();
+          quastReport(quastData);
         }
       } else if (quastDiv && !quastShown) {
         quastDiv.style.display = "none";
@@ -1574,48 +1617,53 @@ function downloadGtdbTreePng() {
   CheckmTreeViz.downloadPng("gtdbtk_classify_tree.png", document.getElementById("gtdb-tree-svg"));
 }
 
-async function quastReport() {
+async function quastReport(urls) {
   const form = document.getElementById("postForm");
-  const formData = new FormData(form);
-  
+  if (!form) {
+    return;
+  }
   try {
-   
-    let quastResponse = await fetch("/quast-report", { method: "POST", body: formData });
-    if (!quastResponse.ok || quastResponse.status === 204) {
+    let reportUrl = urls && urls.report_url;
+    let contigUrl = urls && urls.contig_url;
+    if (!reportUrl) {
+      const check = await fetchJsonSafe("/check-quast", new FormData(form));
+      if (!check.exists) {
+        return;
+      }
+      reportUrl = check.report_url;
+      contigUrl = check.contig_url;
+    }
+    if (!reportUrl) {
       return;
     }
-    let quastBlob = await quastResponse.blob();
-    if (!quastBlob || quastBlob.size === 0) {
-      return;
+    const quastOutputDiv = document.getElementById("output-quast");
+    if (quastOutputDiv) {
+      quastOutputDiv.innerHTML = `<iframe src="${reportUrl}" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>`;
     }
-    let quastUrl = URL.createObjectURL(quastBlob);
-    
-    let quastOutputDiv = document.getElementById("output-quast");
-    quastOutputDiv.innerHTML = `<iframe src="${quastUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
-   
-    let contigOutputDiv = document.getElementById("contig-quast");
+    const contigOutputDiv = document.getElementById("contig-quast");
     const contigHeading = contigOutputDiv ? contigOutputDiv.previousElementSibling : null;
-    try {
-      let contigResponse = await fetch("/contig-report", { method: "POST", body: formData });
-      if (contigResponse.ok && contigResponse.status !== 204) {
-        let contigBlob = await contigResponse.blob();
-        if (contigBlob && contigBlob.size > 0 && contigOutputDiv) {
-          let contigUrl = URL.createObjectURL(contigBlob);
+    if (contigUrl && contigOutputDiv) {
+      try {
+        const head = await fetch(contigUrl, { method: "GET" });
+        if (head.ok) {
           contigOutputDiv.style.display = "";
           if (contigHeading && contigHeading.tagName === "H4") {
             contigHeading.style.display = "";
           }
-          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none;"></iframe>`;
+          contigOutputDiv.innerHTML = `<iframe src="${contigUrl}" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>`;
+        } else {
+          contigOutputDiv.style.display = "none";
+          if (contigHeading && contigHeading.tagName === "H4") {
+            contigHeading.style.display = "none";
+          }
         }
-      } else if (contigOutputDiv) {
+      } catch (_err) {
         contigOutputDiv.style.display = "none";
-        if (contigHeading && contigHeading.tagName === "H4") {
-          contigHeading.style.display = "none";
-        }
       }
-    } catch (_err) {
-      if (contigOutputDiv) {
-        contigOutputDiv.style.display = "none";
+    } else if (contigOutputDiv) {
+      contigOutputDiv.style.display = "none";
+      if (contigHeading && contigHeading.tagName === "H4") {
+        contigHeading.style.display = "none";
       }
     }
   } catch (error) {
@@ -1940,6 +1988,18 @@ function heatmapClusterGenomes(matrix) {
   return { order, xs, ys, maxH: maxH || 1 };
 }
 
+function heatmapLabelWidth(text, fontSize) {
+  if (!heatmapLabelWidth._canvas) {
+    heatmapLabelWidth._canvas = document.createElement("canvas");
+  }
+  const ctx = heatmapLabelWidth._canvas.getContext("2d");
+  if (!ctx) {
+    return String(text || "").length * fontSize * 0.6;
+  }
+  ctx.font = `${fontSize}px Segoe UI, sans-serif`;
+  return ctx.measureText(String(text || "")).width;
+}
+
 function drawGeneHeatmap(payload) {
   const el = document.getElementById("heatmapPlot");
   if (!el || !payload || !window.Plotly) {
@@ -1955,7 +2015,8 @@ function drawGeneHeatmap(payload) {
   const order = clustered.order;
   const genomes = order.map((i) => genomesIn[i]);
   const z = zIn.map((row) => order.map((i) => (row || [])[i]));
-  const yLabels = genes.map((name) => (String(name).length > 42 ? `${String(name).slice(0, 40)}…` : name));
+  // Full product / enzyme names on the Y axis (no ellipsis truncation).
+  const yLabels = genes.map((name) => String(name));
   const custom = genes.map((name, i) => [name, vars[i] != null ? vars[i] : ""]);
   const theme = heatmapThemeInk();
   const n = genes.length;
@@ -1964,7 +2025,17 @@ function drawGeneHeatmap(payload) {
   const dendro = nCol > 1;
   const dendroPx = dendro ? 52 : 0;
   const dendroGap = dendro ? 8 : 0;
-  const margin = { l: 210, r: 72, t: 36, b: nCol > 6 ? 80 : 48 };
+  const yFont = n > 80 ? 9 : 10;
+  const xFont = 11;
+  const maxYPx = Math.max(80, ...yLabels.map((label) => heatmapLabelWidth(label, yFont)));
+  const maxXPx = Math.max(40, ...genomes.map((label) => heatmapLabelWidth(label, xFont)));
+  const tickangle = nCol > 4 || maxXPx > 72 ? -40 : 0;
+  const angleRad = Math.abs(tickangle) * Math.PI / 180;
+  const marginL = Math.min(520, Math.ceil(maxYPx) + 28);
+  const marginB = tickangle
+    ? Math.min(280, Math.ceil(maxXPx * Math.sin(angleRad) + xFont) + 36)
+    : Math.min(160, Math.ceil(xFont + 28));
+  const margin = { l: marginL, r: 72, t: 36, b: marginB };
   const innerH = dendroPx + dendroGap + Math.max(220, n * rowH);
   const height = margin.t + margin.b + innerH;
   const y2Domain = dendro ? [1 - dendroPx / innerH, 1] : [0, 1];
@@ -2055,19 +2126,19 @@ function drawGeneHeatmap(payload) {
       tickmode: "array",
       tickvals: xIdx,
       ticktext: genomes,
-      tickangle: nCol > 4 ? -40 : 0,
-      tickfont: { size: 11, color: theme.ink },
+      tickangle,
+      tickfont: { size: xFont, color: theme.ink },
       range: [-0.5, Math.max(0.5, nCol - 0.5)],
       autorange: false,
       zeroline: false,
       showgrid: false,
-      automargin: false,
+      automargin: true,
       anchor: "y",
     },
     yaxis: {
       domain: yDomain,
-      automargin: false,
-      tickfont: { size: n > 80 ? 9 : 10, color: theme.ink },
+      automargin: true,
+      tickfont: { size: yFont, color: theme.ink },
       ticksuffix: "  ",
     },
     yaxis2: {
@@ -2951,6 +3022,10 @@ function bindLinearPickers() {
       syncLinearCordUi();
       fillLinearCordRef(selectedLinearGenomes());
       scheduleLinearLinks();
+      const host = document.getElementById("linearPlot");
+      if (host && typeof host._linearPaint === "function") {
+        host._linearPaint();
+      }
     });
   }
   document.querySelectorAll("input[name='linear-cord-mode']").forEach((el) => {
@@ -3339,6 +3414,26 @@ function drawLinearCanvas(host, data, restore) {
   tip.className = "bf-linear-tip";
   tip.hidden = true;
   host.appendChild(tip);
+  const rulerLayer = document.createElement("div");
+  rulerLayer.className = "bf-linear-ruler-layer";
+  rulerLayer.hidden = true;
+  const rulerHi = document.createElement("div");
+  rulerHi.className = "bf-linear-ruler-hi";
+  rulerHi.innerHTML = '<div class="bf-linear-ruler-hi-glow"></div><div class="bf-linear-ruler-len"></div>';
+  const rulerA = document.createElement("div");
+  rulerA.className = "bf-linear-ruler is-a";
+  rulerA.innerHTML = '<div class="bf-linear-ruler-line"></div><div class="bf-linear-ruler-box"></div><div class="bf-linear-ruler-lever" title="Drag to set range end"></div>';
+  const rulerB = document.createElement("div");
+  rulerB.className = "bf-linear-ruler is-b";
+  rulerB.innerHTML = '<div class="bf-linear-ruler-line"></div><div class="bf-linear-ruler-box is-end"></div>';
+  rulerLayer.appendChild(rulerHi);
+  rulerLayer.appendChild(rulerA);
+  rulerLayer.appendChild(rulerB);
+  host.appendChild(rulerLayer);
+  const rulerBoxA = rulerA.querySelector(".bf-linear-ruler-box");
+  const rulerBoxB = rulerB.querySelector(".bf-linear-ruler-box");
+  const rulerLever = rulerA.querySelector(".bf-linear-ruler-lever");
+  const rulerLen = rulerHi.querySelector(".bf-linear-ruler-len");
 
   const tracks = linearTracks(data).map((track) => ({
     ...track,
@@ -3351,6 +3446,11 @@ function drawLinearCanvas(host, data, restore) {
   let view0 = restore && restore.view0 != null ? restore.view0 : 0;
   let view1 = restore && restore.view1 != null ? restore.view1 : length;
   let drag = null;
+  let rulerRelA = restore && restore.rulerRelA != null
+    ? Number(restore.rulerRelA)
+    : (restore && restore.rulerRel != null ? Number(restore.rulerRel) : null);
+  let rulerRelB = restore && restore.rulerRelB != null ? Number(restore.rulerRelB) : null;
+  let rulerDrag = null;
   const seqByTrack = Object.assign({}, (restore && restore.seqByTrack) || data.seqByTrack || {});
   let seqTimer = 0;
   const seqPending = {};
@@ -3500,8 +3600,8 @@ function drawLinearCanvas(host, data, restore) {
     const w = Math.max(320, Number(widthOpt) || host.clientWidth || 800);
     const padL = tracks.length > 1 ? (cordifyOn() ? 158 : 132) : 64;
     const padR = 18;
-    const padT = 36;
-    const padB = 48;
+    const padT = 58;
+    const padB = 56;
     const span = Math.max(1, view1 - view0);
     const pxPerBp = (w - padL - padR) / span;
     const showBases = pxPerBp >= 4;
@@ -3529,6 +3629,122 @@ function drawLinearCanvas(host, data, restore) {
   const xOf = (bp, box, origin) => {
     const org = origin || 0;
     return box.padL + ((bp - org - view0) / box.span) * (box.w - box.padL - box.padR);
+  };
+
+  const rulerPosLabel = (rel) => {
+    const pos = Math.max(1, Math.floor(rel) + 1);
+    return `<span class="bf-linear-ruler-unit">bp</span><strong>${pos.toLocaleString()}</strong>`;
+  };
+
+  const rulerLenLabel = (a, b) => {
+    const len = Math.max(0, Math.round(Math.abs(Number(b) - Number(a))));
+    return `length: ${len.toLocaleString()} bp`;
+  };
+
+  const rulerXOf = (rel, box) => {
+    const plotW = Math.max(1, box.w - box.padL - box.padR);
+    return box.padL + ((rel - view0) / box.span) * plotW;
+  };
+
+  const nudgeBox = (el, x, box) => {
+    const hostW = host.clientWidth || box.w;
+    const half = Math.max(40, (el.offsetWidth || 88) / 2);
+    let nudge = 0;
+    if (x - half < 4) {
+      nudge = 4 - (x - half);
+    } else if (x + half > hostW - 4) {
+      nudge = (hostW - 4) - (x + half);
+    }
+    el.style.transform = nudge ? `translateX(calc(-50% + ${nudge}px))` : "translateX(-50%)";
+  };
+
+  const syncRuler = () => {
+    const box = layout();
+    if (!Number.isFinite(rulerRelA)) {
+      rulerRelA = (view0 + view1) / 2;
+    }
+    rulerRelA = Math.min(view1, Math.max(view0, rulerRelA));
+    const hasRange = Number.isFinite(rulerRelB) && Math.abs(rulerRelB - rulerRelA) > 0.5;
+    if (hasRange) {
+      rulerRelB = Math.min(view1, Math.max(view0, rulerRelB));
+    }
+    const xA = rulerXOf(rulerRelA, box);
+    const xB = hasRange ? rulerXOf(rulerRelB, box) : xA;
+    const firstTop = box.rows[0] ? box.rows[0].top : box.padT;
+    const lastBottom = box.rows.length
+      ? box.rows[box.rows.length - 1].bottom
+      : box.h - box.padB;
+    // Leave room for the range length label above the highlight glow.
+    const boxTop = Math.max(4, Math.min(box.padT - 44, firstTop - 46));
+    rulerLayer.hidden = false;
+    rulerLayer.style.width = `${box.w}px`;
+    rulerLayer.style.height = `${box.h}px`;
+
+    rulerA.style.left = `${xA}px`;
+    rulerA.style.height = `${box.h}px`;
+    rulerBoxA.innerHTML = rulerPosLabel(rulerRelA);
+    rulerBoxA.style.top = `${boxTop}px`;
+    nudgeBox(rulerBoxA, xA, box);
+    const leverTop = Math.min(box.h - 22, lastBottom + 6);
+    rulerLever.style.top = `${leverTop}px`;
+
+    if (hasRange) {
+      const left = Math.min(xA, xB);
+      const right = Math.max(xA, xB);
+      rulerHi.hidden = false;
+      rulerHi.style.left = `${left}px`;
+      rulerHi.style.width = `${Math.max(2, right - left)}px`;
+      rulerHi.style.top = `${firstTop}px`;
+      rulerHi.style.height = `${Math.max(8, lastBottom - firstTop)}px`;
+      if (rulerLen) {
+        rulerLen.textContent = rulerLenLabel(rulerRelA, rulerRelB);
+      }
+      rulerB.hidden = false;
+      rulerB.style.left = `${xB}px`;
+      rulerB.style.height = `${box.h}px`;
+      rulerBoxB.innerHTML = rulerPosLabel(rulerRelB);
+      rulerBoxB.style.top = `${leverTop - 2}px`;
+      nudgeBox(rulerBoxB, xB, box);
+      rulerA.classList.add("has-range");
+    } else {
+      rulerHi.hidden = true;
+      rulerB.hidden = true;
+      rulerA.classList.remove("has-range");
+    }
+  };
+
+  const rulerFromClientX = (clientX) => {
+    const box = layout();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = box.w / Math.max(1, rect.width);
+    const px = (clientX - rect.left) * scaleX;
+    const plotW = Math.max(1, box.w - box.padL - box.padR);
+    const frac = Math.min(1, Math.max(0, (px - box.padL) / plotW));
+    return view0 + frac * box.span;
+  };
+
+  const nearRulerEdge = (clientX, rel) => {
+    if (!Number.isFinite(rel)) {
+      return false;
+    }
+    const box = layout();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = box.w / Math.max(1, rect.width);
+    const px = (clientX - rect.left) * scaleX;
+    return Math.abs(px - rulerXOf(rel, box)) <= 8;
+  };
+
+  const nearRuler = (clientX) => {
+    if (rulerLayer.hidden) {
+      return false;
+    }
+    if (nearRulerEdge(clientX, rulerRelA)) {
+      return "a";
+    }
+    if (Number.isFinite(rulerRelB) && Math.abs(rulerRelB - rulerRelA) > 0.5 && nearRulerEdge(clientX, rulerRelB)) {
+      return "b";
+    }
+    return false;
   };
 
   const collectOrphans = () => {
@@ -3604,7 +3820,7 @@ function drawLinearCanvas(host, data, restore) {
     ctx.fillStyle = ink;
     ctx.font = "12px Segoe UI, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText(data.title || data.length_label || "", box.w - box.padR, 18);
+    ctx.fillText(data.title || data.length_label || "", box.w - box.padR, 20);
     ctx.fillStyle = muted;
     ctx.font = "11px ui-monospace, Consolas, monospace";
     ctx.fillText(
@@ -3612,7 +3828,7 @@ function drawLinearCanvas(host, data, restore) {
         ? `aligned  ·  ${Math.max(1, Math.round(view1 - view0))} bp window`
         : `${Math.max(1, Math.round(view0) + 1).toLocaleString()}–${Math.round(view1).toLocaleString()} bp`,
       box.w - box.padR,
-      34
+      36
     );
 
     const step = linearTickStep(box.span);
@@ -4005,7 +4221,10 @@ function drawLinearCanvas(host, data, restore) {
         syntenyRef,
         orphansOn,
         amrOn,
+        rulerRelA,
+        rulerRelB,
       };
+      syncRuler();
       const orphanCount = document.getElementById("linear-orphan-count");
       if (orphanCount) {
         const n = orphanKeys.size;
@@ -4245,18 +4464,80 @@ function drawLinearCanvas(host, data, restore) {
     scheduleSeq(zoomIn);
   }, { passive: false });
 
+  const beginRulerDrag = (event, mode) => {
+    const which = mode || nearRuler(event.clientX) || "a";
+    const startA = rulerRelA;
+    const startB = Number.isFinite(rulerRelB) ? rulerRelB : rulerRelA;
+    rulerDrag = {
+      mode: which,
+      x: event.clientX,
+      startA,
+      startB,
+      width: startB - startA,
+    };
+    drag = null;
+    canvas.style.cursor = "ew-resize";
+    rulerLayer.classList.add("is-dragging");
+    rulerA.classList.toggle("is-active", which === "a" || which === "both");
+    rulerB.classList.toggle("is-active", which === "b" || which === "both");
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
   canvas.addEventListener("mousedown", (event) => {
+    const hit = nearRuler(event.clientX);
+    if (hit && beginRulerDrag(event, hit)) {
+      return;
+    }
     drag = { x: event.clientX, view0, view1 };
     canvas.style.cursor = "grabbing";
+  });
+  rulerA.addEventListener("mousedown", (event) => {
+    const onLever = event.target === rulerLever || (event.target.closest && event.target.closest(".bf-linear-ruler-lever"));
+    beginRulerDrag(event, onLever ? "lever" : "a");
+  });
+  rulerB.addEventListener("mousedown", (event) => {
+    beginRulerDrag(event, "b");
+  });
+  rulerHi.addEventListener("mousedown", (event) => {
+    beginRulerDrag(event, "both");
   });
   host._linearUp = () => {
     if (drag) {
       scheduleSeq();
     }
     drag = null;
+    rulerDrag = null;
+    rulerLayer.classList.remove("is-dragging");
+    rulerA.classList.remove("is-active");
+    rulerB.classList.remove("is-active");
     canvas.style.cursor = "grab";
   };
   host._linearMove = (event) => {
+    if (rulerDrag) {
+      const next = rulerFromClientX(event.clientX);
+      if (rulerDrag.mode === "a") {
+        const delta = next - rulerDrag.startA;
+        rulerRelA = next;
+        if (Number.isFinite(rulerRelB) && Math.abs(rulerDrag.width) > 0.5) {
+          // Keep range width while moving the start line.
+          rulerRelB = rulerDrag.startB + delta;
+        }
+      } else if (rulerDrag.mode === "b") {
+        rulerRelB = next;
+      } else if (rulerDrag.mode === "lever") {
+        rulerRelB = next;
+      } else if (rulerDrag.mode === "both") {
+        const box = layout();
+        const rect = canvas.getBoundingClientRect();
+        const plotW = Math.max(1, box.w - box.padL - box.padR);
+        const dBp = ((event.clientX - rulerDrag.x) / Math.max(1, rect.width * (plotW / box.w))) * box.span;
+        rulerRelA = rulerDrag.startA + dBp;
+        rulerRelB = rulerDrag.startB + dBp;
+      }
+      syncRuler();
+      return;
+    }
     if (!drag) {
       return;
     }
@@ -4275,8 +4556,13 @@ function drawLinearCanvas(host, data, restore) {
   window.addEventListener("mouseup", host._linearUp);
   window.addEventListener("mousemove", host._linearMove);
   canvas.addEventListener("mousemove", (event) => {
-    if (drag) {
+    if (drag || rulerDrag) {
       return;
+    }
+    if (nearRuler(event.clientX)) {
+      canvas.style.cursor = "ew-resize";
+    } else {
+      canvas.style.cursor = "grab";
     }
     const feat = featureAt(event.offsetX, event.offsetY);
     if (!feat) {
@@ -4689,6 +4975,13 @@ async function circReport(){
 }
 
 let reportCheckInterval = setInterval(() => {
+  if (window.__bactflowUserStopped) {
+    return;
+  }
+  const dash = window.BactflowRunDashboard;
+  if (dash && (dash.stopping || dash.frozenRows || dash.failed)) {
+    return;
+  }
   const runBt = document.getElementById("run-bt");
   if (runBt && runBt.disabled) {
     showReport();

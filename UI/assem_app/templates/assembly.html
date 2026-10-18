@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}?v=helix1">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/post-assem.css') }}?v=helix1">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd28">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/run-dashboard.css') }}?v=rd29">
 <link rel="stylesheet" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
 <script>try{if(localStorage.getItem("bactflow_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 {% endblock %}
@@ -418,7 +418,6 @@
         <div class="rd-top-stat"><label>Started</label><strong id="rd-header-started">—</strong></div>
         <div class="rd-top-stat"><label>Elapsed</label><strong id="rd-header-elapsed">—</strong></div>
         <button type="button" class="rd-chip-btn" id="rd-focus-bt">Focus</button>
-        <button type="button" class="rd-chip-btn" id="rd-view-logs-btn">View logs</button>
       </div>
     </header>
 
@@ -489,7 +488,17 @@
         <p class="rd-results-empty-title">No results to show</p>
         <p class="rd-results-empty-copy">There is no result at the output directory. Please run BactFlow first.</p>
       </div>
-<div id="quastDiv" class="col-md-7" style="overflow-y: auto;   display: none; padding-top: 1px; width: 100%;">
+<div id="circFastaDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
+        <h4 class="text-left mb-3">Circulated genomes</h4>
+        <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
+        <ul id="output-circ-fastas" style="margin: 10px 20px; color: var(--hx-text);"></ul>
+      </div>
+
+      <div id="resultsStatusDiv" class="col-md-7" style="display: none; padding: 8px 16px; width: 100%;">
+        <p class="text-muted small mb-0" id="results-status-text"></p>
+      </div>
+
+      <div id="quastDiv" class="col-md-7" style="overflow-y: auto;   display: none; padding-top: 1px; width: 100%;">
         <h4 class="text-left mb-3">Assembly stats: Quast</h4>
         <div id="output-quast" style="border: 1px solid rgb(105, 105, 105);
               padding: 10px;
@@ -519,16 +528,6 @@
            
        
         </div>
-      </div>
-
-      <div id="resultsStatusDiv" class="col-md-7" style="display: none; padding: 8px 16px; width: 100%;">
-        <p class="text-muted small mb-0" id="results-status-text"></p>
-      </div>
-
-      <div id="circFastaDiv" class="col-md-7" style="overflow-y: auto;  display: none; padding-top: 1px; width: 100%;">
-        <h4 class="text-left mb-3">Circulated genomes</h4>
-        <p class="text-muted small" id="circ-fasta-hint" style="margin: 10px;"></p>
-        <ul id="output-circ-fastas" style="margin: 10px 20px; color: var(--hx-text);"></ul>
       </div>
 
        <!-- Annotation Output Section -->
@@ -733,10 +732,10 @@
 
     <!-- scripts -->
       <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars12"></script>
-      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd28"></script>
+      <script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars15"></script>
+      <script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd32"></script>
       <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
       <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
-      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports25"> </script>
+      <script src="{{ url_for('static', filename='js/assem.js')}}?v=reports29"> </script>
 
 {% endblock %}
