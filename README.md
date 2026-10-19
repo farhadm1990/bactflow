@@ -6,14 +6,18 @@
 
 
 # BactFlow
-<br>
-<div align="center">
-  <video src="https://github.com/farhadm1990/bactflow/raw/main/video/bactflow_promo.mp4" width="720" controls playsinline>
-    <a href="https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4">BactFlow promo video</a>
-  </video>
-</div>
+
 <br>
 
+<div align="center">
+
+![BactFlow promo](video/bactflow_promo.webp)
+
+[Full promo video (MP4)](https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4)
+
+</div>
+
+<br>
 
 ## Introduction
 
@@ -28,14 +32,6 @@ One UI on **port 5000** holds every page:
 | **Post-assembly** | QUAST, Bakta, GTDB-Tk, CheckM, MLST, geNomad, SNP finder, Medaka variant calling, genome plots, Generate report (HTML/PDF) |
 
 Switch pages from the top bar. Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
-
-<div align="center">
-
-![BactFlow promo](video/bactflow_promo.webp)
-
-[Full promo video (MP4)](https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4)
-
-</div>
 
 ## How you run BactFlow
 
