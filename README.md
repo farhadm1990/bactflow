@@ -6,6 +6,14 @@
 
 
 # BactFlow
+<br>
+<div align="center">
+  <video src="https://github.com/farhadm1990/bactflow/raw/main/video/bactflow_promo.mp4" width="720" controls playsinline>
+    <a href="https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4">BactFlow promo video</a>
+  </video>
+</div>
+<br>
+
 
 ## Introduction
 
@@ -21,11 +29,6 @@ One UI on **port 5000** holds every page:
 
 Switch pages from the top bar. Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
 
-<div align="center">
-  <video src="https://github.com/farhadm1990/bactflow/raw/main/video/bactflow_promo.mp4" width="720" controls playsinline>
-    <a href="https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4">BactFlow promo video</a>
-  </video>
-</div>
 
 ## How you run BactFlow
 
