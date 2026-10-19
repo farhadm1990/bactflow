@@ -29,6 +29,13 @@ One UI on **port 5000** holds every page:
 
 Switch pages from the top bar. Only **one assembler** runs per assembly invocation. You can reuse the same `--out_dir` so Illumina, ONT, and PacBio FASTAs pile up in the same folder.
 
+<div align="center">
+
+![BactFlow promo](video/bactflow_promo.webp)
+
+[Full promo video (MP4)](https://github.com/farhadm1990/bactflow/blob/main/video/bactflow_promo.mp4)
+
+</div>
 
 ## How you run BactFlow
 
