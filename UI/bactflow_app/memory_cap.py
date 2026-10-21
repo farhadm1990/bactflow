@@ -54,6 +54,29 @@ def _parse_size_to_gb(raw) -> int | None:
         return None
 
 
+def _read_launch_file() -> dict:
+    """Fallback when systemd-run / containers drop env vars."""
+    import json
+
+    candidates = []
+    explicit = (os.environ.get("BACTFLOW_LAUNCH_FILE") or "").strip()
+    if explicit:
+        candidates.append(explicit)
+    home = (os.environ.get("HOME") or "").strip()
+    if home:
+        candidates.append(os.path.join(home, ".bactflow", "launch.json"))
+    candidates.append("/tmp/bactflow_launch.json")
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError, TypeError):
+            continue
+    return {}
+
+
 def env_launch_cap_gb() -> int | None:
     """Hard ceiling from bactflow.sh --memory (exported into the UI process)."""
     for key in (
@@ -64,7 +87,75 @@ def env_launch_cap_gb() -> int | None:
         gb = _parse_size_to_gb(os.environ.get(key))
         if gb:
             return gb
+    launch = _read_launch_file()
+    for key in ("memory_gb", "memory"):
+        gb = _parse_size_to_gb(launch.get(key))
+        if gb:
+            return gb
     return None
+
+
+def host_cpu_count() -> int:
+    try:
+        n = os.cpu_count()
+        if n and int(n) > 0:
+            return int(n)
+    except (TypeError, ValueError):
+        pass
+    try:
+        import psutil
+
+        n = psutil.cpu_count(logical=True)
+        if n and int(n) > 0:
+            return int(n)
+    except Exception:
+        pass
+    return 1
+
+
+def env_launch_cpus() -> int | None:
+    """CPU budget from bactflow.sh --cpus.
+
+    Prefer launch.json (written for this `bactflow.sh run`) over the process
+    env — leftover UI processes often keep a stale BACTFLOW_CPUS.
+    """
+    for raw in (
+        str(_read_launch_file().get("cpus") or "").strip().lower(),
+        str(os.environ.get("BACTFLOW_CPUS") or "").strip().lower(),
+    ):
+        if not raw or raw.startswith("auto") or raw == "null":
+            continue
+        try:
+            n = int(float(raw))
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return n
+    return None
+
+
+def default_cpus(host: int | None = None) -> int:
+    host = int(host or host_cpu_count())
+    launch = env_launch_cpus()
+    if launch:
+        return max(1, min(int(launch), host))
+    # Match bactflow.sh DEFAULT_CPUS when the launcher did not set an env.
+    return max(1, min(10, host))
+
+
+def parse_and_cap_cpus(raw, host: int | None = None) -> int:
+    """Clamp requested CPUs to the launcher --cpus budget (hard session cap)."""
+    host = int(host or host_cpu_count())
+    launch = env_launch_cpus()
+    max_allowed = min(host, int(launch)) if launch else host
+    max_allowed = max(1, int(max_allowed))
+    try:
+        n = int(float(str(raw or "").strip() or "0"))
+    except (TypeError, ValueError):
+        n = int(launch or default_cpus(host))
+    if n < 1:
+        n = int(launch or default_cpus(host))
+    return max(1, min(n, max_allowed))
 
 
 def default_memory_gb(host: int | None = None) -> int:
@@ -110,10 +201,7 @@ def nxf_opts_export(mem_gb: int) -> str:
 def write_resource_config(out_dir: str, cpus, mem_gb: int) -> str:
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, ".bactflow-resources.config")
-    try:
-        cpus_n = max(1, int(cpus or 1))
-    except (TypeError, ValueError):
-        cpus_n = 1
+    cpus_n = parse_and_cap_cpus(cpus)
     mem_gb = max(2, int(mem_gb))
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(

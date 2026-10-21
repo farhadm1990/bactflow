@@ -82,6 +82,11 @@ def _memory_from_form():
     return parse_and_cap(request.form.get("memory_gb"))
 
 
+def _cpus_from_form(default=1):
+    from memory_cap import parse_and_cap_cpus
+    return parse_and_cap_cpus(request.form.get("cpus") or default)
+
+
 def _truthy(value, default=False):
     if value is None or str(value).strip() == "":
         return default
@@ -192,7 +197,13 @@ def clean_log_line(line):
 @app.route('/',  methods =['GET', 'POST'])
 def assembly():
 
-    return render_template('assembly.html')
+    try:
+        from memory_cap import default_cpus, env_launch_cpus
+
+        form_cpus = int(env_launch_cpus() or default_cpus())
+    except Exception:
+        form_cpus = 1
+    return render_template("assembly.html", form_cpus=form_cpus)
 
 
 def _ui_port(default=5002):
@@ -581,7 +592,7 @@ def run_bactflow():
             #     fastq_dir.save(save_path)
             concat_reads = request.form.get("concat_reads", "true")
             extension = request.form.get('extension', '.fastq.gz')
-            cpus = request.form.get('cpus', 1)   
+            cpus = _cpus_from_form()   
             coverage_filter = request.form.get('coverage_filter', 'false')
             coverage = request.form.get('coverage', 40)
             genome_size = request.form.get('genome_size', 6)
@@ -747,6 +758,7 @@ def run_bactflow():
                 command = command + " -resume"
             mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
             from memory_cap import inject_nextflow_memory, preamble
+            cpus = _cpus_from_form(default=cpus)
             command = inject_nextflow_memory(command, out_dir, cpus, mem_gb)
             command = preamble(mem_gb, mem_host, mem_capped) + command
             command = with_nextflow_java(command, mem_gb)
@@ -1010,9 +1022,19 @@ def _build_sys_stats():
     ram_used_gb, ram_total_gb, ram_percent, mem_src = _docker_aware_memory(
         ram_used_gb, ram_total_gb, ram_percent
     )
+    cpu_budget = ncpu
+    try:
+        from memory_cap import env_launch_cpus
+
+        launch_cpus = env_launch_cpus()
+        if launch_cpus:
+            cpu_budget = max(1, min(int(launch_cpus), ncpu))
+    except Exception:
+        pass
     payload = {
         "cpu_percent": round(psutil.cpu_percent(interval=None), 1),
         "cpu_count": ncpu,
+        "cpu_budget": cpu_budget,
         "ram_percent": ram_percent,
         "ram_used_gb": ram_used_gb,
         "ram_total_gb": ram_total_gb,

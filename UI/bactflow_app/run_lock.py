@@ -200,13 +200,25 @@ def force_reset() -> dict:
 
 
 def snapshot() -> dict:
-    from memory_cap import default_memory_gb, env_launch_cap_gb, host_mem_gb
+    from memory_cap import (
+        default_cpus,
+        default_memory_gb,
+        env_launch_cap_gb,
+        env_launch_cpus,
+        host_cpu_count,
+        host_mem_gb,
+    )
 
     host = host_mem_gb()
     launch = env_launch_cap_gb()
     max_gb = max(2, host - (1 if host > 3 else 0))
     if launch:
         max_gb = min(max_gb, launch)
+    host_cpus = host_cpu_count()
+    launch_cpus = env_launch_cpus()
+    max_cpus = host_cpus
+    if launch_cpus:
+        max_cpus = min(max_cpus, int(launch_cpus))
     data = current()
     return {
         "running": bool(data),
@@ -219,4 +231,8 @@ def snapshot() -> dict:
         "launch_memory_gb": launch,
         "max_memory_gb": max_gb,
         "default_memory_gb": default_memory_gb(host),
+        "host_cpus": host_cpus,
+        "launch_cpus": launch_cpus,
+        "max_cpus": max_cpus,
+        "default_cpus": default_cpus(host_cpus),
     }

@@ -29,6 +29,37 @@ elif [ -f /opt/conda/etc/profile.d/conda.sh ]; then
     source /opt/conda/etc/profile.d/conda.sh
 fi
 
+# Persist bactflow.sh --cpus / --memory into launch.json so the UI hard-caps
+# the session (form + gauges + Nextflow) even if only env vars were passed.
+bactflow_write_launch_budget() {
+    local cpus_json="null" mem_json="null" dir launch_file raw
+    if [[ "${BACTFLOW_CPUS:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        cpus_json="${BACTFLOW_CPUS%%.*}"
+    fi
+    if [[ "${BACTFLOW_MEMORY_GB:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        mem_json="${BACTFLOW_MEMORY_GB%%.*}"
+    elif [[ -n "${BACTFLOW_MEMORY:-}" ]]; then
+        raw="$(echo "${BACTFLOW_MEMORY}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+        raw="${raw/%gi/g}"
+        raw="${raw/%gb/g}"
+        if [[ "${raw}" =~ ^[0-9]+([.][0-9]+)?g?$ ]]; then
+            mem_json="${raw%%.*}"
+            mem_json="${mem_json%g}"
+        fi
+        [[ -z "${mem_json}" ]] && mem_json="null"
+    fi
+    if [[ "${cpus_json}" == "null" && "${mem_json}" == "null" ]]; then
+        return 0
+    fi
+    dir="${HOME:-/tmp}/.bactflow"
+    mkdir -p "${dir}" 2>/dev/null || dir="/tmp"
+    launch_file="${dir}/launch.json"
+    printf '{"cpus": %s, "memory_gb": %s}\n' "${cpus_json}" "${mem_json}" > "${launch_file}"
+    cp -f "${launch_file}" /tmp/bactflow_launch.json 2>/dev/null || true
+    export BACTFLOW_LAUNCH_FILE="${launch_file}"
+}
+bactflow_write_launch_budget
+
 # Prefer an explicit public URL (bactflow.sh / compose set 127.0.0.1 with -p).
 # For a raw `docker run` without -p, only the container bridge IP is reachable
 # from the host — pick that so the browser opens one working link.

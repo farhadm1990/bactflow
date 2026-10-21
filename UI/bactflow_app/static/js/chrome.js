@@ -124,6 +124,51 @@
           : `Hard cap for this run. This machine has ${info.host_mem_gb} GB; values above ${maxGb} GB are reduced so the host is not exhausted.`;
       }
     }
+    // Hard session cap from bactflow.sh --cpus. Form cannot exceed launch budget.
+    const cpus = document.getElementById("cpus");
+    if (cpus && info) {
+      const hostC = Number(info.host_cpus || 0);
+      const launchC = Number(info.launch_cpus || window.__BACTFLOW_LAUNCH_CPUS__ || 0);
+      const defC = Number(info.default_cpus || launchC || 1);
+      const maxC = launchC > 0 ? launchC : Number(info.max_cpus || hostC || defC || 0);
+      if (maxC) {
+        cpus.max = String(maxC);
+        cpus.setAttribute("max", String(maxC));
+      }
+      if (launchC > 0) {
+        window.__BACTFLOW_LAUNCH_CPUS__ = launchC;
+        const cur = Number(cpus.value || 0);
+        // Always clamp; default to the launcher budget on first apply.
+        if (!cpus.dataset.budgetApplied || !cur || cur > launchC) {
+          cpus.value = String(launchC);
+        } else {
+          cpus.value = String(Math.min(cur, launchC));
+        }
+        cpus.dataset.budgetApplied = "1";
+        if (!cpus.dataset.capBound) {
+          cpus.dataset.capBound = "1";
+          cpus.addEventListener("input", () => {
+            const lim = Number(window.__BACTFLOW_LAUNCH_CPUS__ || cpus.max || 0);
+            const v = Number(cpus.value || 0);
+            if (lim > 0 && v > lim) cpus.value = String(lim);
+            if (v < 1) cpus.value = "1";
+          });
+        }
+      } else if (!cpus.dataset.budgetApplied) {
+        cpus.dataset.budgetApplied = "1";
+        if (defC) cpus.value = String(Math.min(defC, maxC || defC));
+      } else if (maxC && Number(cpus.value || 0) > maxC) {
+        cpus.value = String(maxC);
+      }
+      const cpuHint = document.getElementById("cpus-hint");
+      if (cpuHint) {
+        cpuHint.textContent = launchC
+          ? `Hard cap: --cpus ${launchC} (session budget ${launchC} cores${hostC ? `; host has ${hostC}` : ""}).`
+          : hostC
+            ? `This machine has ${hostC} cores.`
+            : "";
+      }
+    }
   }
 
   // Module pages inside the hub iframe keep their fetch prefix, not a second top bar.

@@ -206,7 +206,9 @@
               <hr>
               <div class="mb-3">
                 <label for="cpus" class="form-label">CPUs</label>
-                <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+                <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1" value="{{ form_cpus|default(1) }}"/>
+                <div class="form-text" id="cpus-hint"></div>
+                <script>window.__BACTFLOW_LAUNCH_CPUS__ = {{ form_cpus|default(1)|int }};</script>
               </div>
               <div class="mb-3">
                 <label for="memory_gb" class="form-label">Memory (GB)</label>
@@ -1216,8 +1218,8 @@
 {% block extra_script %}
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
-<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars29"></script>
-<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd49"></script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}?v=eta-bars30"></script>
+<script src="{{ url_for('static', filename='js/run-dashboard.js') }}?v=rd54"></script>
 <script src="{{ url_for('static', filename='js/checkm-tree.js') }}?v=tree4"></script>
 <script src="{{ url_for('static', filename='js/plasmid-viz.js') }}?v=helix2"></script>
 <script src="{{ url_for('static', filename='js/mlst-viz.js') }}?v=mlst4"></script>

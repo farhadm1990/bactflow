@@ -139,6 +139,65 @@ port_in_use() {
     fi
 }
 
+# Stop leftover bactflow docker/apptainer UIs that still hold HOST_PORT so a new
+# conda/docker/apptainer launch is not shadowed (browser keeps talking to the old one).
+stop_stale_bactflow_on_port() {
+    local port="$1"
+    local id name
+    if command -v docker >/dev/null 2>&1; then
+        while read -r id name; do
+            [[ -z "${id}" ]] && continue
+            echo -e "${YELLOW}Stopping leftover container ${name} (${id}) on port ${port}...${NC}"
+            docker stop "${id}" >/dev/null 2>&1 || true
+        done < <(docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' 2>/dev/null | awk -v p=":${port}->" 'index($0,p){print $1, $2}')
+    fi
+}
+
+# Kill orphaned conda/apptainer UI processes from earlier sessions (stale BACTFLOW_CPUS).
+stop_stale_bactflow_python_uis() {
+    local pids
+    pids="$(pgrep -f 'UI/bactflow_app/app\.py|/app/UI/bactflow_app/app\.py' 2>/dev/null || true)"
+    if [[ -z "${pids}" ]]; then
+        return 0
+    fi
+    echo -e "${YELLOW}Stopping leftover BactFlow UI process(es): ${pids}${NC}"
+    # shellcheck disable=SC2086
+    kill ${pids} >/dev/null 2>&1 || true
+    sleep 0.6
+    # shellcheck disable=SC2086
+    kill -9 ${pids} >/dev/null 2>&1 || true
+}
+
+ensure_port_free() {
+    local port="$1"
+    stop_stale_bactflow_on_port "${port}"
+    stop_stale_bactflow_python_uis
+    sleep 0.4
+    if port_in_use "${port}"; then
+        echo -e "${RED}Error:${NC} Port ${port} is already in use."
+        echo "Stop the other BactFlow/Docker/Apptainer UI, or pass --port N."
+        if command -v ss >/dev/null 2>&1; then
+            ss -ltnp 2>/dev/null | grep -E "[:.]${port}\\b" || true
+        fi
+        exit 1
+    fi
+}
+
+ui_matches_launch_budget() {
+    # True if /run-lock from HOST_PORT reports our --cpus (new UI). Old images lack the field.
+    local port="$1"
+    local want="$2"
+    local body
+    body="$(curl -fsS "http://127.0.0.1:${port}/run-lock" 2>/dev/null || true)"
+    [[ -n "${body}" ]] || return 1
+    if [[ "${want}" =~ ^[0-9]+$ ]]; then
+        echo "${body}" | grep -qE "\"launch_cpus\"[[:space:]]*:[[:space:]]*${want}\\b"
+        return $?
+    fi
+    # No numeric budget requested — any modern payload with host_cpus is fine.
+    echo "${body}" | grep -qE "\"host_cpus\""
+}
+
 normalize_service() {
     local raw="${1,,}"
     case "${raw}" in
@@ -199,6 +258,25 @@ apptainer_export() {
 apptainer_help_has() {
     local flag="$1"
     grep -qE "(^|[[:space:]])${flag}([[:space:],]|$)" <<<"${APPTAINER_RUN_HELP}"
+}
+
+# Rootless Apptainer often cannot write cpu.max / memory.max under the user
+# slice. Probe once; if limits fail, we still run (soft caps via env only).
+apptainer_cgroups_ok() {
+    local img="$1"
+    local out
+    out="$("${APPTAINER_BIN}" exec --cpus 1 "${img}" /bin/true 2>&1)" && return 0
+    if grep -qiE 'cgroup|cpu\.max|memory\.max|applying cgroups' <<<"${out}"; then
+        return 1
+    fi
+    # Unknown failure with --cpus: treat as unsupported so startup can proceed.
+    return 1
+}
+
+apptainer_log_looks_like_cgroup_fail() {
+    local log="$1"
+    [[ -f "${log}" ]] || return 1
+    grep -qiE 'applying cgroups|cpu\.max|memory\.max|while setting cgroup' "${log}"
 }
 
 # True if Singularity/Apptainer can actually start this image (file or sandbox dir).
@@ -592,13 +670,27 @@ resolve_apptainer_sif() {
 
 wait_for_ui() {
     local pid="$1"
+    local want_cpus=""
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        want_cpus="${CPU_VALUE%%.*}"
+    fi
     echo -e "${BLUE}Waiting for the UI to become ready...${NC}"
     READY=false
-    local i
+    local i matched=false
     for i in $(seq 1 90); do
         if curl -fsS -o /dev/null "http://127.0.0.1:${HOST_PORT}/"; then
             READY=true
-            break
+            if [[ -z "${want_cpus}" ]] || ui_matches_launch_budget "${HOST_PORT}" "${want_cpus}"; then
+                matched=true
+                break
+            fi
+            # Port answers but it is an OLD leftover UI (wrong/missing launch_cpus).
+            if (( i >= 5 )); then
+                echo -e "${RED}Error:${NC} http://127.0.0.1:${HOST_PORT} is up but it is not this launch (expected --cpus ${want_cpus})."
+                echo "A leftover Docker/Apptainer UI is probably still bound to that port."
+                echo "Stop it (docker stop \$(docker ps -q --filter publish=${HOST_PORT})) and re-run."
+                exit 1
+            fi
         fi
         if ! kill -0 "${pid}" 2>/dev/null; then
             echo -e "${RED}Process exited before the UI started.${NC}"
@@ -608,7 +700,7 @@ wait_for_ui() {
         sleep 1
     done
 
-    if [[ "${READY}" != true ]]; then
+    if [[ "${READY}" != true || "${matched}" != true ]]; then
         echo -e "${RED}Timed out waiting for http://127.0.0.1:${HOST_PORT}/${NC}"
         echo "Last logs:"
         tail -n 80 "${LOG_FILE}" || true
@@ -616,6 +708,9 @@ wait_for_ui() {
     fi
 
     echo -e "${GREEN}UI is ready at http://127.0.0.1:${HOST_PORT}${NC}"
+    if [[ -n "${want_cpus}" ]]; then
+        echo -e "${GREEN}Launch CPU budget confirmed: ${want_cpus}${NC}"
+    fi
     if [[ "${OPEN_BROWSER}" == true ]]; then
         sleep 0.5
         open_browser "http://127.0.0.1:${HOST_PORT}/" || true
@@ -666,6 +761,28 @@ memory_gb_number() {
     fi
 }
 
+write_launch_budget_file() {
+    # Persist --cpus/--memory so the UI still sees them if systemd-run drops env.
+    local mem_gb="" cpus_json="null" mem_json="null" dir launch_file
+    dir="${WORK_DIR}/.bactflow"
+    mkdir -p "${dir}" 2>/dev/null || true
+    launch_file="${dir}/launch.json"
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        cpus_json="${CPU_VALUE%%.*}"
+    fi
+    if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
+        mem_gb="$(memory_gb_number "${MEM_VALUE}")"
+        if [[ -n "${mem_gb}" ]]; then
+            mem_json="${mem_gb}"
+        fi
+    fi
+    cat > "${launch_file}" <<EOF
+{"cpus": ${cpus_json}, "memory_gb": ${mem_json}}
+EOF
+    cp -f "${launch_file}" /tmp/bactflow_launch.json 2>/dev/null || true
+    export BACTFLOW_LAUNCH_FILE="${launch_file}"
+}
+
 export_runtime_env() {
     export BACTFLOW_MODULE="${MODULE}"
     export BACTFLOW_HOST_PORT="${HOST_PORT}"
@@ -687,6 +804,7 @@ export_runtime_env() {
         export BACTFLOW_CPUS="${CPU_VALUE}"
         export NXF_OPTS="${NXF_OPTS:-}"
     fi
+    write_launch_budget_file
 }
 
 run_docker() {
@@ -751,6 +869,8 @@ run_docker() {
         -e BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}" \
         -e BACTFLOW_MEMORY="${MEM_VALUE}" \
         -e BACTFLOW_MEMORY_GB="$(memory_gb_number "${MEM_VALUE}")" \
+        -e BACTFLOW_CPUS="${CPU_VALUE}" \
+        -e BACTFLOW_LAUNCH_FILE="${WORK_DIR}/.bactflow/launch.json" \
         -e BACTFLOW_SERVICE=docker \
         -e HOME="${WORK_DIR}" \
         -e NXF_HOME="${WORK_DIR}/.nextflow" \
@@ -780,19 +900,29 @@ run_apptainer() {
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
 
     local APPTAINER_RUN_HELP extra app_in_sif
+    local cgroup_flags=()
     APPTAINER_RUN_HELP="$("${APPTAINER_BIN}" exec --help 2>&1 || true)"
     extra=(--bind "${WORK_DIR}:${WORK_DIR}")
     if apptainer_help_has --pwd; then
         extra+=(--pwd "${WORK_DIR}")
     fi
+    # Prefer --home over APPTAINERENV_HOME (many builds forbid overriding HOME).
     if apptainer_help_has --home; then
         extra+=(--home "${WORK_DIR}")
     fi
+
     if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]] && apptainer_help_has --cpus; then
-        extra+=(--cpus "${CPU_VALUE}")
+        cgroup_flags+=(--cpus "${CPU_VALUE}")
     fi
     if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]] && apptainer_help_has --memory; then
-        extra+=(--memory "${MEM_VALUE}")
+        cgroup_flags+=(--memory "${MEM_VALUE}")
+    fi
+    if ((${#cgroup_flags[@]} > 0)); then
+        if ! apptainer_cgroups_ok "${SIF}"; then
+            echo -e "${YELLOW}Note: this host cannot apply Apptainer cgroup CPU/RAM caps (common on rootless installs).${NC}"
+            echo -e "${YELLOW}Starting without hard --cpus/--memory; soft budget still applied via BACTFLOW_CPUS / BACTFLOW_MEMORY*.${NC}"
+            cgroup_flags=()
+        fi
     fi
 
     export_runtime_env
@@ -803,8 +933,11 @@ run_apptainer() {
     apptainer_export BACTFLOW_MODULE "${MODULE}"
     apptainer_export BACTFLOW_PUBLIC_URL "http://127.0.0.1:${HOST_PORT}/"
     apptainer_export BACTFLOW_SERVICE apptainer
-    apptainer_export HOME "${WORK_DIR}"
+    # Do not APPTAINERENV_HOME=... — blocked on current Apptainer; --home is enough.
     apptainer_export NXF_HOME "${WORK_DIR}/.nextflow"
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        apptainer_export BACTFLOW_CPUS "${CPU_VALUE}"
+    fi
     if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
         apptainer_export BACTFLOW_MEMORY "${MEM_VALUE}"
         apptainer_export BACTFLOW_DOCKER_MEMORY "${MEM_VALUE}"
@@ -818,8 +951,10 @@ run_apptainer() {
         extra+=(--env "BACTFLOW_HOST_PORT=${HOST_PORT}")
         extra+=(--env "BACTFLOW_PUBLIC_URL=http://127.0.0.1:${HOST_PORT}/")
         extra+=(--env "BACTFLOW_SERVICE=apptainer")
-        extra+=(--env "HOME=${WORK_DIR}")
         extra+=(--env "NXF_HOME=${WORK_DIR}/.nextflow")
+        if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            extra+=(--env "BACTFLOW_CPUS=${CPU_VALUE}")
+        fi
         if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
             extra+=(--env "BACTFLOW_MEMORY=${MEM_VALUE}")
             extra+=(--env "BACTFLOW_DOCKER_MEMORY=${MEM_VALUE}")
@@ -839,12 +974,27 @@ run_apptainer() {
 
     # Image layout (unified UI): /app/UI/bactflow_app/app.py (+ symlink /app/app.py).
     app_in_sif="${APP_IN_IMAGE}"
-    # exec + entrypoint: old Singularity Docker conversions often have an empty runscript.
-    "${APPTAINER_BIN}" exec \
-        "${extra[@]}" \
-        "${SIF}" \
-        /usr/local/bin/bactflow-entrypoint python "${app_in_sif}" > "${LOG_FILE}" 2>&1 &
-    APP_PID=$!
+
+    start_apptainer_ui() {
+        local -a flags=("$@")
+        : > "${LOG_FILE}"
+        # exec + entrypoint: old Singularity Docker conversions often have an empty runscript.
+        "${APPTAINER_BIN}" exec \
+            "${extra[@]}" \
+            "${flags[@]}" \
+            "${SIF}" \
+            /usr/local/bin/bactflow-entrypoint python "${app_in_sif}" > "${LOG_FILE}" 2>&1 &
+        APP_PID=$!
+    }
+
+    start_apptainer_ui "${cgroup_flags[@]}"
+    # If probe lied or race: cgroup fail still in log → one retry without caps.
+    sleep 0.4
+    if ! kill -0 "${APP_PID}" 2>/dev/null && apptainer_log_looks_like_cgroup_fail "${LOG_FILE}"; then
+        echo -e "${YELLOW}Apptainer refused cgroup limits at start; retrying without --cpus/--memory...${NC}"
+        start_apptainer_ui
+    fi
+
     wait_for_ui "${APP_PID}"
     follow_until_exit "${APP_PID}"
 }
@@ -886,6 +1036,9 @@ run_conda() {
 
     export_runtime_env
     unset BACTFLOW_IN_DOCKER || true
+    if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo -e "${BLUE}CPU budget: ${CPU_VALUE} (form + gauges; host may report more cores)${NC}"
+    fi
 
     cleanup() {
         echo -e "\n${YELLOW}Stopping Conda UI...${NC}"
@@ -905,12 +1058,29 @@ run_conda() {
     if [[ -n "${mem_gb}" ]] && command -v systemd-run >/dev/null 2>&1; then
         if systemd-run --user --quiet --collect --scope -p MemoryMax=64M -p MemorySwapMax=0 -- true >/dev/null 2>&1; then
             echo -e "${BLUE}Hard RAM cap: ${mem_gb}g (systemd MemoryMax)${NC}"
+            # Explicit --setenv: some systemd versions do not pass the full shell env.
             run_cmd=(
                 systemd-run --user --quiet --collect --scope
                 -p "MemoryMax=${mem_gb}G"
                 -p MemorySwapMax=0
-                -- python "${APP_PY}"
+                --setenv="HOME=${WORK_DIR}"
+                --setenv="NXF_HOME=${WORK_DIR}/.nextflow"
+                --setenv="BACTFLOW_NO_BROWSER=1"
+                --setenv="BACTFLOW_SERVICE=conda"
+                --setenv="BACTFLOW_MODULE=${MODULE}"
+                --setenv="BACTFLOW_HOST_PORT=${HOST_PORT}"
+                --setenv="BACTFLOW_PUBLIC_URL=http://127.0.0.1:${HOST_PORT}/"
+                --setenv="BACTFLOW_LAUNCH_FILE=${BACTFLOW_LAUNCH_FILE:-${WORK_DIR}/.bactflow/launch.json}"
             )
+            if [[ "${CPU_VALUE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+                run_cmd+=(--setenv="BACTFLOW_CPUS=${CPU_VALUE}")
+            fi
+            if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
+                run_cmd+=(--setenv="BACTFLOW_MEMORY=${MEM_VALUE}")
+                run_cmd+=(--setenv="BACTFLOW_DOCKER_MEMORY=${MEM_VALUE}")
+                run_cmd+=(--setenv="BACTFLOW_MEMORY_GB=${mem_gb}")
+            fi
+            run_cmd+=(-- python "${APP_PY}")
         else
             echo -e "${YELLOW}WARNING: systemd user MemoryMax unavailable; pipeline will try a per-run scope. Prefer --service docker --memory ${mem_gb}g for a hard OS cap.${NC}"
         fi
@@ -1100,10 +1270,7 @@ if [[ -z "${HOST_PORT}" ]]; then
     HOST_PORT="${DEFAULT_HOST_PORT}"
 fi
 
-if port_in_use "${HOST_PORT}"; then
-    echo -e "${RED}Error:${NC} Port ${HOST_PORT} is already in use. Stop the other process or pass --port."
-    exit 1
-fi
+ensure_port_free "${HOST_PORT}"
 
 case "${SERVICE}" in
     docker) run_docker ;;

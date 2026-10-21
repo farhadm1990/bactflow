@@ -11,11 +11,18 @@
 #
 # Build from the repository root:
 #   docker build -f UI/bactflow_app/Dockerfile -t bactflow:v1.0 .
+#   # or via launcher (rebuilds when needed):
+#   ./bactflow.sh run /path/to/work --service docker --local --rebuild --cpus 8 --memory 20g
 #
 # Profiles (BACTFLOW_PROFILE):
 #   full (default) — includes geNomad (TensorFlow + MMseqs2)
 #   slim           — no geNomad (~half size; plasmid/virus screen unavailable)
 #   docker build --build-arg BACTFLOW_PROFILE=slim -t bactflow:slim .
+#
+# Runtime env injected by bactflow.sh (session hard caps):
+#   BACTFLOW_CPUS, BACTFLOW_MEMORY / BACTFLOW_MEMORY_GB, BACTFLOW_LAUNCH_FILE
+#   Entrypoint writes ~/.bactflow/launch.json so the UI form + gauges + Nextflow
+#   stay within --cpus / --memory for the whole session.
 
 
 # ─── Main conda environment ───────────────────────────────────────────────────
@@ -246,6 +253,10 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
     && test -x /app/UI/post_assem_app/mlst_run.sh \
     && test -f /app/UI/post_assem_app/genome_report.py \
     && test -e /app/app.py \
+    && test -f /app/UI/bactflow_app/memory_cap.py \
+    && test -f /app/UI/bactflow_app/static/js/chrome.js \
+    && test -f /app/UI/pre_assem_app/static/js/pre-dashboard.js \
+    && python -c "import sys; sys.path.insert(0,'/app/UI/bactflow_app'); from memory_cap import parse_and_cap_cpus, env_launch_cpus; assert parse_and_cap_cpus(99, host=12) >= 1" \
     && rm -rf /root/.nextflow/cache /tmp/* /root/.cache \
     && conda info --base | grep -qx /opt/conda \
     && conda env list --json | grep -q bactflow \
@@ -254,6 +265,11 @@ RUN mkdir -p /opt/conda/envs/bactflow/etc/conda/activate.d /opt/conda/condabin \
 WORKDIR /app
 ENV BACTFLOW_MODULE=ui
 ENV BACTFLOW_HOST_PORT=5000
+# Optional session caps (set by bactflow.sh --cpus / --memory at run time):
+# ENV BACTFLOW_CPUS=
+# ENV BACTFLOW_MEMORY=
+# ENV BACTFLOW_MEMORY_GB=
+# ENV BACTFLOW_LAUNCH_FILE=
 
 EXPOSE 5000
 HEALTHCHECK --interval=20s --timeout=8s --start-period=45s --retries=8 \

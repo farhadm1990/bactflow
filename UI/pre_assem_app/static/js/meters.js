@@ -112,8 +112,16 @@ const BactflowMeters = {
     );
     if (cpuVal) {
       cpuVal.classList.remove("is-missing");
+      const asked = parseInt(((document.getElementById("cpus") || {}).value || "").trim(), 10);
+      const launch = Number(window.__BACTFLOW_LAUNCH_CPUS__) || Number(s.cpu_budget);
+      const session =
+        Number.isFinite(launch) && launch > 0
+          ? launch
+          : Number.isFinite(asked) && asked > 0
+            ? asked
+            : s.cpu_count;
       const jobBit = s.running && s.job_cores != null
-        ? ` · <span class="job">job ${s.job_cores}/${s.cpu_count} cores</span>`
+        ? ` · <span class="job">job ${s.job_cores}/${session} cores</span>`
         : "";
       cpuVal.innerHTML = `${Number(s.cpu_percent || 0).toFixed(1)}%${jobBit}`;
     }

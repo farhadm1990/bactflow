@@ -81,7 +81,9 @@
 
             <div class="mb-3">
               <label for="cpus" class="form-label">CPUs</label>
-              <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1"  value="1"/>
+              <input type="number" class="form-control" id="cpus" name="cpus" placeholder="1" value="{{ form_cpus|default(1) }}"/>
+              <div class="form-text" id="cpus-hint"></div>
+              <script>window.__BACTFLOW_LAUNCH_CPUS__ = {{ form_cpus|default(1)|int }};</script>
             </div>
             <div class="mb-3">
               <label for="memory_gb" class="form-label">Memory (GB)</label>
@@ -405,8 +407,8 @@
 <!-- DataTables JS -->
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.js"></script>
 <script src="{{ url_for('static', filename = 'js/pre-assem.js') }}?v=pbtitle14"></script>
-<script src="{{ url_for('static', filename = 'js/meters.js') }}?v=2"></script>
-<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre20"></script>
+<script src="{{ url_for('static', filename = 'js/meters.js') }}?v=7"></script>
+<script src="{{ url_for('static', filename = 'js/pre-dashboard.js') }}?v=pre26"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
 <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
 <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

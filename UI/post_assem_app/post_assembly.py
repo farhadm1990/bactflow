@@ -104,6 +104,11 @@ def _memory_from_form():
     return parse_and_cap(request.form.get("memory_gb"))
 
 
+def _cpus_from_form(default=1):
+    from memory_cap import parse_and_cap_cpus
+    return parse_and_cap_cpus(request.form.get("cpus") or default)
+
+
 def _truthy(value, default=False):
     if value is None or str(value).strip() == "":
         return default
@@ -165,7 +170,13 @@ def _selected_gene_types():
 @app.route('/',  methods =['GET', 'POST'])
 def assembly():
 
-    return render_template('post-assembly.html')
+    try:
+        from memory_cap import default_cpus, env_launch_cpus
+
+        form_cpus = int(env_launch_cpus() or default_cpus())
+    except Exception:
+        form_cpus = 1
+    return render_template("post-assembly.html", form_cpus=form_cpus)
 
 
 def _ui_port(default=5001):
@@ -594,7 +605,7 @@ def run_bactflow():
             
             
             setup_only = request.form.get("setup_only", 'false')
-            cpus = request.form.get('cpus', 1)   
+            cpus = _cpus_from_form()   
             out_dir = os.path.abspath((request.form.get('out_dir') or './bactflow_out').strip())
             genome_extension = request.form.get('genome_extension', 'fasta')
             checkm_lineag_check = request.form.get('checkm_lineag_check', 'false')
@@ -903,9 +914,19 @@ def _build_sys_stats():
     ram_used_gb, ram_total_gb, ram_percent, mem_src = _docker_aware_memory(
         ram_used_gb, ram_total_gb, ram_percent
     )
+    cpu_budget = ncpu
+    try:
+        from memory_cap import env_launch_cpus
+
+        launch_cpus = env_launch_cpus()
+        if launch_cpus:
+            cpu_budget = max(1, min(int(launch_cpus), ncpu))
+    except Exception:
+        pass
     payload = {
         "cpu_percent": cpu,
         "cpu_count": ncpu,
+        "cpu_budget": cpu_budget,
         "ram_percent": ram_percent,
         "ram_used_gb": ram_used_gb,
         "ram_total_gb": ram_total_gb,
@@ -1779,7 +1800,7 @@ def snp_finder():
     out_dir = request.form.get("out_dir")
     genomes = request.form.get("genome_dir")
     reference = request.form.get("ref_genome")
-    cpus = request.form.get("cpus")
+    cpus = _cpus_from_form()
     if not reference:
         return jsonify({"exists": False, "error": "Select a reference (wild type) genome first."}), 400
     if not genomes:
@@ -1846,7 +1867,7 @@ def svs_finder():
     out_dir = request.form.get("out_dir")
     genomes = request.form.get("genome_dir")
     reference = request.form.get("ref_genome")
-    cpus = request.form.get("cpus")
+    cpus = _cpus_from_form()
     if not reference:
         return jsonify({"exists": False, "error": "Select a reference (wild type) genome first."}), 400
     if not genomes:

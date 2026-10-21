@@ -86,6 +86,12 @@ def _memory_from_form(form=None):
     return parse_and_cap(src.get("memory_gb"))
 
 
+def _cpus_from_form(form=None, default=1):
+    from memory_cap import parse_and_cap_cpus
+    src = form if form is not None else request.form
+    return parse_and_cap_cpus(src.get("cpus") if hasattr(src, "get") else default)
+
+
 def _busy_json(message):
     return jsonify({"error": message, "message": message, "running": True}), 409
 
@@ -347,7 +353,7 @@ def run_illumina_filter(form, report_progress=False):
     fastq_dir = (form.get("fastq_dir") or "").strip()
     out_dir = (form.get("out_dir") or "./bactflow_out").strip()
     try:
-        cpus = max(1, int(form.get("cpus") or 1))
+        cpus = _cpus_from_form(form)
     except ValueError:
         cpus = 1
     try:
@@ -507,7 +513,7 @@ def run_long_read_filter(form, report_progress=False):
         return None, err
     out_dir = (form.get("out_dir") or "./bactflow_out").strip()
     try:
-        cpus = max(1, int(form.get("cpus") or 1))
+        cpus = _cpus_from_form(form)
     except ValueError:
         cpus = 1
     try:
@@ -657,7 +663,13 @@ def run_bact(command, process_status, output_queue):
 @app.route('/',  methods =['GET', 'POST'])
 def preassembly():
     
-    return render_template('pre-assembly.html')
+    try:
+        from memory_cap import default_cpus, env_launch_cpus
+
+        form_cpus = int(env_launch_cpus() or default_cpus())
+    except Exception:
+        form_cpus = 1
+    return render_template("pre-assembly.html", form_cpus=form_cpus)
 
 def _ui_port(default=5000):
     try:
@@ -738,7 +750,7 @@ def install_bactflow():
         mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
         from memory_cap import inject_nextflow_memory, preamble
         command = f"nextflow run {base_dir}/main.nf --setup_only true --out_dir {shlex.quote(str(out_dir))} -ansi-log true"
-        command = inject_nextflow_memory(command, out_dir, request.form.get("cpus") or 1, mem_gb)
+        command = inject_nextflow_memory(command, out_dir, _cpus_from_form(), mem_gb)
         command = preamble(mem_gb, mem_host, mem_capped) + command
         command = with_nextflow_java(command, mem_gb)
 
@@ -777,7 +789,7 @@ def _ls_fastq_body():
         extension = (request.form.get("extension") or "auto").strip() or "auto"
         out_dir = (request.form.get("out_dir") or "").strip()
         try:
-            cpus = max(1, int(request.form.get("cpus") or 1))
+            cpus = _cpus_from_form()
         except ValueError:
             cpus = 1
         if out_dir:
@@ -941,7 +953,7 @@ def stat_reads():
 def _stat_reads_body():
     try:
         try:
-            cpus = max(1, int(request.form.get("cpus") or 1))
+            cpus = _cpus_from_form()
         except ValueError:
             cpus = 1
 
@@ -1638,7 +1650,7 @@ def plot_qual():
 def _plot_qual_body():
     declared = (request.form.get("read_platform") or "auto").lower()
     try:
-        cpus = max(1, int(request.form.get("cpus") or 4))
+        cpus = _cpus_from_form(default=4)
     except ValueError:
         cpus = 4
 
@@ -1751,6 +1763,51 @@ _SYS_STATS = {}
 _SYS_STATS_LOCK = threading.Lock()
 _SYS_STATS_JSON = os.path.join(base_dir, "static", "sys_stats.json")
 _CPU_SAMPLE = {"idle": None, "total": None}
+_JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
+
+
+def _manager_get(key, default=None):
+    try:
+        return process_status[key]
+    except Exception:
+        return default
+
+
+def _job_resource_stats(pid):
+    """CPU cores and RSS for the QC/Nextflow process tree."""
+    global _JOB_CPU_CACHE
+    if psutil is None:
+        return None
+    try:
+        parent = psutil.Process(int(pid))
+        procs = [parent] + parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+        _JOB_CPU_CACHE = {"pid": None, "stamp": 0.0, "cpu_sec": 0.0}
+        return None
+
+    cpu_sec = 0.0
+    rss = 0
+    for proc in procs:
+        try:
+            times = proc.cpu_times()
+            cpu_sec += times.user + times.system
+            rss += proc.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    now = time.time()
+    cores = 0.0
+    if _JOB_CPU_CACHE["pid"] == pid and _JOB_CPU_CACHE["stamp"]:
+        dt = max(now - _JOB_CPU_CACHE["stamp"], 1e-3)
+        cores = max(cpu_sec - _JOB_CPU_CACHE["cpu_sec"], 0.0) / dt
+    _JOB_CPU_CACHE = {"pid": pid, "stamp": now, "cpu_sec": cpu_sec}
+    ncpu = psutil.cpu_count() or 1
+    return {
+        "job_cores": round(cores, 2),
+        "job_cpu_percent": round(min(100.0, cores / ncpu * 100.0), 1),
+        "job_rss_gb": round(rss / (1024 ** 3), 2),
+        "job_procs": len(procs),
+    }
 
 
 def _read_proc_cpu_times():
@@ -1947,20 +2004,36 @@ def _build_sys_stats():
     if mem_src == "docker":
         source = f"{source}+docker"
 
-    return {
+    cpu_budget = ncpu
+    try:
+        from memory_cap import env_launch_cpus
+
+        launch_cpus = env_launch_cpus()
+        if launch_cpus:
+            cpu_budget = max(1, min(int(launch_cpus), ncpu))
+    except Exception:
+        pass
+    payload = {
         "cpu_percent": round(cpu, 1),
         "cpu_count": ncpu,
+        "cpu_budget": cpu_budget,
         "ram_percent": round(ram_percent, 1),
         "ram_used_gb": ram_used_gb,
         "ram_total_gb": ram_total_gb,
         "ram_scope": mem_src,
-        "running": False,
+        "running": bool(_manager_get("running", False)),
         "job_cores": None,
         "job_cpu_percent": None,
         "job_rss_gb": None,
         "job_procs": 0,
         "source": source,
     }
+    pid = _manager_get("pid")
+    if payload["running"] and pid:
+        job = _job_resource_stats(pid)
+        if job:
+            payload.update(job)
+    return payload
 
 
 def _write_sys_stats_file(payload):

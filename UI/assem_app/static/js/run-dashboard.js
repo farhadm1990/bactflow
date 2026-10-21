@@ -1256,8 +1256,19 @@
     },
 
     requestedCores() {
+      const launch =
+        Number(window.__BACTFLOW_LAUNCH_CPUS__) ||
+        Number((this.lastStats || {}).cpu_budget) ||
+        0;
       const n = parseInt(((document.getElementById("cpus") || {}).value || "").trim(), 10);
-      return Number.isFinite(n) && n > 0 ? n : 0;
+      let asked = Number.isFinite(n) && n > 0 ? n : 0;
+      if (!asked && launch > 0) {
+        asked = launch;
+      }
+      if (launch > 0 && asked > 0) {
+        return Math.min(asked, launch);
+      }
+      return asked || (launch > 0 ? launch : 0);
     },
 
     requestedMemoryGb() {
@@ -1265,17 +1276,22 @@
       return Number.isFinite(n) && n > 0 ? n : 0;
     },
 
-    cpuBudgetLabel(hostCount) {
-      const asked = this.requestedCores();
-      const host = Number(hostCount) || 0;
-      if (asked && host && asked !== host) {
-        return `${asked} of ${host} cores`;
+    cpuBudgetLabel(_hostCount, budgetHint) {
+      // Denominator is the session --cpus budget (like memory GB cap), not host cores.
+      const budget =
+        Number(window.__BACTFLOW_LAUNCH_CPUS__) ||
+        Number(budgetHint) ||
+        this.requestedCores() ||
+        0;
+      const asked = this.requestedCores() || budget;
+      if (asked && budget) {
+        return `${asked} of ${budget} cores`;
       }
       if (asked) {
         return `${asked} cores`;
       }
-      if (host) {
-        return `${host} cores`;
+      if (budget) {
+        return `${budget} cores`;
       }
       return "";
     },
@@ -1310,7 +1326,7 @@
       }
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
-      this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count));
+      this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count, s.cpu_budget));
       this.setText("rd-ram-sub", cap ? `${Number(usedRam).toFixed(1)} / ${cap} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },

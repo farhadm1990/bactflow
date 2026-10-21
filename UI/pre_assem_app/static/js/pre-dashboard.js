@@ -855,13 +855,63 @@
       };
     },
 
+    requestedCores() {
+      const launch =
+        Number(window.__BACTFLOW_LAUNCH_CPUS__) ||
+        Number((this.lastStats || {}).cpu_budget) ||
+        0;
+      const n = parseInt(((document.getElementById("cpus") || {}).value || "").trim(), 10);
+      let asked = Number.isFinite(n) && n > 0 ? n : 0;
+      if (!asked && launch > 0) {
+        asked = launch;
+      }
+      // Session hard cap from bactflow.sh --cpus — never report above it.
+      if (launch > 0 && asked > 0) {
+        return Math.min(asked, launch);
+      }
+      return asked || (launch > 0 ? launch : 0);
+    },
+
     requestedMemoryGb() {
       const n = parseFloat(((document.getElementById("memory_gb") || {}).value || "").trim());
       return Number.isFinite(n) && n > 0 ? n : 0;
     },
 
+    cpuBudgetLabel(_hostCount, budgetHint) {
+      // Denominator is the session --cpus budget (like memory GB cap), not host cores.
+      const budget =
+        Number(window.__BACTFLOW_LAUNCH_CPUS__) ||
+        Number(budgetHint) ||
+        this.requestedCores() ||
+        0;
+      const asked = this.requestedCores() || budget;
+      if (asked && budget) {
+        return `${asked} of ${budget} cores`;
+      }
+      if (asked) {
+        return `${asked} cores`;
+      }
+      if (budget) {
+        return `${budget} cores`;
+      }
+      return "";
+    },
+
     renderGauges(s) {
-      const cpu = Math.max(0, Math.min(100, Number(s.cpu_percent) || 0));
+      if (s) {
+        this.lastStats = s;
+      } else {
+        s = this.lastStats || {};
+      }
+      const asked = this.requestedCores();
+      const jobCores = Number(s.job_cores);
+      const jobLive = s.running && Number.isFinite(jobCores);
+      let cpu = Number(s.cpu_percent) || 0;
+      // Scale against the user's CPU budget, not the whole host.
+      if (jobLive && asked) {
+        cpu = (jobCores / asked) * 100;
+      }
+      cpu = Math.max(0, Math.min(100, cpu));
       const cap = this.requestedMemoryGb() || Number(s.ram_total_gb) || 0;
       const jobRam = Number(s.job_rss_gb);
       const usedRam = s.running && Number.isFinite(jobRam) ? jobRam : Number(s.ram_used_gb) || 0;
@@ -878,7 +928,7 @@
       }
       this.setText("rd-cpu-pct", Math.round(cpu) + "%");
       this.setText("rd-ram-pct", Math.round(ram) + "%");
-      this.setText("rd-cpu-sub", s.cpu_count ? `${s.cpu_count} cores` : "");
+      this.setText("rd-cpu-sub", this.cpuBudgetLabel(s.cpu_count, s.cpu_budget));
       this.setText("rd-ram-sub", cap ? `${Number(usedRam).toFixed(1)} / ${cap} GB` : "");
       this.setText("rd-m-res", `${Math.round(cpu)}% / ${Math.round(ram)}%`);
     },
