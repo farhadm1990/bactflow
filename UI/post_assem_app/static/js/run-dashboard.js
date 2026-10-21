@@ -49,7 +49,7 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   };
 
-  const FAIL_RE = /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|ERROR: mlst|ERROR: No FASTA|exited with code\s+[1-9]/i;
+  const FAIL_RE = /ERROR ~|history\.lock|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|ERROR: mlst|ERROR: No FASTA|exited with code\s+[1-9]/i;
 
   const STEP_TARGETS = {
     envsetup: [".rd-logs"],
@@ -486,7 +486,7 @@
       if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
         this.markCompleted();
       }
-      if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
+      if (/Process failed|Nextflow exited with code\s+[1-9]|ERROR\s*~\s*\.nextflow\/history\.lock/i.test(line)) {
         this.failMessage = String(line || "").replace(/\s+/g, " ").slice(0, 180);
         this.markFailed("");
         return;
@@ -524,6 +524,15 @@
         this.endedAt = Date.now();
       }
       this.serverRunning = false;
+      if (typeof window.ensurePipelineStoppedOnFail === "function") {
+        window.ensurePipelineStoppedOnFail();
+      }
+      if (typeof BactflowProcessEta !== "undefined" && typeof BactflowProcessEta.finalizeAll === "function") {
+        BactflowProcessEta.finalizeAll(
+          typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null,
+          "failed"
+        );
+      }
     },
 
     markCompleted() {

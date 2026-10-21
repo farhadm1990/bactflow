@@ -569,12 +569,20 @@ def run_bact(
             output_history.append(line)
 
     os.close(master_fd)
+    shell_pid = process.pid
     exit_code = process.wait()
     stop_event.set()
     if log_thread:
         log_thread.join(timeout=2)
 
     process_status["exit_code"] = int(exit_code) if exit_code is not None else 1
+    # Reap session + orphans so a failed Nextflow cannot keep tools running
+    # after the UI has gone idle.
+    try:
+        _kill_process_tree(shell_pid)
+    except Exception:
+        _sweep_pipeline_leftovers()
+
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
         if cleanup_work and out_dir:
@@ -586,6 +594,7 @@ def run_bact(
                 output_queue.put(f"BactFlow: cleanup failed: {exc}")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
+        output_queue.put("BactFlow: cleaned up leftover pipeline processes.")
 
     process_status["running"] = False
     process_status["pid"] = None
@@ -651,6 +660,8 @@ def run_bactflow():
             command = None
             nf_work = _nf_work_dir(out_dir)
 
+            # Launch from writable out_dir — Nextflow writes $PWD/.nextflow/history.lock
+            # (Apptainer image cwd is read-only and used to fail here).
             command = f"""export TERM=dumb
                     mkdir -p '{out_dir}' '{nf_work}' || exit 1
                     if [ -z "${{NXF_HOME:-}}" ] || ! mkdir -p "$NXF_HOME" 2>/dev/null; then
@@ -659,7 +670,8 @@ def run_bactflow():
                     fi
                     export NXF_HOME="$(cd "$NXF_HOME" && pwd)"
                     export NXF_WORK='{nf_work}'
-                    cd '{base_dir}' && \\
+                    mkdir -p '{out_dir}/.nextflow' || exit 1
+                    cd '{out_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
                     -w '{nf_work}' \\
                     --setup_only {setup_only} \\
@@ -714,7 +726,11 @@ def run_bactflow():
             
         if action == "help":
             command = with_nextflow_java(
-                f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true"
+                f"export TERM=dumb; "
+                f"export NXF_HOME=\"${{NXF_HOME:-${{HOME:-/tmp}}/.nextflow}}\"; "
+                f"mkdir -p \"$NXF_HOME\"; "
+                f"cd \"$(dirname \"$NXF_HOME\")\" && "
+                f"nextflow run {base_dir}/main.nf --help -ansi-log true"
             )
             ok, err = _lock_acquire("Post-assembly")
             if not ok:

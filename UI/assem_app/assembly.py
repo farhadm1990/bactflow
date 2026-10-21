@@ -372,6 +372,8 @@ def _pipeline_alive(pid):
 def _clear_run_state():
     process_status["running"] = False
     process_status["pid"] = None
+    process_status["worker_pid"] = None
+    process_status["exit_code"] = None
 
 
 def _drain_output_queue():
@@ -383,6 +385,75 @@ def _drain_output_queue():
         pass
 
 
+def _is_assembly_pipeline_cmdline(cmd):
+    """True for Nextflow/tool tasks belonging to this assembly app."""
+    if not cmd:
+        return False
+    # Never kill the UI / hub itself.
+    if "assembly.py" in cmd or "bactflow_app/app.py" in cmd or "post_assembly.py" in cmd:
+        return False
+    root = str(base_dir)
+    markers = (
+        "nextflow",
+        "/main.nf",
+        "main.nf",
+        ".nextflow-work",
+        ".command.",
+        "bakta_annot.sh",
+        "circlator",
+        "flye",
+        "spades.py",
+        "unicycler",
+        "medaka",
+        "gtdbtk",
+        "checkm",
+        "genomad",
+        "quast",
+    )
+    if root in cmd and any(m in cmd for m in markers):
+        return True
+    # Java Nextflow one-jar / host nextflow often omit base_dir but still hold main.nf.
+    if "nextflow" in cmd and ("assem_app" in cmd or "main.nf" in cmd or "bactflow" in cmd.lower()):
+        return True
+    return False
+
+
+def _sweep_pipeline_leftovers():
+    """Kill leftover Nextflow/Java/tool processes for this assembly app."""
+    victims = []
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == os.getpid():
+                continue
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if _is_assembly_pipeline_cmdline(cmd):
+                victims.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    for proc in victims:
+        try:
+            for child in proc.children(recursive=True):
+                try:
+                    child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    time.sleep(0.25)
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == os.getpid():
+                continue
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if _is_assembly_pipeline_cmdline(cmd):
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+
 def _begin_run():
     """Mark running in the parent before the worker starts / before the client streams.
 
@@ -390,70 +461,48 @@ def _begin_run():
     and yields a completion line — the UI then paints every stage green while Nextflow
     is only just starting.
     """
+    # Drop orphans from a previous failed run before starting again.
+    _sweep_pipeline_leftovers()
     _drain_output_queue()
     output_history[:] = []
     process_status["running"] = True
     process_status["pid"] = None
+    process_status["worker_pid"] = None
+    process_status["exit_code"] = None
 
 
 def _kill_process_tree(pid):
-    """Force-stop a shell/Nextflow tree (SIGTERM then SIGKILL, including process group)."""
-    if not pid:
-        return False
-
-    try:
-        parent = psutil.Process(int(pid))
-    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
-        parent = None
-
-    targets = []
-    if parent is not None:
+    """Force-kill a shell/Nextflow tree and sweep orphans (all process groups)."""
+    if pid:
         try:
-            targets = parent.children(recursive=True)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            targets = []
-        targets.append(parent)
+            pid = int(pid)
+        except (TypeError, ValueError):
+            pid = None
 
-    try:
-        os.killpg(int(pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError, TypeError, ValueError):
-        pass
+    if pid:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
-    for proc in targets:
         try:
-            proc.terminate()
+            parent = psutil.Process(pid)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+            parent = None
 
-    gone, alive = psutil.wait_procs(targets, timeout=1.5)
-    for proc in alive:
-        try:
-            proc.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        if parent is not None:
+            try:
+                children = parent.children(recursive=True)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                children = []
+            for proc in children + [parent]:
+                try:
+                    proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
 
-    try:
-        os.killpg(int(pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError, TypeError, ValueError):
-        pass
-
-    leftovers = []
-    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-        try:
-            cmd = " ".join(proc.info.get("cmdline") or [])
-            if str(base_dir) in cmd and (
-                "nextflow" in cmd or "main.nf" in cmd or "bakta_annot.sh" in cmd
-            ):
-                leftovers.append(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
-    for proc in leftovers:
-        try:
-            proc.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-
+    _sweep_pipeline_leftovers()
     return True
 
 
@@ -565,10 +614,20 @@ def run_bact(
             output_history.append(line)
 
     os.close(master_fd)
+    shell_pid = process.pid
     exit_code = process.wait()
     stop_event.set()
     if log_thread:
         log_thread.join(timeout=2)
+
+    process_status["exit_code"] = int(exit_code) if exit_code is not None else 1
+
+    # Always reap the session + orphans. On error Nextflow/Java often outlive the
+    # shell, so the UI went idle while work kept running in the background.
+    try:
+        _kill_process_tree(shell_pid)
+    except Exception:
+        _sweep_pipeline_leftovers()
 
     if exit_code == 0:
         output_queue.put("BactFlow: Nextflow finished successfully.")
@@ -581,9 +640,11 @@ def run_bact(
                 output_queue.put(f"BactFlow: cleanup failed: {exc}")
     else:
         output_queue.put(f"BactFlow: Nextflow exited with code {exit_code}.")
+        output_queue.put("BactFlow: cleaned up leftover pipeline processes.")
 
     process_status["running"] = False
     process_status["pid"] = None
+    process_status["worker_pid"] = None
     try:
         _lock_release(pid=os.getpid())
     except Exception:
@@ -739,6 +800,9 @@ def run_bactflow():
             if not extension or extension == "auto":
                 extension = ".fastq.gz"
 
+            # Nextflow always creates ./history.lock under $PWD/.nextflow (not only
+            # NXF_HOME). Under Apptainer the image tree is read-only, so we must
+            # launch from a writable dir (out_dir), never cd into base_dir.
             command = f"""export TERM=dumb
                     mkdir -p '{out_dir}' '{_nf_work_dir(out_dir)}' || exit 1
                     if [ -z "${{NXF_HOME:-}}" ] || ! mkdir -p "$NXF_HOME" 2>/dev/null; then
@@ -747,7 +811,8 @@ def run_bactflow():
                     fi
                     export NXF_HOME="$(cd "$NXF_HOME" && pwd)"
                     export NXF_WORK='{_nf_work_dir(out_dir)}'
-                    cd '{base_dir}' && \\
+                    mkdir -p '{out_dir}/.nextflow' || exit 1
+                    cd '{out_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
                     -w '{_nf_work_dir(out_dir)}' \\
                     --setup_only {setup_only} \\
@@ -814,13 +879,24 @@ def run_bactflow():
             )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
-            process_status["pid"] = back_process.pid
+            process_status["worker_pid"] = back_process.pid
+            if not process_status.get("pid"):
+                process_status["pid"] = back_process.pid
 
             command = None
             return "Bactflow started successfully!\n", 200
             
         if action == "help":
-            command = with_nextflow_java(f"cd '{base_dir}' && nextflow run {base_dir}/main.nf --help -ansi-log true")
+            # Writable cwd required for .nextflow/history.lock (Apptainer RO image).
+            help_cwd = os.environ.get("NXF_HOME") or os.path.join(
+                os.environ.get("HOME") or "/tmp", ".nextflow"
+            )
+            command = with_nextflow_java(
+                f"export TERM=dumb; mkdir -p '{help_cwd}' '{os.path.dirname(help_cwd) or '/tmp'}' 2>/dev/null; "
+                f"export NXF_HOME='{help_cwd}'; "
+                f"cd \"$(dirname \"$NXF_HOME\")\" && "
+                f"nextflow run {base_dir}/main.nf --help -ansi-log true"
+            )
             ok, err = _lock_acquire("Assembly")
             if not ok:
                 return err + "\n", 409
@@ -831,37 +907,39 @@ def run_bactflow():
             )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
-            process_status["pid"] = back_process.pid
+            process_status["worker_pid"] = back_process.pid
+            if not process_status.get("pid"):
+                process_status["pid"] = back_process.pid
             
             command = None
             return "Bactflow started successfully!\n", 200
         
         if action == "stop":
             pid = process_status.get("pid")
-            was_running = bool(process_status.get("running")) or _pipeline_alive(pid)
+            worker_pid = process_status.get("worker_pid")
+            was_running = (
+                bool(process_status.get("running"))
+                or _pipeline_alive(pid)
+                or _pipeline_alive(worker_pid)
+            )
             _clear_run_state()
             _lock_release()
             try:
                 if pid:
                     _kill_process_tree(pid)
-                for proc in psutil.process_iter(["pid", "cmdline"]):
-                    try:
-                        cmd = " ".join(proc.info.get("cmdline") or [])
-                        if str(base_dir) in cmd and (
-                            "nextflow" in cmd or "main.nf" in cmd or "bakta_annot.sh" in cmd
-                        ):
-                            proc.kill()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
+                if worker_pid and worker_pid != pid:
+                    _kill_process_tree(worker_pid)
+                _sweep_pipeline_leftovers()
                 try:
                     output_queue.put("BactFlow: stopped by user.")
                 except Exception:
                     pass
-                if was_running or pid:
+                if was_running or pid or worker_pid:
                     return "Bactflow stopped successfully!\n", 200
                 return "No running process to stop.\n", 200
             except Exception as e:
                 _clear_run_state()
+                _sweep_pipeline_leftovers()
                 return f"Error stopping process: {str(e)}\n", 500
 
         return f"Unknown action: {action}\n", 400

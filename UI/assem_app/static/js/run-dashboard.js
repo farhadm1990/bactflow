@@ -48,7 +48,7 @@
   };
 
   const FAIL_RE =
-    /ERROR ~|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|No ONT FASTQ|No PacBio FASTQ|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|exited with code\s+[1-9]/i;
+    /ERROR ~|history\.lock|Execution aborted|terminated with an error|Error executing process|Failed to start|WorkflowScriptError|does not exist|No ONT FASTQ|No PacBio FASTQ|Nextflow exited with code|Process failed|Command exit status:\s*[1-9]|Command error|exited with code\s+[1-9]/i;
 
   function cleanFailMessage(line) {
     return String(line || "")
@@ -504,7 +504,7 @@
       if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
         this.markCompleted();
       }
-      if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
+      if (/Process failed|Nextflow exited with code\s+[1-9]|ERROR\s*~\s*\.nextflow\/history\.lock/i.test(line)) {
         this.failMessage = cleanFailMessage(line) || this.failMessage;
         this.markFailed("");
         return;
@@ -535,11 +535,22 @@
       }
       this.failed = true;
       this.nfFinished = false;
+      this.serverRunning = false;
       if (procName && !this.failedProc) {
         this.failedProc = norm(procName);
       }
       if (!this.endedAt) {
         this.endedAt = Date.now();
+      }
+      // Server-side: kill Nextflow/Java/tool orphans even if the UI already looks idle.
+      if (typeof window.ensurePipelineStoppedOnFail === "function") {
+        window.ensurePipelineStoppedOnFail();
+      }
+      if (typeof BactflowProcessEta !== "undefined" && typeof BactflowProcessEta.finalizeAll === "function") {
+        BactflowProcessEta.finalizeAll(
+          typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null,
+          "failed"
+        );
       }
     },
 

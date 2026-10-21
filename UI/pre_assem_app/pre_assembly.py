@@ -749,7 +749,13 @@ def install_bactflow():
 
         mem_gb, mem_capped, mem_host, _max_gb = _memory_from_form()
         from memory_cap import inject_nextflow_memory, preamble
-        command = f"nextflow run {base_dir}/main.nf --setup_only true --out_dir {shlex.quote(str(out_dir))} -ansi-log true"
+        # Writable cwd required: Nextflow creates $PWD/.nextflow/history.lock
+        # (fails under Apptainer if cwd is the read-only image tree).
+        command = (
+            f"mkdir -p {shlex.quote(str(out_dir))} {shlex.quote(str(out_dir))}/.nextflow && "
+            f"cd {shlex.quote(str(out_dir))} && "
+            f"nextflow run {base_dir}/main.nf --setup_only true --out_dir {shlex.quote(str(out_dir))} -ansi-log true"
+        )
         command = inject_nextflow_memory(command, out_dir, _cpus_from_form(), mem_gb)
         command = preamble(mem_gb, mem_host, mem_capped) + command
         command = with_nextflow_java(command, mem_gb)

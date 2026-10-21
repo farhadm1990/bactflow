@@ -369,14 +369,24 @@
     }
   }
 
+  function notifyModulesReset(info) {
+    const payload = { type: "bactflow-workspace-reset", info: info || { running: false } };
+    document.querySelectorAll("iframe[data-bf-view]").forEach((frame) => {
+      try {
+        frame.contentWindow.postMessage(payload, window.location.origin);
+      } catch (err) {
+        /* iframe may not be ready */
+      }
+    });
+    // Also tell this window when a module page is open top-level (not in the hub shell).
+    try {
+      window.postMessage(payload, window.location.origin);
+    } catch (err) {
+      /* ignore */
+    }
+  }
+
   async function resetWorkspace(btn) {
-    const busyLabel = (document.getElementById("bf-run-status") || {}).textContent || "";
-    const ok = window.confirm(
-      busyLabel && /running/i.test(busyLabel)
-        ? `${busyLabel}.\n\nStop any stalled job, clear the run lock, and free the workspace?`
-        : "Clear any stalled run lock and free the workspace?"
-    );
-    if (!ok) return;
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Resetting…";
@@ -385,13 +395,13 @@
       const res = await fetch("/run-lock/reset", { method: "POST", cache: "no-store" });
       const data = res.ok ? await res.json() : null;
       if (!res.ok) {
-        window.alert((data && data.message) || "Could not reset the workspace.");
         return;
       }
-      applyLock(data);
-      window.alert(data.message || "Workspace is free.");
+      // Tell every module iframe to flip Run/Stop buttons and freeze the progress UI.
+      notifyModulesReset(data);
+      applyLock(data || { running: false });
     } catch (err) {
-      window.alert("Could not reset the workspace.");
+      /* silent — status poll will refresh the chrome badge */
     } finally {
       if (btn) {
         btn.disabled = false;

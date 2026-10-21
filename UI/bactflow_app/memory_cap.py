@@ -306,9 +306,9 @@ def preamble(mem_gb: int, host: int, capped: bool) -> str:
     else:
         enforce = "Nextflow only (soft — start with docker --memory for a hard OS cap)"
 
-    # Nextflow needs a writable NXF_HOME before history.lock. Under Apptainer the
-    # pipeline `cd`s into the image tree (read-only), so relative .nextflow/ fails
-    # unless NXF_HOME points at a bound writable directory (work dir / out_dir).
+    # Nextflow writes $PWD/.nextflow/history.lock (and uses NXF_HOME for caches).
+    # Under Apptainer the image tree is read-only — callers must cd to out_dir /
+    # work dir before `nextflow`, and NXF_HOME must be a writable absolute path.
     setup = (
         "export TERM=dumb\n"
         "if [ -z \"${NXF_HOME:-}\" ]; then\n"
@@ -323,6 +323,7 @@ def preamble(mem_gb: int, host: int, capped: bool) -> str:
         "  }\n"
         "}\n"
         "export NXF_HOME=\"$(cd \"$NXF_HOME\" && pwd)\"\n"
+        "mkdir -p \"$PWD/.nextflow\" 2>/dev/null || true\n"
     )
 
     note = (

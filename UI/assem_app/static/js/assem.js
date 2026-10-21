@@ -163,6 +163,7 @@ function prepareFreshRunUI() {
   disconnectStream();
   clearResultPanels();
   BactflowTerminal.clear();
+  window.__bactflowStopOnFailSent = false;
   if (window.BactflowRunDashboard && typeof BactflowRunDashboard.clearFailState === "function") {
     BactflowRunDashboard.clearFailState();
     BactflowRunDashboard.startedAt = Date.now();
@@ -182,6 +183,60 @@ function prepareFreshRunUI() {
   setTerminalVisible(true);
   setResultsOpen(false);
 }
+
+/** Ask the server to kill Nextflow/tool orphans after a failure (UI may already be idle). */
+function ensurePipelineStoppedOnFail() {
+  if (window.__bactflowStopOnFailSent) {
+    return;
+  }
+  window.__bactflowStopOnFailSent = true;
+  updateButtonStates("stopped");
+  fetch("/run_bactflow?action-assem=stop", { method: "POST" }).catch(() => {});
+}
+window.ensurePipelineStoppedOnFail = ensurePipelineStoppedOnFail;
+
+/** Hub Reset button: hard-stop pipeline UI + server workers. */
+function applyWorkspaceReset() {
+  window.__bactflowUserStopped = true;
+  window.__bactflowStopOnFailSent = true;
+  disconnectStream();
+  fetch("/run_bactflow?action-assem=stop", { method: "POST" }).catch(() => {});
+  updateButtonStates("stopped");
+  const dash = window.BactflowRunDashboard;
+  if (dash) {
+    dash.stopping = true;
+    dash.failed = false;
+    dash.nfFinished = false;
+    dash.serverRunning = false;
+    dash.endedAt = Date.now();
+    if (typeof dash.freeze === "function") {
+      dash.freeze();
+    }
+    if (typeof dash.render === "function") {
+      dash.render();
+    }
+  }
+  if (typeof BactflowProcessEta !== "undefined" && typeof BactflowProcessEta.finalizeAll === "function") {
+    BactflowProcessEta.finalizeAll(
+      typeof BactflowTerminal !== "undefined" ? BactflowTerminal : null,
+      "stopped"
+    );
+  }
+  if (typeof BactflowTerminal !== "undefined" && typeof BactflowTerminal.setStatus === "function") {
+    BactflowTerminal.setStatus("Stopped by workspace reset", "warn");
+    BactflowTerminal.append("BactFlow: workspace reset — pipeline stopped.", true);
+  }
+}
+window.applyWorkspaceReset = applyWorkspaceReset;
+
+window.addEventListener("message", (e) => {
+  if (e.origin !== window.location.origin) {
+    return;
+  }
+  if (e.data && e.data.type === "bactflow-workspace-reset") {
+    applyWorkspaceReset();
+  }
+});
 
 // function update buttons
 function updateButtonStates(status) {

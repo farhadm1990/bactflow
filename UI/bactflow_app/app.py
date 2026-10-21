@@ -61,36 +61,93 @@ def run_lock_status():
     return jsonify(snapshot())
 
 
+def _force_stop_module(mod):
+    """Kill Nextflow/tool trees for a QC/Assembly/Post module, then clear its run flags."""
+    status = getattr(mod, "process_status", None)
+    pids = []
+    if status is not None:
+        for key in ("pid", "worker_pid"):
+            try:
+                raw = status.get(key)
+            except Exception:
+                raw = None
+            if raw:
+                try:
+                    pids.append(int(raw))
+                except (TypeError, ValueError):
+                    pass
+
+    kill_fn = getattr(mod, "_kill_process_tree", None)
+    sweep_fn = getattr(mod, "_sweep_pipeline_leftovers", None)
+    for pid in pids:
+        if callable(kill_fn):
+            try:
+                kill_fn(pid)
+            except Exception:
+                pass
+    if callable(sweep_fn):
+        try:
+            sweep_fn()
+        except Exception:
+            pass
+    # Fallback: terminate stored PIDs even if the module has no helpers.
+    if not callable(kill_fn):
+        from run_lock import _terminate_tree
+
+        for pid in pids:
+            try:
+                _terminate_tree(pid)
+            except Exception:
+                pass
+
+    clear_fn = getattr(mod, "_clear_run_state", None)
+    if callable(clear_fn):
+        try:
+            clear_fn()
+        except Exception:
+            pass
+    if status is not None:
+        try:
+            status["running"] = False
+        except Exception:
+            pass
+        for key in ("pid", "worker_pid", "exit_code"):
+            try:
+                status[key] = None
+            except Exception:
+                pass
+
+
 @hub.route("/run-lock/reset", methods=["POST"])
 def run_lock_reset():
-    """Clear a stalled run lock, stop its worker if any, and free module slots."""
-    result = force_reset()
+    """Stop any module pipeline, clear the run lock, and free module slots."""
+    # Stop pipelines first (while PIDs are still known), then clear the lock file.
     for mod in (qc_mod, assem_mod, post_mod):
+        try:
+            _force_stop_module(mod)
+        except Exception:
+            pass
+    result = force_reset()
+    # Second pass in case a worker re-spawned children during lock clear.
+    for mod in (qc_mod, assem_mod, post_mod):
+        try:
+            sweep_fn = getattr(mod, "_sweep_pipeline_leftovers", None)
+            if callable(sweep_fn):
+                sweep_fn()
+        except Exception:
+            pass
         try:
             clear_fn = getattr(mod, "_clear_run_state", None)
             if callable(clear_fn):
                 clear_fn()
         except Exception:
             pass
-        try:
-            status = getattr(mod, "process_status", None)
-            if status is not None:
-                status["running"] = False
-                try:
-                    status["pid"] = None
-                except Exception:
-                    pass
-                try:
-                    status["exit_code"] = None
-                except Exception:
-                    pass
-        except Exception:
-            pass
     payload = snapshot()
     payload.update(result)
     payload["ok"] = True
+    payload["stopped"] = True
     payload["message"] = (
-        "Cleared stalled run lock"
+        "Stopped running jobs and cleared the run lock"
         + (f" ({result.get('label')})" if result.get("label") else "")
         + ". Workspace is free."
     )
