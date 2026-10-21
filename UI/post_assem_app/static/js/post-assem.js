@@ -75,10 +75,14 @@ function connectToStream(action){
       updateButtonStates("stopped");
       return;
     }
-    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+    const dash = window.BactflowRunDashboard;
+    const stillUp = !!(dash && dash.serverRunning);
+    if (!stillUp) {
+      BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+      updateButtonStates("stopped");
+    }
     BactflowTerminal.append("Stream disconnected.", true);
-    BactflowTerminal.setStatus("Stream disconnected", "warn");
-    updateButtonStates("stopped");
+    BactflowTerminal.setStatus(stillUp ? "Stream disconnected — pipeline may still be running" : "Stream disconnected", "warn");
   };
 }
 
@@ -210,13 +214,20 @@ function prepareFreshRunUI() {
   resultsAutoShown = false;
   runFinishedSuccess = false;
   if (window.BactflowRunDashboard) {
-    BactflowRunDashboard.nfFinished = false;
-    BactflowRunDashboard.stopping = false;
-    BactflowRunDashboard.frozenRows = null;
-    BactflowRunDashboard.frozenKey = null;
-    BactflowRunDashboard.frozenPainted = false;
-    BactflowRunDashboard.failed = false;
-    BactflowRunDashboard.endedAt = null;
+    if (typeof BactflowRunDashboard.clearFailState === "function") {
+      BactflowRunDashboard.clearFailState();
+    } else {
+      BactflowRunDashboard.nfFinished = false;
+      BactflowRunDashboard.stopping = false;
+      BactflowRunDashboard.frozenRows = null;
+      BactflowRunDashboard.frozenKey = null;
+      BactflowRunDashboard.frozenPainted = false;
+      BactflowRunDashboard.failed = false;
+      BactflowRunDashboard.endedAt = null;
+    }
+    BactflowRunDashboard.startedAt = Date.now();
+    BactflowRunDashboard.launchAt = BactflowRunDashboard.startedAt;
+    BactflowRunDashboard.serverRunning = true;
   }
   setTerminalVisible(true);
   setResultsOpen(false);

@@ -63,12 +63,18 @@ function connectToStream(action){
       return;
     }
     flushLog();
-    BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+    // Do not seal stages on a transient SSE drop while the pipeline may still
+    // be running — only mark stopped if the server says the job ended.
+    const dash = window.BactflowRunDashboard;
+    const stillUp = !!(dash && dash.serverRunning);
+    if (!stillUp) {
+      BactflowProcessEta.finalizeAll(BactflowTerminal, "stopped");
+      updateButtonStates("stopped");
+    }
     BactflowTerminal.append("Stream disconnected.", true);
-    BactflowTerminal.setStatus("Stream disconnected", "warn");
+    BactflowTerminal.setStatus(stillUp ? "Stream disconnected — pipeline may still be running" : "Stream disconnected", "warn");
     eventSource.close();
     eventSource = null;
-    updateButtonStates("stopped");
   };
 }
 
@@ -157,6 +163,12 @@ function prepareFreshRunUI() {
   disconnectStream();
   clearResultPanels();
   BactflowTerminal.clear();
+  if (window.BactflowRunDashboard && typeof BactflowRunDashboard.clearFailState === "function") {
+    BactflowRunDashboard.clearFailState();
+    BactflowRunDashboard.startedAt = Date.now();
+    BactflowRunDashboard.launchAt = BactflowRunDashboard.startedAt;
+    BactflowRunDashboard.serverRunning = true;
+  }
   BactflowTerminal.setStatus("Starting...", "run");
   quastShown = false;
   baktaShown = false;

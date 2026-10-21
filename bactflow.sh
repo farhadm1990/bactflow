@@ -184,18 +184,24 @@ ensure_port_free() {
 }
 
 ui_matches_launch_budget() {
-    # True if /run-lock from HOST_PORT reports our --cpus (new UI). Old images lack the field.
+    # 0 = match, 1 = no/failed response, 2 = UI up but old image (no launch_cpus field).
     local port="$1"
     local want="$2"
     local body
     body="$(curl -fsS "http://127.0.0.1:${port}/run-lock" 2>/dev/null || true)"
     [[ -n "${body}" ]] || return 1
     if [[ "${want}" =~ ^[0-9]+$ ]]; then
-        echo "${body}" | grep -qE "\"launch_cpus\"[[:space:]]*:[[:space:]]*${want}\\b"
-        return $?
+        if echo "${body}" | grep -qE "\"launch_cpus\"[[:space:]]*:[[:space:]]*${want}\\b"; then
+            return 0
+        fi
+        if echo "${body}" | grep -qE "\"launch_cpus\""; then
+            return 1
+        fi
+        # Hub/old SIF has no launch_cpus — not a "leftover", just an old image.
+        return 2
     fi
-    # No numeric budget requested — any modern payload with host_cpus is fine.
-    echo "${body}" | grep -qE "\"host_cpus\""
+    echo "${body}" | grep -qE "\"host_cpus\"" && return 0
+    return 2
 }
 
 normalize_service() {
@@ -676,17 +682,33 @@ wait_for_ui() {
     fi
     echo -e "${BLUE}Waiting for the UI to become ready...${NC}"
     READY=false
-    local i matched=false
+    local i matched=false match_rc=1 warned_old=false
     for i in $(seq 1 90); do
-        if curl -fsS -o /dev/null "http://127.0.0.1:${HOST_PORT}/"; then
+        if curl -fsS -o /dev/null "http://127.0.0.1:${HOST_PORT}/" 2>/dev/null; then
             READY=true
-            if [[ -z "${want_cpus}" ]] || ui_matches_launch_budget "${HOST_PORT}" "${want_cpus}"; then
+            if [[ -z "${want_cpus}" ]]; then
                 matched=true
                 break
             fi
-            # Port answers but it is an OLD leftover UI (wrong/missing launch_cpus).
-            if (( i >= 5 )); then
-                echo -e "${RED}Error:${NC} http://127.0.0.1:${HOST_PORT} is up but it is not this launch (expected --cpus ${want_cpus})."
+            ui_matches_launch_budget "${HOST_PORT}" "${want_cpus}"
+            match_rc=$?
+            if [[ "${match_rc}" -eq 0 ]]; then
+                matched=true
+                break
+            fi
+            if [[ "${match_rc}" -eq 2 ]]; then
+                # Old Hub SIF/image: accept UI, warn once (budget still via env/launch.json).
+                if [[ "${warned_old}" != true ]]; then
+                    echo -e "${YELLOW}Note: UI image has no launch_cpus in /run-lock (older build).${NC}"
+                    echo -e "${YELLOW}Soft --cpus ${want_cpus} still applied via env. Rebuild with --local --pull for full caps.${NC}"
+                    warned_old=true
+                fi
+                matched=true
+                break
+            fi
+            # Wrong launch_cpus value → likely a leftover UI on this port.
+            if (( i >= 8 )); then
+                echo -e "${RED}Error:${NC} http://127.0.0.1:${HOST_PORT} answered but reported a different CPU budget than --cpus ${want_cpus}."
                 echo "A leftover Docker/Apptainer UI is probably still bound to that port."
                 echo "Stop it (docker stop \$(docker ps -q --filter publish=${HOST_PORT})) and re-run."
                 exit 1
@@ -708,7 +730,7 @@ wait_for_ui() {
     fi
 
     echo -e "${GREEN}UI is ready at http://127.0.0.1:${HOST_PORT}${NC}"
-    if [[ -n "${want_cpus}" ]]; then
+    if [[ -n "${want_cpus}" && "${warned_old}" != true ]]; then
         echo -e "${GREEN}Launch CPU budget confirmed: ${want_cpus}${NC}"
     fi
     if [[ "${OPEN_BROWSER}" == true ]]; then
@@ -791,6 +813,11 @@ export_runtime_env() {
     export BACTFLOW_SERVICE="${SERVICE}"
     export HOME="${WORK_DIR}"
     export NXF_HOME="${WORK_DIR}/.nextflow"
+    # Writable Nextflow home (history.lock). Must exist before nextflow starts,
+    # especially under Apptainer where the pipeline cwd is inside the image.
+    mkdir -p "${NXF_HOME}" "${WORK_DIR}/.bactflow" 2>/dev/null || true
+    # Quiet "tput: unknown terminal" noise from tools inside the container.
+    export TERM=dumb
     if [[ -n "${MEM_VALUE}" && "${MEM_VALUE}" != auto* ]]; then
         export BACTFLOW_MEMORY="${MEM_VALUE}"
         export BACTFLOW_DOCKER_MEMORY="${MEM_VALUE}"

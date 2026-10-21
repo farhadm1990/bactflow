@@ -306,6 +306,25 @@ def preamble(mem_gb: int, host: int, capped: bool) -> str:
     else:
         enforce = "Nextflow only (soft — start with docker --memory for a hard OS cap)"
 
+    # Nextflow needs a writable NXF_HOME before history.lock. Under Apptainer the
+    # pipeline `cd`s into the image tree (read-only), so relative .nextflow/ fails
+    # unless NXF_HOME points at a bound writable directory (work dir / out_dir).
+    setup = (
+        "export TERM=dumb\n"
+        "if [ -z \"${NXF_HOME:-}\" ]; then\n"
+        "  export NXF_HOME=\"${HOME:-/tmp}/.nextflow\"\n"
+        "fi\n"
+        "mkdir -p \"$NXF_HOME\" 2>/dev/null || {\n"
+        "  export NXF_HOME=\"${TMPDIR:-/tmp}/bactflow-nextflow\"\n"
+        "  mkdir -p \"$NXF_HOME\" || {\n"
+        "    echo \"ERROR: cannot create Nextflow home (tried NXF_HOME and TMPDIR)\" >&2\n"
+        "    echo \"Use an --out_dir under the work directory you passed to bactflow.sh.\" >&2\n"
+        "    exit 1\n"
+        "  }\n"
+        "}\n"
+        "export NXF_HOME=\"$(cd \"$NXF_HOME\" && pwd)\"\n"
+    )
+
     note = (
         f"echo 'Memory cap: {int(mem_gb)} GB on a {int(host)} GB host "
         f"[{enforce}].'"
@@ -323,4 +342,4 @@ def preamble(mem_gb: int, host: int, capped: bool) -> str:
             "form value. Prefer: ./bactflow.sh run … --service docker --memory "
             f"{int(mem_gb)}g'"
         )
-    return note + "\n"
+    return setup + note + "\n"

@@ -277,8 +277,9 @@ def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
         r"(\[[0-9a-f/]+\]\s+(?:Submitted|Cached)\s+process\s+>\s+\S+(?:\s+\([^)]*\))?)",
         re.IGNORECASE,
     )
+    # Do not match bare "COMPLETED" — tool stdout uses that mid-run.
     done_re = re.compile(
-        r"✔|Executor finished|Task completed|COMPLETED|\[100%\].*of",
+        r"✔|Executor finished|Task completed\s*>\s*TaskHandler\[|\[\s*100%\s*\].*\bof\b",
         re.IGNORECASE,
     )
     while not stop_event.is_set():
@@ -351,6 +352,23 @@ def _pipeline_alive(pid):
 
 def _clear_run_state():
     process_status["running"] = False
+    process_status["pid"] = None
+
+
+def _drain_output_queue():
+    """Drop stale SSE lines before a new run."""
+    try:
+        while True:
+            output_queue.get_nowait()
+    except Exception:
+        pass
+
+
+def _begin_run():
+    """Mark running in the parent before the worker/stream starts."""
+    _drain_output_queue()
+    output_history[:] = []
+    process_status["running"] = True
     process_status["pid"] = None
     process_status["exit_code"] = None
 
@@ -458,7 +476,7 @@ def run_bact(
 
     process_status["running"] = True
     history_cap = 1500
-    output_history[:] = []
+    # History was cleared by _begin_run() in the parent before SSE connected.
     seen_lines = set()
     stop_event = threading.Event()
     log_thread = None
@@ -633,7 +651,13 @@ def run_bactflow():
             command = None
             nf_work = _nf_work_dir(out_dir)
 
-            command = f"""mkdir -p '{out_dir}' '{nf_work}'
+            command = f"""export TERM=dumb
+                    mkdir -p '{out_dir}' '{nf_work}' || exit 1
+                    if [ -z "${{NXF_HOME:-}}" ] || ! mkdir -p "$NXF_HOME" 2>/dev/null; then
+                      export NXF_HOME='{out_dir}/.nextflow'
+                      mkdir -p "$NXF_HOME" || exit 1
+                    fi
+                    export NXF_HOME="$(cd "$NXF_HOME" && pwd)"
                     export NXF_WORK='{nf_work}'
                     cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
@@ -668,8 +692,7 @@ def run_bactflow():
             if not ok:
                 return err + "\n", 409
                 
-            output_history[:] = []
-            process_status["running"] = True
+            _begin_run()
             back_process = Process(
                 target=run_bact,
                 args=(
@@ -684,7 +707,8 @@ def run_bactflow():
             )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
-        
+            process_status["pid"] = back_process.pid
+
             command = None
             return "Bactflow started successfully!\n", 200
             
@@ -695,11 +719,11 @@ def run_bactflow():
             ok, err = _lock_acquire("Post-assembly")
             if not ok:
                 return err + "\n", 409
-            output_history[:] = []
-            process_status["running"] = True
+            _begin_run()
             back_process = Process(target=run_bact, args=(command, process_status, output_queue, output_history, base_dir))
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
+            process_status["pid"] = back_process.pid
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -1035,7 +1059,8 @@ def stream_bactflow():
         except (TypeError, ValueError):
             exit_code = 1
         if exit_code == 0:
-            yield "data: Process completed\n\n"
+            # Stream terminator only — pipeline success is "BactFlow: Nextflow finished successfully."
+            yield "data: BactFlow: stream end\n\n"
         else:
             yield f"data: Process failed (exit {exit_code})\n\n"
  

@@ -300,8 +300,10 @@ def _tail_nextflow_log(work_root, output_queue, stop_event, seen_lines):
         r"(\[[0-9a-f/]+\]\s+(?:Submitted|Cached)\s+process\s+>\s+\S+(?:\s+\([^)]*\))?)",
         re.IGNORECASE,
     )
+    # Do not match bare "COMPLETED" — Flye/tool stdout uses that mid-run and
+    # the UI used to treat those lines as process seals.
     done_re = re.compile(
-        r"✔|Executor finished|Task completed|COMPLETED|\[100%\].*of",
+        r"✔|Executor finished|Task completed\s*>\s*TaskHandler\[|\[\s*100%\s*\].*\bof\b",
         re.IGNORECASE,
     )
     while not stop_event.is_set():
@@ -369,6 +371,28 @@ def _pipeline_alive(pid):
 
 def _clear_run_state():
     process_status["running"] = False
+    process_status["pid"] = None
+
+
+def _drain_output_queue():
+    """Drop stale SSE lines (e.g. prior-run 'finished successfully') before a new run."""
+    try:
+        while True:
+            output_queue.get_nowait()
+    except Exception:
+        pass
+
+
+def _begin_run():
+    """Mark running in the parent before the worker starts / before the client streams.
+
+    If running stays False until the child sets it, /stream_bactflow exits immediately
+    and yields a completion line — the UI then paints every stage green while Nextflow
+    is only just starting.
+    """
+    _drain_output_queue()
+    output_history[:] = []
+    process_status["running"] = True
     process_status["pid"] = None
 
 
@@ -444,9 +468,11 @@ def run_bact(
 ):
     """Function to run bactflow"""
 
+    # Parent may already have set running=True via _begin_run(); keep it sticky.
     process_status["running"] = True
     history_cap = 1500
-    output_history[:] = []
+    # Do not wipe history here — parent cleared it under _begin_run() before the
+    # client connected. Clearing again would race with the SSE history replay.
     seen_lines = set()
     stop_event = threading.Event()
     log_thread = None
@@ -713,7 +739,13 @@ def run_bactflow():
             if not extension or extension == "auto":
                 extension = ".fastq.gz"
 
-            command = f"""mkdir -p '{out_dir}' '{_nf_work_dir(out_dir)}'
+            command = f"""export TERM=dumb
+                    mkdir -p '{out_dir}' '{_nf_work_dir(out_dir)}' || exit 1
+                    if [ -z "${{NXF_HOME:-}}" ] || ! mkdir -p "$NXF_HOME" 2>/dev/null; then
+                      export NXF_HOME='{out_dir}/.nextflow'
+                      mkdir -p "$NXF_HOME" || exit 1
+                    fi
+                    export NXF_HOME="$(cd "$NXF_HOME" && pwd)"
                     export NXF_WORK='{_nf_work_dir(out_dir)}'
                     cd '{base_dir}' && \\
                     nextflow run {base_dir}/main.nf \\
@@ -766,9 +798,8 @@ def run_bactflow():
             ok, err = _lock_acquire("Assembly")
             if not ok:
                 return err + "\n", 409
-                
-            output_history[:] = []
-            
+
+            _begin_run()
             back_process = Process(
                 target=run_bact,
                 args=(
@@ -783,7 +814,8 @@ def run_bactflow():
             )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
-        
+            process_status["pid"] = back_process.pid
+
             command = None
             return "Bactflow started successfully!\n", 200
             
@@ -792,13 +824,14 @@ def run_bactflow():
             ok, err = _lock_acquire("Assembly")
             if not ok:
                 return err + "\n", 409
-            output_history[:] = []
+            _begin_run()
             back_process = Process(
                 target=run_bact,
                 args=(command, process_status, output_queue, output_history, base_dir, None, False),
             )
             _start_worker_process(back_process)
             _lock_worker(back_process.pid)
+            process_status["pid"] = back_process.pid
             
             command = None
             return "Bactflow started successfully!\n", 200
@@ -1132,8 +1165,9 @@ def stream_bactflow():
                     break
                 continue
 
-        yield "data: Process completed\n\n"
- 
+        # Stream terminator only — must NOT look like pipeline success to the UI.
+        # Success is signaled solely by "BactFlow: Nextflow finished successfully."
+        yield "data: BactFlow: stream end\n\n"
 
     return Response(generate(), content_type='text/event-stream')
 

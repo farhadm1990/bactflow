@@ -212,11 +212,21 @@ const BactflowProcessEta = {
   },
 
   isDoneMark(text) {
-    // Require an explicit completion signal. Bare "[100%]" is too noisy —
-    // Nextflow prints it on workflow lines and sometimes mid-task.
-    return /✔|√|\u2713|\u2714|\bCOMPLETED\b|Task completed|Process completed/i.test(
-      String(text || "")
-    );
+    const t = String(text || "");
+    if (/BactFlow:\s*(stream end|Nextflow finished|Nextflow exited)/i.test(t)) {
+      return false;
+    }
+    if (/✔|√|\u2713|\u2714/.test(t)) {
+      return true;
+    }
+    if (/Task completed\s*>\s*TaskHandler\[/i.test(t) && /status:\s*COMPLETED/i.test(t) && /exit:\s*0\b/i.test(t)) {
+      return true;
+    }
+    return false;
+  },
+
+  isPipelineSuccess(text) {
+    return /BactFlow:\s*Nextflow finished successfully/i.test(String(text || ""));
   },
 
   displayPercent(proc) {
@@ -307,24 +317,8 @@ const BactflowProcessEta = {
     );
   },
 
-  /* Only seal when exactly one process is live. With parallel side branches
-     (CheckM + geNomad + Bakta…), "oldest running" guesses the wrong task and
-     jumps a 20% bar straight to Done. */
-  sealOldestRunning(count, terminal) {
-    const n = Math.max(0, Number(count) || 0);
-    if (!n) {
-      return;
-    }
-    const running = this.runningProcs().sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-    if (running.length !== 1) {
-      return;
-    }
-    this.markDone(running[0]);
-    if (running[0].row && terminal) {
-      this.renderRow(running[0], "log-ok");
-    }
-    this.notifyProcessesDone();
-  },
+  /* Intentionally a no-op — workflow "a of b" must not guess which process finished. */
+  sealOldestRunning(_count, _terminal) {},
 
   scanLineForCompletion(line, terminal) {
     const t = line.trim();
@@ -332,7 +326,7 @@ const BactflowProcessEta = {
       return false;
     }
 
-    if (/BactFlow:\s*Nextflow finished successfully|Nextflow finished successfully/i.test(t)) {
+    if (this.isPipelineSuccess(t)) {
       this.finalizeAll(terminal, "completed");
       return true;
     }
@@ -357,18 +351,7 @@ const BactflowProcessEta = {
           this.notifyProcessesDone();
         }
       }
-      // ✔ with no hash/name: only safe if a single process is running.
-      if (!matched) {
-        const running = this.runningProcs();
-        if (running.length === 1) {
-          this.markDone(running[0]);
-          if (running[0].row && terminal) {
-            this.renderRow(running[0], "log-ok");
-          }
-          matched = true;
-          this.notifyProcessesDone();
-        }
-      }
+      // Never seal "the only runner" on a bare ✔ — that often belongs to another task.
     }
 
     if (/Bactflow is already installed|bactflow was successfully installed|environment_created/i.test(t)) {
@@ -502,12 +485,9 @@ const BactflowProcessEta = {
     this.workflow.percent = Number(m[1]);
     this.workflow.completed = Number(m[2]);
     this.workflow.total = Number(m[3]);
-    // Advance may mean one sequential task finished — never guess among parallels.
-    if (this.workflow.completed > prevCompleted) {
-      this.sealOldestRunning(this.workflow.completed - prevCompleted, terminal);
-    }
-    // Do NOT mark every process done on workflow [100%]. Parallel side jobs can
-    // still be running; wait for ✔ / hash / "Nextflow finished successfully".
+    // Do NOT seal processes from workflow counters — wait for ✔ / hash.
+    void prevCompleted;
+    void terminal;
     return true;
   },
 
@@ -651,14 +631,16 @@ const BactflowProcessEta = {
     // Nextflow's live (ANSI) view: "[ec/570f4f] testify | 1 of 1 ✔"; long names are shortened with "…".
     m = t.match(/^\[([0-9a-f]{2}\/[0-9a-f]+)\]\s+(.+?)\s+\|\s+(\d+)\s+of\s+(\d+)/i);
     if (m) {
+      const middle = m[2];
+      const truncated = /[\u2026…]|\.\.\./.test(middle);
       let name = this.hashToName.get(m[1]);
-      if (!name && !m[2].includes("\u2026")) {
-        name = this.parseNameAndTag(m[2].replace(/^process\s*>\s*/i, "")).name;
+      if (!name && !truncated) {
+        name = this.parseNameAndTag(middle.replace(/^process\s*>\s*/i, "")).name;
       }
-      if (!name) {
-        const prefix = m[2].split("\u2026")[0].trim().toLowerCase();
+      if (!name && !truncated) {
+        const prefix = middle.trim().toLowerCase();
         const hits = [...this.processes.values()].filter((p) =>
-          prefix && p.id !== "_executor" && (!p.workHash || p.workHash === m[1]) &&
+          prefix.length >= 4 && p.id !== "_executor" && (!p.workHash || p.workHash === m[1]) &&
           String(p.name).toLowerCase().startsWith(prefix)
         );
         if (hits.length === 1) {
@@ -666,6 +648,9 @@ const BactflowProcessEta = {
         }
       }
       if (!name) {
+        if (this.isDoneMark(t) && this.hashToProc.has(m[1])) {
+          return progress(m[1], this.hashToName.get(m[1]) || m[1], "", 100, Number(m[3]), Number(m[4]));
+        }
         return null;
       }
       const completed = Number(m[3]);
@@ -1467,7 +1452,7 @@ const BactflowTerminal = {
       return;
     }
 
-    if (trimmed === "Process completed" || /Nextflow finished successfully/i.test(trimmed)) {
+    if (BactflowProcessEta.isPipelineSuccess(trimmed)) {
       if (window.BactflowRunDashboard && window.BactflowRunDashboard.failed) {
         BactflowProcessEta.finalizeAll(this, "failed");
         if (typeof window.setTerminalVisible === "function") {
@@ -1485,12 +1470,13 @@ const BactflowTerminal = {
       } else if (typeof window.showReport === "function") {
         window.showReport();
       }
-      if (trimmed !== "Process completed") {
-        const row = document.createElement("div");
-        row.className = "log-line log-ok";
-        row.textContent = line;
-        this.logEl.appendChild(row);
-      }
+      const row = document.createElement("div");
+      row.className = "log-line log-ok";
+      row.textContent = line;
+      this.logEl.appendChild(row);
+      return;
+    }
+    if (/^Process completed$/i.test(trimmed) || /BactFlow:\s*stream end/i.test(trimmed)) {
       return;
     }
 

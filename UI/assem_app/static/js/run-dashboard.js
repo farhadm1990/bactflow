@@ -499,11 +499,9 @@
           this.setText("rd-nf-ver", m[1]);
         }
       }
-      if (
-        /BactFlow:\s*Nextflow finished successfully/i.test(line) ||
-        /^Process completed$/i.test(line) ||
-        /Nextflow finished successfully/i.test(line)
-      ) {
+      // Do not treat SSE "Process completed" / stream end as success — that raced
+      // ahead of Nextflow and painted every stage green while assembly still ran.
+      if (/BactFlow:\s*Nextflow finished successfully/i.test(line)) {
         this.markCompleted();
       }
       if (/Process failed|Nextflow exited with code\s+[1-9]/i.test(line)) {
@@ -721,12 +719,28 @@
       });
     },
 
-    /* If a later stage has started, earlier ones without a visible process were skipped or cached. */
+    /* A stage has truly begun only when a matching process is running or done.
+       Queued Nextflow rows (`[- ] process > circulator`) must NOT count — that
+       used to advance the frontier and paint Flye green while it was still
+       assembling. */
+    stageBegun(r) {
+      if (!r) {
+        return false;
+      }
+      if (r.state === "run" || r.state === "done") {
+        return true;
+      }
+      return (r.procs || []).some(
+        (p) => p && !p.aborted && (p.done || p.cached || p.phase === "running")
+      );
+    },
+
+    /* If a later stage has begun executing, earlier empty ones were skipped/cached. */
     fillSkipped(rows) {
       const eta = tracker();
       let lastStarted = -1;
       rows.forEach((r, i) => {
-        if (r.procs.length) {
+        if (!r.stage.side && this.stageBegun(r)) {
           lastStarted = i;
         }
       });
@@ -738,15 +752,29 @@
           r.skipped = true;
         }
       });
-      // Later main-chain stage started ⇒ earlier main stages are finished (even if ✔ was missed).
+      // Later main-chain stage is executing ⇒ earlier main stages finished
+      // (even if their ✔ line was missed). Never use merely-queued procs.
       let frontier = -1;
       rows.forEach((r, i) => {
-        if (!r.stage.side && r.procs.length) {
+        if (!r.stage.side && this.stageBegun(r)) {
           frontier = i;
         }
       });
       rows.forEach((r, i) => {
         if (frontier < 0 || i >= frontier || r.stage.side || r.state === "fail") {
+          return;
+        }
+        // Protect a live stage unless a later main-chain stage is already
+        // executing (DAG proves we moved on; ✔ was probably missed).
+        const stillLive = (r.procs || []).some(
+          (p) => p && !p.done && !p.aborted && p.phase === "running"
+        );
+        const laterRunning = rows.slice(i + 1).some(
+          (r2) =>
+            !r2.stage.side &&
+            (r2.procs || []).some((p) => p && !p.done && !p.aborted && p.phase === "running")
+        );
+        if (stillLive && !laterRunning) {
           return;
         }
         r.procs.forEach((p) => {
@@ -902,7 +930,9 @@
       } else {
         this.frozenRows = null;
         rows = this.applyGates(this.fillSkipped(this.resolveStages(planned, list)));
-        if ((this.nfFinished || state === "completed") && !this.failed && !this.stopping) {
+        // Only collapse remaining stages after a verified Nextflow success.
+        // Never do this from a generic "completed" guess while serverRunning.
+        if (this.nfFinished && !this.failed && !this.stopping && !this.serverRunning) {
           rows.forEach((r) => {
             if (r.state === "wait" || r.state === "run") {
               r.state = "done";
